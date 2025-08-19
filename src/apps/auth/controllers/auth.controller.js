@@ -53,7 +53,7 @@ export const Authenticate = async (req, res) => {
         avatar: photoURL || 'img/avatar.png',
         // Set a placeholder password for social logins to prevent local password authentication.
         // The value should be secure and identifiable.
-        password: `__SOCIAL_${authProvider.toUpperCase().replace(/\./g, '_')}__`,
+        //password: `__SOCIAL_${authProvider.toUpperCase().replace(/\./g, '_')}__`,
       };
 
       // Add email if it exists and is valid

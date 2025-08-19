@@ -8,7 +8,7 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 
 import AuthRouter from './src/apps/auth/index.js';
-//import UserRouter from './src/apps/user/index.js';
+import UserRouter from './src/apps/user/index.js';
 //import ContactRouter from './src/apps/contact/index.js';
 //import TransactionRouter from './src/apps/transaction/index.js';
 
@@ -32,7 +32,7 @@ app.use(cors({
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));
 app.use('/auth', AuthRouter);
-//app.use('/user', UserRouter);
+app.use('/user', UserRouter);
 //app.use('/contact', ContactRouter);
 //app.use('/transaction', TransactionRouter);
 

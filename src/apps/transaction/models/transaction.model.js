@@ -1,30 +1,29 @@
-// models/transaction.js
 import mongoose from 'mongoose';
 
-const transactionSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', // Corrected ref to 'Partner' (assuming this is your Partner model name)
-    required: true,
+const transactionSchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    amount: { type: Number, required: true },
+    type: {
+      type: String,
+      enum: ['deposit', 'withdrawal', 'ad_payment', 'payout'],
+      required: true
+    },
+    relatedCampaign: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' },
+    relatedPromotion: { type: mongoose.Schema.Types.ObjectId, ref: 'Promotion' },
+    status: {
+      type: String,
+      enum: ['pending', 'successful', 'failed'],
+      default: 'pending'
+    },
+    description: { type: String, trim: true },
+    createdAt: { type: Date, default: Date.now }
   },
-  amount: Number,
-  reference: String,
-  status: String,
-  paymentMethod: String,
-  purpose: String,
-  transactionType: String,
-  bankDetail: {
-    bankCode: { type: String }, // Removed required: false (default is false)
-    accountNumber: { type: String }, // Removed required: false
-    accountName: { type: String }, // Removed required: false
-    bankName: { type: String }, // Removed required: false
-  },
-  // Other transaction details...
-},
-{
-  timestamps: true
-});
+  { timestamps: true }
+);
 
 export const TransactionModel = mongoose.model('Transaction', transactionSchema);
-
-
