@@ -8,40 +8,50 @@ const campaignSchema = new mongoose.Schema(
       required: true,
     },
     title: { type: String, required: true },
-    description: { type: String, required: true },
 
     // WhatsApp status content
-    mediaUrl: { type: String }, // image / video to be posted
-    caption: { type: String },  // text caption
-    link: { type: String },     // optional CTA link
+    mediaUrl: { type: String }, // Media is required for a campaign
+    caption: { type: String },
+    link: { type: String }, // optional CTA link
 
     // Budgeting
-    budget: { type: Number, required: true }, // total campaign budget
-    payoutPerPromotion: { type: Number, required: true },
-    maxPromoters: { type: Number, required: true },
+    budget: { type: Number, required: true, min: 500 }, // Ensure budget is at least 500 NGN
+    payoutPerPromotion: { type: Number, required: true, min: 200 },
     currency: { type: String, default: "NGN" },
 
-    // Tracking
-    totalPromotions: { type: Number, default: 0 },       
-    validatedPromotions: { type: Number, default: 0 },   
-    paidPromotions: { type: Number, default: 0 },        
-    spentBudget: { type: Number, default: 0 },           
+    // Promotion & Tracking
+    maxPromoters: { type: Number, required: true, min: 1 }, // New field
+    minViewsPerPromotion: { type: Number, required: true, min: 25, default: 25 }, // New field from your description
+    totalPromotions: { type: Number, default: 0 },
+    validatedPromotions: { type: Number, default: 0 },
+    paidPromotions: { type: Number, default: 0 },
+    spentBudget: { type: Number, default: 0 },
 
     // Campaign timeline
-    startDate: { type: Date, default: Date.now },
+    startDate: { type: Date, required: true, default: Date.now },
     endDate: { type: Date },
 
     // Status
     status: {
       type: String,
-      enum: ["active", "paused", "completed", "exhausted", "expired"],
-      default: "active",
+      enum: ["active", "paused", "completed", "exhausted", "expired", "pending"],
+      default: "pending", // Set initial status to 'pending' for admin review
     },
+    
+    // A log for campaign actions (e.g., start, pause, review)
+    // This can be useful for auditing and dispute resolution
+    activityLog: [
+      {
+        action: { type: String, required: true },
+        timestamp: { type: Date, default: Date.now },
+        details: { type: String },
+      },
+    ],
   },
   { timestamps: true }
 );
 
-// Helper methods
+// Helper method to check if a promoter can be assigned
 campaignSchema.methods.canAssignPromoter = function () {
   return (
     this.status === "active" &&
@@ -50,15 +60,18 @@ campaignSchema.methods.canAssignPromoter = function () {
   );
 };
 
+// Helper method to update stats after a promotion is validated or paid
 campaignSchema.methods.updateStats = function (promotion) {
   if (promotion.status === "validated") {
     this.validatedPromotions += 1;
+    this.spentBudget += this.payoutPerPromotion; // Assume payout is spent upon validation
   }
-  if (promotion.status === "paid") {
-    this.paidPromotions += 1;
-    this.spentBudget += promotion.payoutAmount;
-  }
-
+  
+  // Logic to update paidPromotions can be handled when a transfer is confirmed
+  // if (promotion.status === "paid") {
+  //   this.paidPromotions += 1;
+  // }
+  
   if (
     this.validatedPromotions >= this.maxPromoters ||
     this.spentBudget >= this.budget

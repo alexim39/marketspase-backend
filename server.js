@@ -10,7 +10,7 @@ import path from 'path';
 import AuthRouter from './src/apps/auth/index.js';
 import UserRouter from './src/apps/user/index.js';
 import WalletRouter from './src/apps/wallet/index.js';
-//import ContactRouter from './src/apps/contact/index.js';
+import CampaignRouter from './src/apps/campaign/index.js';
 //import TransactionRouter from './src/apps/transaction/index.js';
 
 
@@ -30,12 +30,19 @@ app.use(cors({
     ]
 }));
 
+
+// Set up middleware
+// This is where you need to adjust the limit for incoming JSON payloads.
+app.use(express.json({ limit: '50mb' }));
+// Also, increase the limit for URL-encoded data to be safe.
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));
 app.use('/auth', AuthRouter);
 app.use('/user', UserRouter);
 app.use('/wallet', WalletRouter);
-//app.use('/contact', ContactRouter);
+app.use('/campaign', CampaignRouter);
 //app.use('/transaction', TransactionRouter);
 
 // Serve static files
