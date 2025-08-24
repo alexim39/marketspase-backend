@@ -11,6 +11,7 @@ import AuthRouter from './src/apps/auth/index.js';
 import UserRouter from './src/apps/user/index.js';
 import WalletRouter from './src/apps/wallet/index.js';
 import CampaignRouter from './src/apps/campaign/index.js';
+import SettingsRouter from './src/apps/settings/index.js';
 //import TransactionRouter from './src/apps/transaction/index.js';
 
 
@@ -43,6 +44,7 @@ app.use('/auth', AuthRouter);
 app.use('/user', UserRouter);
 app.use('/wallet', WalletRouter);
 app.use('/campaign', CampaignRouter);
+app.use('/settings', SettingsRouter);
 //app.use('/transaction', TransactionRouter);
 
 // Serve static files

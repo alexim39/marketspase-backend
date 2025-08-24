@@ -109,32 +109,36 @@ const userSchema = new mongoose.Schema(
       },
       phone: { type: String, trim: true },
       dob: { type: Date },
-      bio: { type: String, trim: true },
-      jobTitle: { type: String, trim: true },
-      educationBackground: { type: String }
+      biography: { type: String, trim: true },
     },
     professionalInfo: {
       skills: [{ type: String }],
-      experience: [{
-        jobTitle: String,
+      jobTitle: { type: String, trim: true },
+      experience: {
         company: String,
         startDate: Date,
         endDate: Date,
         description: String,
         current: Boolean
-      }],
-      education: [{
+      },
+      education: {
         institution: String,
-        degree: String,
+        certificate: String,
         fieldOfStudy: String,
         startDate: Date,
         endDate: Date,
         description: String
-      }]
+      }
     },
     interests: {
       hobbies: [{ type: String }],
       favoriteTopics: [{ type: String }]
+    },
+    preferences: {
+      notification: {
+        type: Boolean,
+        default: true,
+      },
     }
   },
   { timestamps: true }
