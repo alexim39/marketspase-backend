@@ -2,6 +2,9 @@ import express from 'express';
 import { 
     toggleNotification,
 } from '../controllers/settings.controller.js'
+import { 
+    createOrUpdateTestimonial, reactToTestimonial, getTestimonials, getUserTestimonial
+} from '../controllers/testimonial.controller.js'
 
 const SettingsRouter = express.Router();
 
@@ -12,5 +15,7 @@ SettingsRouter.post('/notification', toggleNotification);
 SettingsRouter.put('/testimonial', createOrUpdateTestimonial);
 SettingsRouter.post('/testimonial/reaction', reactToTestimonial);
 SettingsRouter.get('/testimonial', getTestimonials);
+SettingsRouter.get('/testimonial/:userId', getUserTestimonial);
+
 
 export default SettingsRouter;

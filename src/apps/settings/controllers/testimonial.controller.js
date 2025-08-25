@@ -1,8 +1,5 @@
-import { UserModel } from './../models/user.model.js';
+import { UserModel } from './../../user/models/user.model.js';
 import { TestimonialModel } from './../models/testimonial.model.js';
-import mongoose from 'mongoose';
-
-
 
 /**
  * Create or update user testimonial
@@ -288,20 +285,20 @@ export const getUserTestimonial = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    //console.log(userId)
+    console.log(userId)
 
     // Find testimonial for the specified user
     const testimonial = await TestimonialModel.findOne({ user: userId })
       .populate({
         path: 'user',
-        select: 'name lastname avatar personalInfo.address.state personalInfo.address.country',
-        transform: (doc) => ({
-          _id: doc._id,
-          name: `${doc.name} ${doc.lastname}`,
-          avatar: doc.avatar,
-          state: doc.personalInfo?.address?.state,
-          country: doc.personalInfo?.address?.country,
-        })
+        //select: 'name lastname avatar personalInfo.address.state personalInfo.address.country',
+        // transform: (doc) => ({
+        //   _id: doc._id,
+        //   name: `${doc.name} ${doc.lastname}`,
+        //   avatar: doc.avatar,
+        //   state: doc.personalInfo?.address?.state,
+        //   country: doc.personalInfo?.address?.country,
+        // })
       })
       .lean();
 
