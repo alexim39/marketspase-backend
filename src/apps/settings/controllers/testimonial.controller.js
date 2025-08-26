@@ -285,7 +285,7 @@ export const getUserTestimonial = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    console.log(userId)
+    //console.log(userId)
 
     // Find testimonial for the specified user
     const testimonial = await TestimonialModel.findOne({ user: userId })

@@ -4,21 +4,11 @@ import mongoose from 'mongoose';
 /* Schema*/
 const contactSchema = mongoose.Schema(
     {
-        name: {
-            type: String,
-            //unique: true,
-            required: [true, "Please enter name"]
-        },
-        surname: {
-            type: String,
-            //unique: true,
-            required: [true, "Please enter surname"]
-        },
-        email: {
-            type: String,
-            //unique: true,
-            required: [true, "Please enter email address"]
-        },
+        user: {
+             type: mongoose.Schema.Types.ObjectId,
+             ref: "User",
+             required: true,
+           },
         reason: {
             type: String,
             required: [true, "Please enter reason"]

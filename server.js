@@ -12,7 +12,7 @@ import UserRouter from './src/apps/user/index.js';
 import WalletRouter from './src/apps/wallet/index.js';
 import CampaignRouter from './src/apps/campaign/index.js';
 import SettingsRouter from './src/apps/settings/index.js';
-//import TransactionRouter from './src/apps/transaction/index.js';
+import ContactRouter from './src/apps/contact/index.js';
 
 
 const port = process.env.PORT || 8080;
@@ -45,7 +45,7 @@ app.use('/user', UserRouter);
 app.use('/wallet', WalletRouter);
 app.use('/campaign', CampaignRouter);
 app.use('/settings', SettingsRouter);
-//app.use('/transaction', TransactionRouter);
+app.use('/contact', ContactRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
