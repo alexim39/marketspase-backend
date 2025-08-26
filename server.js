@@ -13,6 +13,7 @@ import WalletRouter from './src/apps/wallet/index.js';
 import CampaignRouter from './src/apps/campaign/index.js';
 import SettingsRouter from './src/apps/settings/index.js';
 import ContactRouter from './src/apps/contact/index.js';
+import DashboardRouter from './src/apps/dashboard/index.js';
 
 
 const port = process.env.PORT || 8080;
@@ -46,6 +47,7 @@ app.use('/wallet', WalletRouter);
 app.use('/campaign', CampaignRouter);
 app.use('/settings', SettingsRouter);
 app.use('/contact', ContactRouter);
+app.use('/dashboard', DashboardRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));

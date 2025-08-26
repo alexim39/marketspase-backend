@@ -342,3 +342,72 @@ export const getUserTestimonial = async (req, res) => {
     });
   }
 };
+
+
+/**
+ * Controller to fetch a random sample of approved testimonials with user details.
+ */
+export const getRandomTestimonials = async (req, res) => {
+  try {
+    const count = parseInt(req.query.count, 10) || 10; // Default to 10 if count is not provided or invalid
+
+    // Use Mongoose Aggregation to find, join, and format the data in one query.
+    const randomTestimonials = await TestimonialModel.aggregate([
+      // 1. Match only testimonials with an 'approved' status.
+      { $match: { status: 'approved' } },
+
+      // 2. Randomly select the specified number of documents from the matched set.
+      { $sample: { size: count } },
+      
+      // 3. Join with the 'users' collection using the 'user' field.
+      {
+        $lookup: {
+          from: 'users', // Mongoose pluralizes the model name 'User' to 'users'
+          localField: 'user', // Field from the testimonial model
+          foreignField: '_id', // Field from the user model
+          as: 'userInfo' // The array to store the joined user data
+        }
+      },
+
+      // 4. Deconstruct the userInfo array created by $lookup.
+      // This is necessary because $lookup always returns an array, and we expect only one user.
+      { $unwind: '$userInfo' },
+
+      // 5. Reshape the output documents to the desired format.
+      {
+        $project: {
+          _id: 0, // Exclude the original testimonial ID
+          message: '$message', // Get the message from the testimonial document
+          avatar: { 
+            $ifNull: ['$userInfo.avatar', '/img/avatar.png'] // Get user's avatar or a default
+          },
+          name: '$userInfo.displayName', // Get user's display name
+          location: {
+            $concat: [
+              { $ifNull: ['$userInfo.personalInfo.address.city', ''] },
+              ', ',
+              { $ifNull: ['$userInfo.personalInfo.address.country', ''] }
+            ]
+          },
+        }
+      },
+    ]);
+
+    // Post-process to handle location formatting (e.g., remove leading comma if city is missing)
+    const formattedTestimonials = randomTestimonials.map(testimonial => {
+      let location = testimonial.location.replace(/^, |^,|^ , /g, '').trim();
+      return {
+        ...testimonial,
+        location: location
+      };
+    });
+
+    res.status(200).json({
+      data: formattedTestimonials,
+      success: true,
+    });
+  } catch (error) {
+    console.error('Error in getRandomTestimonials:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};

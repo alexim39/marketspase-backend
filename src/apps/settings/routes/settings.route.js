@@ -3,7 +3,7 @@ import {
     toggleNotification,
 } from '../controllers/settings.controller.js'
 import { 
-    createOrUpdateTestimonial, reactToTestimonial, getTestimonials, getUserTestimonial
+    createOrUpdateTestimonial, reactToTestimonial, getTestimonials, getUserTestimonial, getRandomTestimonials
 } from '../controllers/testimonial.controller.js'
 
 const SettingsRouter = express.Router();
@@ -15,6 +15,7 @@ SettingsRouter.post('/notification', toggleNotification);
 SettingsRouter.put('/testimonial', createOrUpdateTestimonial);
 SettingsRouter.post('/testimonial/reaction', reactToTestimonial);
 SettingsRouter.get('/testimonial', getTestimonials);
+SettingsRouter.get('/testimonial/dashboard', getRandomTestimonials);
 SettingsRouter.get('/testimonial/:userId', getUserTestimonial);
 
 

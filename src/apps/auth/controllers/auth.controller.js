@@ -3,6 +3,7 @@ import { sendEmail } from "../../../services/emailService.js";
 import { generateUniqueUsername } from '../services/username-generator.js'; 
 import { ownerEmailTemplate } from '../services/email/ownerTemplate.js'; 
 import { userWelcomeEmailTemplate } from '../services/email/userWelcomeTemplate.js';
+import { CampaignModel } from "../../campaign/models/campaign.model.js"; // Add this import
 
 
 
@@ -144,6 +145,9 @@ export const GetUser = async (req, res) => {
     // It's a best practice to never expose the password hash to the client.
     const userObject = user.toObject();
     delete userObject.password;
+
+    // Fetch campaigns where this user is the owner
+    userObject.campaigns = await CampaignModel.find({ owner: user._id });
 
     // 6. Send a successful response with the user data
     res.status(200).json({ 
