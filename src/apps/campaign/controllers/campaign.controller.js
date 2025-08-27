@@ -24,15 +24,19 @@ export const createCampaign = async (req, res) => {
       budget,
       startDate,
       endDate,
-      mediaUrl,
       currency,
     } = req.body;
-    
-    // Calculate payoutPerPromotion and maxPromoters on the backend for security
+
+    // Handle uploaded file
+    let mediaUrl = '';
+    if (req.file) {
+      // Build a public URL for the uploaded file
+      mediaUrl = `/uploads/campaigns/${req.file.filename}`;
+    }
+
     const payoutPerPromotion = 200; 
     const maxPromoters = Math.floor(budget / payoutPerPromotion);
 
-    // 1. Validate required fields
     if (!owner || !title || !budget) {
       await session.abortTransaction();
       session.endSession();
@@ -42,7 +46,6 @@ export const createCampaign = async (req, res) => {
       });
     }
 
-    // 2. Find the user and check their available balance within the transaction
     const user = await UserModel.findById(owner).session(session);
     if (!user) {
       await session.abortTransaction();
@@ -54,7 +57,6 @@ export const createCampaign = async (req, res) => {
     }
 
     const advertiserWallet = user.wallets.advertiser;
-    // Check if the user's available balance is sufficient
     if (advertiserWallet.balance < budget) {
       await session.abortTransaction();
       session.endSession();
@@ -64,7 +66,6 @@ export const createCampaign = async (req, res) => {
       });
     }
 
-    // 3. Create the campaign object with the new fields
     const newCampaign = new CampaignModel({
       owner,
       title,
@@ -82,37 +83,33 @@ export const createCampaign = async (req, res) => {
       activityLog: [{ action: 'Campaign Created', details: 'Initial campaign creation.' }],
     });
 
-    // 4. Update the user's wallet for escrow (deduct from balance, add to reserved)
-    advertiserWallet.balance -= budget;
-    advertiserWallet.reserved += budget;
-    
-    // 5. Create a transaction record with the correct category and status
+    // advertiserWallet.balance -= budget;
+    // advertiserWallet.reserved += budget;
+    advertiserWallet.balance = Number(advertiserWallet.balance) - Number(budget);
+    advertiserWallet.reserved = Number(advertiserWallet.reserved) + Number(budget);
     advertiserWallet.transactions.push({
       amount: budget,
       type: "debit",
       category: "campaign",
       description: `Funds reserved for campaign: "${title}"`,
       relatedCampaign: newCampaign._id,
-      status: "pending", // Set as pending until campaign is completed or canceled
+      status: "pending",
     });
 
-    // 6. Save both documents within the transaction
     await newCampaign.save({ session });
     await user.save({ session });
 
-    // 7. Commit the transaction
     await session.commitTransaction();
     session.endSession();
 
-    // 8. Return a success response
-    res.status(201).json({
+    res.status(200).json({
       message: "Campaign created successfully. Funds have been reserved and it is now awaiting review.",
       success: true,
       campaignId: newCampaign._id,
+      mediaUrl: mediaUrl ? `${req.protocol}://${req.get('host')}${mediaUrl}` : null,
     });
 
   } catch (error) {
-    // If any error occurs, abort the transaction
     await session.abortTransaction();
     session.endSession();
     console.error("Error creating campaign:", error.message);
