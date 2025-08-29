@@ -13,6 +13,8 @@ const campaignSchema = new mongoose.Schema(
     mediaUrl: { type: String }, // Media is required for a campaign
     caption: { type: String },
     link: { type: String }, // optional CTA link
+    category: { type: String },
+    mediaType: { type: String },
 
     // Budgeting
     budget: { type: Number, required: true, min: 500 }, // Ensure budget is at least 500 NGN
