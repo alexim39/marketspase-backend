@@ -1,4 +1,5 @@
 import { CampaignModel } from "../models/campaign.model.js";
+import { PromotionModel } from "../models/promotion.model.js";
 import { UserModel } from "../../user/models/user.model.js";
 import mongoose from "mongoose";
 
@@ -377,5 +378,89 @@ export const getCampaignsByStatus = async (req, res) => {
       message: "Failed to fetch campaigns.",
       error: error.message,
     });
+  }
+};
+
+
+// In your backend campaign controller
+export const applyForCampaign = async (req, res) => {
+  try {
+    const { campaignId } = req.params;
+    const { userId } = req.body;
+
+    // Find campaign
+    const campaign = await CampaignModel.findById(campaignId);
+    if (!campaign) {
+      return res.status(404).json({ message: 'Campaign not found' });
+    }
+
+    // Check if campaign is active
+    if (campaign.status !== 'active') {
+      return res.status(400).json({ message: 'Campaign is not active' });
+    }
+
+    // Check if user has already applied
+    const existingPromotion = await PromotionModel.findOne({
+      campaign: campaignId,
+      promoter: userId
+    });
+
+    if (existingPromotion) {
+      return res.status(400).json({ message: 'You have already applied for this campaign' });
+    }
+
+    // Check if campaign can accept more promoters
+    if (!campaign.canAssignPromoter()) {
+      return res.status(400).json({ message: 'Campaign is full or budget exhausted' });
+    }
+
+    // Start transaction
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // Create promotion record
+      const promotion = new PromotionModel({
+        campaign: campaignId,
+        promoter: userId,
+        status: 'pending',
+        payoutAmount: campaign.payoutPerPromotion
+      });
+
+      await promotion.save({ session });
+
+      // Update campaign stats
+      campaign.totalPromotions += 1;
+      campaign.currentPromoters += 1;
+      campaign.spentBudget += campaign.payoutPerPromotion;
+
+      // Check if campaign should be marked as exhausted
+      if (campaign.totalPromotions >= campaign.maxPromoters || 
+          campaign.spentBudget >= campaign.budget) {
+        campaign.status = 'exhausted';
+      }
+
+      await campaign.save({ session });
+
+      // Commit transaction
+      await session.commitTransaction();
+      session.endSession();
+
+      res.json({ 
+        success: true,
+        message: 'Successfully applied for campaign',
+        promotion: promotion 
+      });
+
+    } catch (error) {
+      // Rollback transaction on error
+      await session.abortTransaction();
+      session.endSession();
+      throw error;
+    }
+
+  } catch (error) {
+    console.error('Error applying for campaign:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 };

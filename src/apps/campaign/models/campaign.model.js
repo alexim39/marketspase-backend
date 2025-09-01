@@ -22,7 +22,8 @@ const campaignSchema = new mongoose.Schema(
     currency: { type: String, default: "NGN" },
 
     // Promotion & Tracking
-    maxPromoters: { type: Number, required: true, min: 1 }, // New field
+    maxPromoters: { type: Number, required: true, min: 1 }, 
+    currentPromoters: { type: Number, required: true, min: 0, default: 0 }, // Track current number of promoters
     minViewsPerPromotion: { type: Number, required: true, min: 25, default: 25 }, // New field from your description
     totalPromotions: { type: Number, default: 0 },
     validatedPromotions: { type: Number, default: 0 },
@@ -81,5 +82,48 @@ campaignSchema.methods.updateStats = function (promotion) {
     this.status = "exhausted";
   }
 };
+
+
+
+
+
+
+
+
+
+// Add these methods to your campaign schema
+// Check if campaign can accept more promoters
+campaignSchema.methods.canAssignPromoter = function () {
+  return (
+    this.status === "active" &&
+    this.totalPromotions < this.maxPromoters && (this.spentBudget + this.payoutPerPromotion) <= this.budget
+  );
+};
+
+// Method to assign a promoter
+campaignSchema.methods.assignPromoter = function () {
+  if (!this.canAssignPromoter()) {
+    throw new Error('Cannot assign promoter - campaign is full or budget exhausted');
+  }
+
+  this.totalPromotions += 1;
+  this.currentPromoters += 1;
+  this.spentBudget += this.payoutPerPromotion;
+
+  // Update status if needed
+  if (this.totalPromotions >= this.maxPromoters || this.spentBudget >= this.budget) {
+    this.status = "exhausted";
+  }
+
+  // Add to activity log
+  this.activityLog.push({
+    action: "Promoter Assigned",
+    details: `New promoter assigned. Total promoters: ${this.totalPromotions}`,
+    timestamp: new Date()
+  });
+
+  return this;
+};
+
 
 export const CampaignModel = mongoose.model("Campaign", campaignSchema);

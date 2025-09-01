@@ -2,7 +2,8 @@ import express from 'express';
 import { 
     createCampaign, 
     getAllUserCampaigns,
-    getCampaignsByStatus
+    getCampaignsByStatus,
+    applyForCampaign
 } from '../controllers/campaign.controller.js'
 import { campaignUpload } from '../services/upload.js';
 
@@ -16,5 +17,7 @@ CampaignRouter.get('/:userId', getAllUserCampaigns);
 
 // get campaigns by status (e.g., /campaign?status=active)
 CampaignRouter.get('/', getCampaignsByStatus);
+
+CampaignRouter.post('/:campaignId/apply', applyForCampaign);
 
 export default CampaignRouter;
