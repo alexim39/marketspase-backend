@@ -3,8 +3,6 @@ import mongoose from 'mongoose';
 import dotenv  from "dotenv"
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-
-
 import path from 'path';
 
 import AuthRouter from './src/apps/auth/index.js';

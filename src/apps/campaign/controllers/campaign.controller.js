@@ -308,9 +308,17 @@ export const getAllUserCampaigns = async (req, res) => {
 
     // Find all campaigns where the 'owner' field matches the provided userId.
     // We sort the results by creation date in descending order to show the newest campaigns first.
-    const campaigns = await CampaignModel.find({ owner: userId }).sort({
-      createdAt: -1,
-    });
+    // const campaigns = await CampaignModel.find({ owner: userId }).sort({
+    //   createdAt: -1,
+    // });
+
+     // Populate promotions for each campaign
+    const campaigns = await CampaignModel.find({ owner: userId })
+      .sort({ createdAt: -1 })
+      .populate({
+        path: 'promotions', // This should match your virtual field name in the Campaign model
+        model: 'Promotion'
+      });
 
     // Check if any campaigns were found.
     if (!campaigns || campaigns.length === 0) {
@@ -380,7 +388,6 @@ export const getCampaignsByStatus = async (req, res) => {
     });
   }
 };
-
 
 // In your backend campaign controller
 export const applyForCampaign = async (req, res) => {

@@ -126,4 +126,12 @@ campaignSchema.methods.assignPromoter = function () {
 };
 
 
+campaignSchema.virtual('promotions', {
+  ref: 'Promotion',
+  localField: '_id',
+  foreignField: 'campaign'
+});
+campaignSchema.set('toObject', { virtuals: true });
+campaignSchema.set('toJSON', { virtuals: true });
+
 export const CampaignModel = mongoose.model("Campaign", campaignSchema);
