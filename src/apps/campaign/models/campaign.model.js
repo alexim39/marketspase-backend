@@ -37,7 +37,7 @@ const campaignSchema = new mongoose.Schema(
     // Status
     status: {
       type: String,
-      enum: ["active", "paused", "completed", "exhausted", "expired", "pending"],
+      enum: ["active", "paused", "rejected", "completed", "exhausted", "expired", "pending"],
       default: "pending", // Set initial status to 'pending' for admin review
     },
     
@@ -82,14 +82,6 @@ campaignSchema.methods.updateStats = function (promotion) {
     this.status = "exhausted";
   }
 };
-
-
-
-
-
-
-
-
 
 // Add these methods to your campaign schema
 // Check if campaign can accept more promoters

@@ -1,9 +1,12 @@
 import express from 'express';
 import { 
     createCampaign, 
-    getAllUserCampaigns,
+    getAUserCampaigns,
     getCampaignsByStatus,
     applyForCampaign,
+    getAllCampaigns,
+    getCampaignById,
+    updateCampaignStatus
 } from '../controllers/campaign.controller.js'
 import { campaignUpload } from '../services/upload.js';
 import {   getUserPromotions, submitProof, getProofDetails } from '../controllers/promotion.controller.js'
@@ -26,24 +29,41 @@ const upload = multer({
 
 const CampaignRouter = express.Router();
 
-// create campaign payment
-CampaignRouter.post('/create', campaignUpload.single('media'), createCampaign);
-
-// get all campaigns for an advertiser
-CampaignRouter.get('/:userId', getAllUserCampaigns);
 
 // get campaigns by status (e.g., /campaign?status=active)
 CampaignRouter.get('/', getCampaignsByStatus);
 
-// apply for a campaign
-CampaignRouter.post('/:campaignId/apply', applyForCampaign);
-
-CampaignRouter.get('/promotions/user/:userId', getUserPromotions);
+// create campaign payment
+CampaignRouter.post('/create', campaignUpload.single('media'), createCampaign);
 
 // POST /api/promotions/submit-proof
 CampaignRouter.post('/promotions/submit-proof', upload.array('proofImages', 3), submitProof);
 
+// admin - get all campaigns
+CampaignRouter.get('/campaigns', getAllCampaigns);
+
+
+
+
+/* Dynamic Routes */
+
+// get all campaigns for an advertiser
+CampaignRouter.get('/user/:userId', getAUserCampaigns);
+
+// get a campaign by id
+CampaignRouter.get('/:id', getCampaignById);
+
+//
+CampaignRouter.get('/promotions/user/:userId', getUserPromotions);
+
+// apply for a campaign
+CampaignRouter.post('/:campaignId/apply', applyForCampaign);
+
+// Admin - update campaign status: approve, reject, pause,
+CampaignRouter.patch('/:id/status', updateCampaignStatus);
+
 // GET /api/promotions/proof/:promotionId
 CampaignRouter.get('/promotions/proof/:promotionId', getProofDetails);
+
 
 export default CampaignRouter;

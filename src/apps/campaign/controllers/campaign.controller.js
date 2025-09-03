@@ -290,7 +290,7 @@ export const createCampaign = async (req, res) => {
  * @param {object} res - The response object from Express.js.
  * @returns {Promise<void>}
  */
-export const getAllUserCampaigns = async (req, res) => {
+export const getAUserCampaigns = async (req, res) => {
   // We don't need a transaction for a read operation, as no data will be modified.
   try {
     // The user's ID is typically attached to the request object by an authentication middleware.
@@ -389,6 +389,7 @@ export const getCampaignsByStatus = async (req, res) => {
   }
 };
 
+
 // In your backend campaign controller
 export const applyForCampaign = async (req, res) => {
   try {
@@ -469,5 +470,187 @@ export const applyForCampaign = async (req, res) => {
   } catch (error) {
     console.error('Error applying for campaign:', error);
     res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+
+/**
+ * Controller to get all campaigns.
+ * It populates the 'owner' field to include user data and also
+ * populates the 'promotions' virtual to include promotion data for each campaign.
+ * It returns the campaigns sorted by creation date in descending order (newest first).
+ */
+export const getAllCampaigns = async (req, res) => {
+  try {
+    // 1. Find all campaigns
+    const campaigns = await CampaignModel.find({})
+      // 2. Sort the results. The '-createdAt' sorts by the 'createdAt' field in descending order.
+      .sort("-createdAt") 
+      // 3. Populate the 'owner' field with user details
+      .populate({
+        path: "owner",
+        select: "displayName username email avatar uid", // Specify which fields to include
+      })
+      // 4. Populate the 'promotions' virtual field
+      .populate({
+        path: "promotions",
+        select: "promoter views screenshotUrl status", // Specify which fields to include from promotions
+      })
+      .exec();
+
+    // 5. Send a success response with the fetched campaigns
+    res.status(200).json({
+      success: true,
+      message: "Campaigns fetched successfully.",
+      data: campaigns,
+    });
+  } catch (error) {
+    // 6. Handle any errors that occur during the database query
+    console.error("Error fetching campaigns:", error);
+    res.status(500).json({
+      success: false,
+      message: "An error occurred while fetching campaigns.",
+    });
+  }
+};
+
+
+/**
+ * Controller to get a single campaign by its ID.
+ * It populates the 'owner' field with all user data (excluding the password)
+ * and the 'promotions' virtual with all promotion data.
+ */
+export const getCampaignById = async (req, res) => {
+  try {
+    // 1. Extract the campaign ID from the request parameters
+    const { id } = req.params;
+
+    // 2. Validate that the ID is provided
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Campaign ID is required.",
+      });
+    }
+
+    // 3. Find the campaign by its ID
+    const campaign = await CampaignModel.findById(id)
+      // 4. Populate the 'owner' field with all user details, excluding the password.
+      // An empty select string or a select string with just '-password' populates all other fields.
+      .populate({
+        path: "owner",
+        select: "-password",
+      })
+      // 5. Populate the 'promotions' virtual field with all promotion details.
+      // Leaving the select option blank or omitting it altogether populates all fields.
+      .populate({
+        path: "promotions",
+      })
+      .exec();
+
+    // 6. Handle the case where the campaign is not found
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign not found.",
+      });
+    }
+
+    // 7. Send a success response with the campaign data
+    res.status(200).json({
+      success: true,
+      message: "Campaign fetched successfully.",
+      data: campaign,
+    });
+  } catch (error) {
+    // 8. Handle errors, such as an invalid ID format
+    console.error("Error fetching campaign by ID:", error);
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid campaign ID format.",
+      });
+    }
+    // 9. Handle other generic server errors
+    res.status(500).json({
+      success: false,
+      message: "An error occurred while fetching the campaign.",
+    });
+  }
+};
+
+/**
+ * Controller to change the status of a campaign.
+ * This function allows an admin or campaign owner to update the campaign's status.
+ */
+export const updateCampaignStatus = async (req, res) => {
+  try {
+    // 1. Extract the campaign ID from the request parameters
+    const { id } = req.params;
+    // 2. Extract the new status from the request body
+    const { status } = req.body;
+
+    // 3. Validate that both ID and status are provided
+    if (!id || !status) {
+      return res.status(400).json({
+        success: false,
+        message: "Campaign ID and new status are required.",
+      });
+    }
+
+    // 4. Validate that the new status is a valid enum value
+    const validStatuses = ["active", "paused", "rejected", "completed", "exhausted", "expired", "pending"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status provided.",
+      });
+    }
+
+    // 5. Find the campaign by ID and update its status
+    const campaign = await CampaignModel.findById(id);
+
+    // 6. Handle the case where the campaign is not found
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign not found.",
+      });
+    }
+
+    // 7. Update the status and add a log entry
+    campaign.status = status;
+    campaign.activityLog.push({
+      action: `Status changed to ${status}`,
+      details: `Campaign status manually updated to '${status}'.`,
+    });
+
+    // 8. Save the updated campaign document
+    await campaign.save();
+
+    // 9. Send a success response
+    res.status(200).json({
+      success: true,
+      message: `Campaign status updated to '${status}' successfully.`,
+      data: {
+        _id: campaign._id,
+        title: campaign.title,
+        status: campaign.status,
+      },
+    });
+  } catch (error) {
+    // 10. Handle errors, such as invalid ID format
+    console.error("Error updating campaign status:", error);
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid campaign ID format.",
+      });
+    }
+    // 11. Handle other generic server errors
+    res.status(500).json({
+      success: false,
+      message: "An error occurred while updating the campaign status.",
+    });
   }
 };
