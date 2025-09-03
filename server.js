@@ -12,6 +12,7 @@ import CampaignRouter from './src/apps/campaign/index.js';
 import SettingsRouter from './src/apps/settings/index.js';
 import ContactRouter from './src/apps/contact/index.js';
 import DashboardRouter from './src/apps/dashboard/index.js';
+import AdminAuthRouter from './src/apps/admin/auth/index.js';
 
 
 const port = process.env.PORT || 8080;
@@ -24,6 +25,8 @@ app.use(cors({
     credentials: true,
     origin: [
         'http://localhost:4200', 
+        'http://localhost:4201', 
+        'http://localhost:4202', 
         'https://marketspase.com', 
         'http://marketspase.com',
         'www.marketspase.com',
@@ -46,6 +49,7 @@ app.use('/campaign', CampaignRouter);
 app.use('/settings', SettingsRouter);
 app.use('/contact', ContactRouter);
 app.use('/dashboard', DashboardRouter);
+app.use('/admin', AdminAuthRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));

@@ -264,3 +264,136 @@ export const UpdateUsername = async (req, res) => {
     });
   }
 };
+
+// Controller to get all users
+export const getAppUsers = async (req, res) => {
+  try {
+    // Find all users in the database
+    // The .select('-password') is crucial for security, it excludes the password field from the result.
+    const users = await UserModel.find({}).select('-password').exec();
+
+    // Send a success response with the users data
+    res.status(200).json({
+      success: true,
+      message: 'Users fetched successfully',
+      data: users
+    });
+  } catch (error) {
+    // Handle any errors that occur during the database query
+    console.error('Error fetching users:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while fetching users.'
+    });
+  }
+};
+
+// Controller to get a single user by ID
+export const getAppUserById = async (req, res) => {
+  try {
+    // Extract the user ID from the request parameters
+    const { id } = req.params;
+
+    // Check if the ID is provided
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required.'
+      });
+    }
+
+    // Find a single user by their ID
+    // .findById() is a convenient Mongoose method for this
+    // We still use .select('-password') for security
+    const user = await UserModel.findById(id).select('-password').exec();
+
+    // If no user is found with the given ID, return a 404 Not Found error
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found.'
+      });
+    }
+
+    // Send a success response with the single user's data
+    res.status(200).json({
+      success: true,
+      message: 'User fetched successfully',
+      data: user
+    });
+  } catch (error) {
+    // Handle errors, such as invalid ID format (e.g., non-valid ObjectId)
+    console.error('Error fetching user by ID:', error);
+    // Mongoose CastError for invalid IDs
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format.'
+      });
+    }
+    // Generic server error
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while fetching the user.'
+    });
+  }
+};
+
+
+// Controller to toggle the 'isActive' property of a user
+export const toggleUserActiveStatus = async (req, res) => {
+  try {
+    // Extract the user ID from the request parameters
+    const { id } = req.params;
+
+    // Check if the ID is provided
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required.'
+      });
+    }
+
+    // Find the user by ID
+    const user = await UserModel.findById(id);
+
+    // If no user is found, return a 404 Not Found error
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found.'
+      });
+    }
+
+    // Toggle the isActive status
+    user.isActive = !user.isActive;
+
+    // Save the updated user document
+    await user.save();
+
+    // Send a success response with the updated user data
+    res.status(200).json({
+      success: true,
+      message: `User's active status has been toggled to ${user.isActive}.`,
+      data: {
+        _id: user._id,
+        displayName: user.displayName,
+        isActive: user.isActive,
+      }
+    });
+  } catch (error) {
+    // Handle errors, such as invalid ID format
+    console.error('Error toggling user active status:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format.'
+      });
+    }
+    // Generic server error
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while updating the user status.'
+    });
+  }
+};

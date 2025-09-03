@@ -1,10 +1,19 @@
 import express from 'express';
 import {  
-    SwitchUser, UpdateProfile, UpdateProfessionalInfo, UpdateUsername
+    SwitchUser, 
+    UpdateProfile, 
+    UpdateProfessionalInfo, 
+    UpdateUsername, 
+    getAppUsers,
+    getAppUserById,
+    toggleUserActiveStatus
 } from '../controllers/user.controller.js'
-//import {createOrUpdateTestimonial, getTestimonials, reactToTestimonial, getUserTestimonial} from '../controllers/testimonial.controller.js'
 
 const UserRouter = express.Router();
+
+// admin - get all users
+UserRouter.get('/users', getAppUsers);
+
 
 /**
  * Submits the user data to the controller.
@@ -33,6 +42,20 @@ UserRouter.put('/profile/profession', UpdateProfessionalInfo);
  * /api/users/profile/profession:
  */
 UserRouter.put('/profile/username', UpdateUsername);
+
+
+/* Dynamic Routes */
+
+
+// admin - get a user
+UserRouter.get('/:id', getAppUserById);
+
+/**
+ * Submits the user status data to the controller.
+ * Method: patch
+ * /api/users/${id}/status:
+ */
+UserRouter.patch('/:id/status', toggleUserActiveStatus);
 
 
 export default UserRouter;

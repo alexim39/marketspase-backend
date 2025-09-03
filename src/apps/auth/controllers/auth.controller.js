@@ -116,15 +116,14 @@ export const Authenticate = async (req, res) => {
   }
 };
 
-
 /**
  * Controller to get a user's record by their UID.
- * This function handles the incoming HTTP request and returns the user data.
+ * This function handles the incoming HTTP request and returns the user data,
+ * but only if their account is active.
  */
 export const GetUser = async (req, res) => {
   try {
     // 1. Extract the UID from the URL parameters
-    // The client-side code `auth/${uid}` means `uid` will be available in `req.params`.
     const { uid } = req.params;
 
     // 2. Validate the incoming UID
@@ -140,16 +139,22 @@ export const GetUser = async (req, res) => {
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
+    
+    // 5. Check if the user's account is active
+    if (user.isActive === false) {
+      return res.status(403).json({ success: false, message: "This user account is currently inactive or suspended." });
+    }
 
-    // 5. Secure the response by removing sensitive data
+    // 6. Secure the response by removing sensitive data
     // It's a best practice to never expose the password hash to the client.
     const userObject = user.toObject();
     delete userObject.password;
 
     // Fetch campaigns where this user is the owner
+    // Make sure to await this operation
     userObject.campaigns = await CampaignModel.find({ owner: user._id });
 
-    // 6. Send a successful response with the user data
+    // 7. Send a successful response with the user data
     res.status(200).json({ 
       success: true, 
       data: userObject,
@@ -157,8 +162,8 @@ export const GetUser = async (req, res) => {
     });
 
   } catch (error) {
-    // 7. Handle any server-side errors
-    console.error("Error in getUser controller:", error);
+    // 8. Handle any server-side errors
+    console.error("Error in GetUser controller:", error);
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
