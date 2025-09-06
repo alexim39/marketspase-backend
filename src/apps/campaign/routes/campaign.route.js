@@ -3,7 +3,7 @@ import {
     createCampaign, 
     getAUserCampaigns,
     getCampaignsByStatus,
-    applyForCampaign,
+    acceptCampaign,
     getAllCampaigns,
     getCampaignById,
     updateCampaignStatus
@@ -57,7 +57,7 @@ CampaignRouter.get('/:id', getCampaignById);
 CampaignRouter.get('/promotions/user/:userId', getUserPromotions);
 
 // apply for a campaign
-CampaignRouter.post('/:campaignId/apply', applyForCampaign);
+CampaignRouter.post('/:campaignId/accept', acceptCampaign);
 
 // Admin - update campaign status: approve, reject, pause,
 CampaignRouter.patch('/:id/status', updateCampaignStatus);

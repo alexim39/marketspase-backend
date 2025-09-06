@@ -390,8 +390,8 @@ export const getCampaignsByStatus = async (req, res) => {
 };
 
 
-// In your backend campaign controller
-export const applyForCampaign = async (req, res) => {
+// Promoter acceptance of campaign into campaign list
+export const acceptCampaign = async (req, res) => {
   try {
     const { campaignId } = req.params;
     const { userId } = req.body;
@@ -414,7 +414,7 @@ export const applyForCampaign = async (req, res) => {
     });
 
     if (existingPromotion) {
-      return res.status(400).json({ message: 'You have already applied for this campaign' });
+      return res.status(400).json({ message: 'You have already accepted this campaign' });
     }
 
     // Check if campaign can accept more promoters
@@ -456,7 +456,7 @@ export const applyForCampaign = async (req, res) => {
 
       res.json({ 
         success: true,
-        message: 'Successfully applied for campaign',
+        message: 'You have successfully accepted this campaign. Check your promotion page to submit initial proof.',
         promotion: promotion 
       });
 
