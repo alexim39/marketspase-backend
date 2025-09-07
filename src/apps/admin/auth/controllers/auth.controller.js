@@ -41,7 +41,7 @@ export const createAdmin = async (req, res) => {
         res.status(201).json({ 
             success: true, 
             message: "Admin user created successfully",
-            admin: adminObject 
+            data: adminObject 
         });
 
     } catch (error) {

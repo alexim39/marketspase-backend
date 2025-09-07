@@ -1,83 +1,94 @@
 import { CampaignModel } from "../models/campaign.model.js";
 import { PromotionModel } from "../models/promotion.model.js";
 import { UserModel } from "../../user/models/user.model.js";
-import mongoose from "mongoose";
 import path from 'path';
 import fs from 'fs';
 import { validateProofSubmission } from "../services/validator.js";
 
-// Get all promotions for a specific user (promoter)
+/**
+ * @description Fetches all promotion records for a specific promoter,
+ * populating all related campaign and user details.
+ * @param {object} req - The request object.
+ * @param {object} res - The response object.
+ * @returns {Promise<void>}
+ */
 export const getUserPromotions = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // Validate user exists and is a promoter
+    // Validate that the userId is provided
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required.'
+      });
+    }
+
+    // Find the user and check their role
     const user = await UserModel.findById(userId);
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: 'User not found.'
       });
     }
 
     if (user.role !== 'promoter') {
       return res.status(400).json({
         success: false,
-        message: 'Your current user role is not promoter, switch to promoter to continue'
+        message: 'Your current user role is not promoter. Please switch roles to continue.'
       });
     }
 
-    // Get promotions with populated campaign details
+    // Find promotions and fully populate all related data.
+    // We populate the 'campaign' and 'promoter' fields.
+    // The `select` option is removed to include all fields by default,
+    // which aligns with the request for "all population of other objects".
     const promotions = await PromotionModel
       .find({ promoter: userId })
       .populate({
         path: 'campaign',
-        select: 'title mediaUrl caption link category mediaType payoutPerPromotion minViewsPerPromotion startDate endDate status'
+        // Select all fields from the Campaign model
+        select: '' 
       })
-      .sort({ createdAt: -1 }) // Most recent first
-      .lean();
+      .populate({
+        path: 'promoter',
+        // Select all fields from the User model, but explicitly exclude the password
+        select: '-password'
+      })
+      .sort({ createdAt: -1 }) // Sort from newest to oldest
+      .lean(); // Use .lean() for faster query execution since we don't need Mongoose documents
 
-    // Transform the data to match the frontend interface
-    const transformedPromotions = promotions.map(promotion => ({
-      _id: promotion._id.toString(),
-      status: promotion.status,
-      payoutAmount: promotion.payoutAmount || promotion.campaign?.payoutPerPromotion,
-      submittedAt: promotion.submittedAt,
-      validatedAt: promotion.validatedAt,
-      paidAt: promotion.paidAt,
-      proofMedia: promotion.proofMedia,
-      proofViews: promotion.proofViews,
-      campaign: {
-        _id: promotion.campaign._id.toString(),
-        title: promotion.campaign.title,
-        mediaUrl: promotion.campaign.mediaUrl,
-        caption: promotion.campaign.caption,
-        link: promotion.campaign.link,
-        category: promotion.campaign.category,
-        mediaType: promotion.campaign.mediaType,
-        payoutPerPromotion: promotion.campaign.payoutPerPromotion,
-        minViewsPerPromotion: promotion.campaign.minViewsPerPromotion,
-        startDate: promotion.campaign.startDate,
-        endDate: promotion.campaign.endDate,
-        status: promotion.campaign.status
-      }
-    }));
+    if (!promotions || promotions.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No promotions found for this user.'
+      });
+    }
 
+    // The data is already correctly structured, so we can return it directly.
     res.status(200).json({
       success: true,
-      data: transformedPromotions,
-      message: 'Promotions retrieved successfully'
+      data: promotions,
+      message: 'Promotions retrieved successfully.'
     });
 
   } catch (error) {
     console.error('Error fetching user promotions:', error);
+    // Handle potential Mongoose CastErrors for invalid IDs
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format.'
+      });
+    }
+    // Return a generic error for other issues
     res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: 'An internal server error occurred while fetching promotions.'
     });
   }
 };
-
 
 export const submitProof = async (req, res) => {
   try {
