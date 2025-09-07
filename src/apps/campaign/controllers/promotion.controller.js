@@ -4,6 +4,7 @@ import { UserModel } from "../../user/models/user.model.js";
 import path from 'path';
 import fs from 'fs';
 import { validateProofSubmission } from "../services/validator.js";
+import mongoose from "mongoose";
 
 /**
  * @description Fetches all promotion records for a specific promoter,
@@ -211,7 +212,6 @@ export const submitProof = async (req, res) => {
   }
 };
 
-
 // Optional: Get proof submission details
 export const getProofDetails = async (req, res) => {
   try {
@@ -239,6 +239,134 @@ export const getProofDetails = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Internal server error'
+    });
+  }
+};
+
+/**
+ * @description Allows a promoter to "download" a campaign post. This action
+ * marks the promotion as 'isDownloaded' and registers the promoter to the campaign.
+ * It also checks if the campaign has available slots and updates the campaign's
+ * `currentPromoters` count within a secure transaction.
+ * @param {object} req - The request object containing campaignId and promoterId.
+ * @param {object} res - The response object from Express.js.
+ * @returns {Promise<void>}
+ */
+export const downloadPromotion = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { campaignId, promoterId } = req.body;
+
+    // Validate required fields
+    if (!campaignId || !promoterId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: 'Missing required fields: campaignId and promoterId.',
+        success: false,
+      });
+    }
+
+    // Find the campaign and user (promoter)
+    const campaign = await CampaignModel.findById(campaignId).session(session);
+    const promoter = await UserModel.findById(promoterId).session(session);
+
+    if (!campaign || !promoter) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        message: 'Campaign or Promoter not found.',
+        success: false,
+      });
+    }
+
+    // Check if the user is a promoter
+    if (promoter.role !== 'promoter') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({
+        message: 'User is not authorized to download this promotion.',
+        success: false,
+      });
+    }
+
+    // Check if a promotion already exists for this campaign and promoter
+    const existingPromotion = await PromotionModel.findOne({
+      campaign: campaignId,
+      promoter: promoterId,
+    }).session(session);
+
+    if (existingPromotion) {
+      // If the promotion already exists and is already downloaded, return success
+      if (existingPromotion.isDownloaded) {
+        await session.commitTransaction();
+        session.endSession();
+        return res.status(200).json({
+          message: 'Promotion has already been downloaded.',
+          success: true,
+          promotion: existingPromotion,
+        });
+      }
+    }
+
+    // Use the `canAssignPromoter` helper method from the Campaign model
+    if (!campaign.canAssignPromoter()) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: 'This campaign is no longer accepting new promoters.',
+        success: false,
+      });
+    }
+
+    // If no promotion exists, create a new one.
+    let promotion;
+    if (!existingPromotion) {
+      promotion = new PromotionModel({
+        campaign: campaignId,
+        promoter: promoterId,
+        payoutAmount: campaign.payoutPerPromotion,
+        isDownloaded: true,
+        notes: 'Campaign post downloaded by promoter.',
+      });
+      await promotion.save({ session });
+    } else {
+      // If a promotion exists but isn't marked as downloaded, update it
+      existingPromotion.isDownloaded = true;
+      existingPromotion.status = 'pending'; // Reset status if needed, though 'pending' is the default
+      promotion = existingPromotion;
+      await promotion.save({ session });
+    }
+
+    // Use the `assignPromoter` helper method from the Campaign model
+    campaign.assignPromoter();
+    await campaign.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      message: 'Campaign post downloaded successfully. You can now share it on your status.',
+      success: true,
+      campaign: {
+        title: campaign.title,
+        caption: campaign.caption,
+        link: campaign.link,
+        mediaUrl: `${req.protocol}://${req.get('host')}${campaign.mediaUrl}`,
+        mediaType: campaign.mediaType,
+      },
+      promotionId: promotion._id,
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error('Error downloading promotion:', error.message);
+    res.status(500).json({
+      message: 'Error occurred while processing the download request.',
+      success: false,
+      error: error.message,
     });
   }
 };

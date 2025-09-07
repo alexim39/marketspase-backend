@@ -11,127 +11,6 @@ import mongoose from "mongoose";
  * @param {object} res - The response object from Express.js.
  * @returns {Promise<void>}
  */
-/* export const createCampaign = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    const {
-      owner,
-      title,
-      caption,
-      link,
-      category,
-      budget,
-      startDate,
-      endDate,
-      currency,
-    } = req.body;
-
-    console.log("Received campaign creation request:", req.body);
-
-    // Handle uploaded file
-    let mediaUrl = '';
-    if (req.file) {
-      // Build a public URL for the uploaded file
-      mediaUrl = `/uploads/campaigns/${req.file.filename}`;
-    }
-
-    const payoutPerPromotion = 200; 
-    const maxPromoters = Math.floor(budget / payoutPerPromotion);
-
-    if (!owner || !title || !budget) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({
-        message: "Missing required fields.",
-        success: false,
-      });
-    }
-
-    const user = await UserModel.findById(owner).session(session);
-    if (!user) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(404).json({
-        message: "User not found.",
-        success: false,
-      });
-    }
-
-    const advertiserWallet = user.wallets.advertiser;
-    if (advertiserWallet.balance < budget) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(402).json({
-        message: "Insufficient funds. Please fund your wallet to create this campaign.",
-        success: false,
-      });
-    }
-
-    const newCampaign = new CampaignModel({
-      owner,
-      title,
-      caption,
-      link,
-      category,
-      budget,
-      payoutPerPromotion,
-      maxPromoters,
-      startDate,
-      endDate,
-      mediaUrl,
-      currency,
-      status: "pending", 
-      activityLog: [{ action: 'Campaign Created', details: 'Initial campaign creation.' }],
-    });
-
-    advertiserWallet.balance = Number(advertiserWallet.balance) - Number(budget);
-    advertiserWallet.reserved = Number(advertiserWallet.reserved) + Number(budget);
-    advertiserWallet.transactions.push({
-      amount: budget,
-      type: "debit",
-      category: "campaign",
-      description: `Funds reserved for campaign: "${title}"`,
-      relatedCampaign: newCampaign._id,
-      status: "pending",
-    });
-
-    await newCampaign.save({ session });
-    await user.save({ session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    res.status(200).json({
-      message: "Campaign created successfully. Funds have been reserved and it is now awaiting review.",
-      success: true,
-      campaignId: newCampaign._id,
-      mediaUrl: mediaUrl ? `${req.protocol}://${req.get('host')}${mediaUrl}` : null,
-    });
-
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    console.error("Error creating campaign:", error.message);
-
-    res.status(500).json({
-      message: "Error occurred while creating campaign.",
-      success: false,
-      error: error.message,
-    });
-  }
-};
- */
-
-/**
- * @description Creates a new campaign. This function handles the validation,
- * reserves the campaign budget from the user's wallet, and securely saves
- * the new campaign to the database using a transaction.
- * @param {object} req - The request object from Express.js.
- * @param {object} res - The response object from Express.js.
- * @returns {Promise<void>}
- */
 export const createCampaign = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -390,86 +269,131 @@ export const getCampaignsByStatus = async (req, res) => {
 };
 
 
-// Promoter acceptance of campaign into campaign list
+/**
+ * @description Allows a promoter to accept a campaign, creating a promotion record
+ * and securely updating the reserved funds in both the advertiser's and promoter's
+ * wallets using a database transaction.
+ * @param {object} req - The request object.
+ * @param {object} res - The response object.
+ * @returns {Promise<void>}
+ */
 export const acceptCampaign = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { campaignId } = req.params;
     const { userId } = req.body;
 
-    // Find campaign
-    const campaign = await CampaignModel.findById(campaignId);
+    // 1. Find the campaign and the promoter within the transaction
+    const campaign = await CampaignModel.findById(campaignId).session(session);
+    const promoter = await UserModel.findById(userId).session(session);
+
+    // 2. Initial validation
     if (!campaign) {
-      return res.status(404).json({ message: 'Campaign not found' });
+      await session.abortTransaction();
+      return res.status(404).json({ success: false, message: 'Campaign not found' });
     }
-
-    // Check if campaign is active
+    if (!promoter) {
+      await session.abortTransaction();
+      return res.status(404).json({ success: false, message: 'Promoter user not found' });
+    }
     if (campaign.status !== 'active') {
-      return res.status(400).json({ message: 'Campaign is not active' });
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Campaign is not active' });
     }
 
-    // Check if user has already applied
+    // 3. Check for existing promotion record
     const existingPromotion = await PromotionModel.findOne({
       campaign: campaignId,
       promoter: userId
+    }).session(session);
+    if (existingPromotion) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'You have already accepted this campaign' });
+    }
+
+    // 4. Check if campaign can accept more promoters
+    // Assuming canAssignPromoter is a method on the Campaign model
+    if (!campaign.canAssignPromoter()) {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: 'Campaign is full or budget exhausted' });
+    }
+
+    const payoutAmount = campaign.payoutPerPromotion;
+    const advertiser = await UserModel.findById(campaign.owner).session(session);
+
+    if (!advertiser) {
+      await session.abortTransaction();
+      return res.status(500).json({ success: false, message: 'Campaign owner not found.' });
+    }
+
+    // 5. Create promotion record with the session first to get its _id
+    const promotion = new PromotionModel({
+      campaign: campaignId,
+      promoter: userId,
+      status: 'pending',
+      payoutAmount: payoutAmount
+    });
+    await promotion.save({ session });
+    
+
+    // 6. Update wallet balances within the transaction
+    // Deduct from advertiser's reserved wallet
+    advertiser.wallets.advertiser.reserved = (advertiser.wallets.advertiser.reserved || 0) - payoutAmount;
+    advertiser.wallets.advertiser.transactions.push({
+      amount: payoutAmount,
+      type: "debit",
+      category: "campaign",
+      description: `Funds transferred to promoter for campaign: "${campaign.title}"`,
+      relatedCampaign: campaignId,
+      status: "successful",
     });
 
-    if (existingPromotion) {
-      return res.status(400).json({ message: 'You have already accepted this campaign' });
+    // Credit promoter's reserved wallet
+    promoter.wallets.promoter.reserved = (promoter.wallets.promoter.reserved || 0) + payoutAmount;
+    promoter.wallets.promoter.transactions.push({
+      amount: payoutAmount,
+      type: "credit",
+      category: "promotion",
+      description: `Funds reserved from campaign: "${campaign.title}"`,
+      relatedCampaign: campaignId,
+      relatedPromotion: promotion._id,
+      status: "successful",
+    });
+
+
+    // 7. Update campaign stats with the session
+    campaign.totalPromotions += 1;
+    campaign.currentPromoters += 1;
+
+    // Check if the campaign should be marked as exhausted based on the new count
+    if (campaign.totalPromotions >= campaign.maxPromoters) {
+      campaign.status = 'exhausted';
     }
 
-    // Check if campaign can accept more promoters
-    if (!campaign.canAssignPromoter()) {
-      return res.status(400).json({ message: 'Campaign is full or budget exhausted' });
-    }
+    // 8. Save all documents
+    await advertiser.save({ session });
+    await promoter.save({ session });
+    await campaign.save({ session });
+    
+    // 9. Commit the transaction
+    await session.commitTransaction();
+    session.endSession();
 
-    // Start transaction
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
-    try {
-      // Create promotion record
-      const promotion = new PromotionModel({
-        campaign: campaignId,
-        promoter: userId,
-        status: 'pending',
-        payoutAmount: campaign.payoutPerPromotion
-      });
-
-      await promotion.save({ session });
-
-      // Update campaign stats
-      campaign.totalPromotions += 1;
-      campaign.currentPromoters += 1;
-      campaign.spentBudget += campaign.payoutPerPromotion;
-
-      // Check if campaign should be marked as exhausted
-      if (campaign.totalPromotions >= campaign.maxPromoters || 
-          campaign.spentBudget >= campaign.budget) {
-        campaign.status = 'exhausted';
-      }
-
-      await campaign.save({ session });
-
-      // Commit transaction
-      await session.commitTransaction();
-      session.endSession();
-
-      res.json({ 
-        success: true,
-        message: 'You have successfully accepted this campaign. Check your promotion page to submit initial proof.',
-        promotion: promotion 
-      });
-
-    } catch (error) {
-      // Rollback transaction on error
-      await session.abortTransaction();
-      session.endSession();
-      throw error;
-    }
+    // 10. Send success response
+    res.json({
+      success: true,
+      message: 'You have successfully accepted this campaign. Funds have been reserved for you. Check your promotion page to submit initial proof.',
+      promotion: promotion
+    });
 
   } catch (error) {
-    console.error('Error applying for campaign:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    // 11. Rollback transaction on error
+    await session.abortTransaction();
+    session.endSession();
+    console.error('Error accepting campaign:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 

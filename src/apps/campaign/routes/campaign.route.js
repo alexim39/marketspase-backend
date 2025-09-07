@@ -9,7 +9,7 @@ import {
     updateCampaignStatus
 } from '../controllers/campaign.controller.js'
 import { campaignUpload } from '../services/upload.js';
-import {   getUserPromotions, submitProof, getProofDetails } from '../controllers/promotion.controller.js'
+import {   getUserPromotions, submitProof, getProofDetails, downloadPromotion } from '../controllers/promotion.controller.js'
 import multer from 'multer';
 
 const upload = multer({
@@ -42,6 +42,12 @@ CampaignRouter.post('/promotions/submit-proof', upload.array('proofImages', 3), 
 // admin - get all campaigns
 CampaignRouter.get('/campaigns', getAllCampaigns);
 
+/**
+ * @route POST /api/promotions/download
+ * @description Allows a promoter to register for a campaign and download the media.
+ * @access Private (Promoter only)
+ */
+CampaignRouter.post('/promotions/download', downloadPromotion);
 
 
 

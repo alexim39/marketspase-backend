@@ -4,6 +4,7 @@ import { generateUniqueUsername } from '../services/username-generator.js';
 import { ownerEmailTemplate } from '../services/email/ownerTemplate.js'; 
 import { userWelcomeEmailTemplate } from '../services/email/userWelcomeTemplate.js';
 import { CampaignModel } from "../../campaign/models/campaign.model.js"; // Add this import
+import { PromotionModel } from "../../campaign/models/promotion.model.js"; // Add this import
 
 
 
@@ -153,6 +154,10 @@ export const GetUser = async (req, res) => {
     // Fetch campaigns where this user is the owner
     // Make sure to await this operation
     userObject.campaigns = await CampaignModel.find({ owner: user._id });
+
+    // Fetch promotion where this user is the promoter
+    // Make sure to await this operation
+    userObject.promotion = await PromotionModel.find({ promoter: user._id });
 
     // 7. Send a successful response with the user data
     res.status(200).json({ 

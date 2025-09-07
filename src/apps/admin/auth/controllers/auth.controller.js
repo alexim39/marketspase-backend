@@ -59,36 +59,36 @@ export const createAdmin = async (req, res) => {
 
 // login
 export const signin = async (req, res) => {
-  try {
-    const { email, password } = req.body;
+ try {
+  const { email, password } = req.body;
 
-    console.log('request ',req.body)
+  console.log('request ',req.body)
 
-    // MODIFIED: Use `.select('+password')` to explicitly include the password field
-    const user = await AdminModel.findOne({ email }).select('+password');
+  // MODIFIED: Use `.select('+password')` to explicitly include the password field
+  const user = await AdminModel.findOne({ email }).select('+password');
 
-    // Now, `user.password` will contain the hashed password from the database
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(400).json({ success: false, message: "Wrong email or password" });
-    }
+  // Now, `user.password` will contain the hashed password from the database
+  if (!user || !(await bcrypt.compare(password, user.password))) {
+  return res.status(400).json({ success: false, message: "Wrong email or password" });
+  }
 
-    const token = jwt.sign({ id: user._id }, process.env.JWTTOKENSECRET, {
-      expiresIn: "1d",
-    });
+  const token = jwt.sign({ id: user._id }, process.env.JWTTOKENSECRET, {
+  expiresIn: "1d",
+  });
 
-    res.cookie("jwt", token, {
-      httpOnly: true,
-      sameSite: "none",
-      secure: true,
-      maxAge: 24 * 60 * 60 * 1000,
-    });
+  res.cookie("jwt", token, {
+  httpOnly: true,
+  sameSite: "none",
+  secure: true,
+  maxAge: 24 * 60 * 60 * 1000,
+  });
 
-    res.status(200).json({ success: true, message: "SignedIn" });
+  res.status(200).json({ success: true, message: "SignedIn" });
 
-  } catch (error) {
-    console.error("Error getting admin user:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
-  }
+  } catch (error) {
+  console.error("Error getting admin user:", error);
+  res.status(500).json({ success: false, message: "Internal server error" });
+ }
 };
 
 // Logout

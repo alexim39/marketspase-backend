@@ -1,20 +1,28 @@
 import mongoose from "mongoose";
 
+// Function to generate a unique 6-digit number
+const generateUniqueUpi = () => {
+  // Generate a random 6-digit number
+  const min = 100000;
+  const max = 999999;
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+};
+
 const promotionSchema = new mongoose.Schema({
   campaign: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Campaign",
-    required: true
+    required: true,
   },
   promoter: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
-    required: true
+    required: true,
   },
   status: {
     type: String,
     enum: ["pending", "submitted", "validated", "rejected", "paid"],
-    default: "pending"
+    default: "pending",
   },
   submittedAt: Date,
   validatedAt: Date,
@@ -23,7 +31,16 @@ const promotionSchema = new mongoose.Schema({
   proofViews: Number, // Number of views reported by promoter
   payoutAmount: Number,
   rejectionReason: String,
-  notes: String
+  notes: String,
+  isDownloaded: {
+    type: Boolean,
+    default: false,
+  },
+  upi: {
+    type: String,
+    unique: true, // Ensure UPI is unique
+    default: () => generateUniqueUpi().toString(),
+  },
 }, { timestamps: true });
 
 // Index to prevent duplicate applications
