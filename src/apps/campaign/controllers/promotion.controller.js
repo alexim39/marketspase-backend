@@ -1,8 +1,8 @@
 import { CampaignModel } from "../models/campaign.model.js";
 import { PromotionModel } from "../models/promotion.model.js";
 import { UserModel } from "../../user/models/user.model.js";
-import path from 'path';
-import fs from 'fs';
+import path from "path";
+import fs from "fs";
 import { validateProofSubmission } from "../services/validator.js";
 import mongoose from "mongoose";
 
@@ -21,7 +21,7 @@ export const getUserPromotions = async (req, res) => {
     if (!userId) {
       return res.status(400).json({
         success: false,
-        message: 'User ID is required.'
+        message: "User ID is required.",
       });
     }
 
@@ -30,14 +30,15 @@ export const getUserPromotions = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found.'
+        message: "User not found.",
       });
     }
 
-    if (user.role !== 'promoter') {
+    if (user.role !== "promoter") {
       return res.status(400).json({
         success: false,
-        message: 'Your current user role is not promoter. Please switch roles to continue.'
+        message:
+          "Your current user role is not promoter. Please switch roles to continue.",
       });
     }
 
@@ -45,17 +46,16 @@ export const getUserPromotions = async (req, res) => {
     // We populate the 'campaign' and 'promoter' fields.
     // The `select` option is removed to include all fields by default,
     // which aligns with the request for "all population of other objects".
-    const promotions = await PromotionModel
-      .find({ promoter: userId })
+    const promotions = await PromotionModel.find({ promoter: userId })
       .populate({
-        path: 'campaign',
+        path: "campaign",
         // Select all fields from the Campaign model
-        select: '' 
+        select: "",
       })
       .populate({
-        path: 'promoter',
+        path: "promoter",
         // Select all fields from the User model, but explicitly exclude the password
-        select: '-password'
+        select: "-password",
       })
       .sort({ createdAt: -1 }) // Sort from newest to oldest
       .lean(); // Use .lean() for faster query execution since we don't need Mongoose documents
@@ -63,7 +63,7 @@ export const getUserPromotions = async (req, res) => {
     if (!promotions || promotions.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'No promotions found for this user.'
+        message: "No promotions found for this user.",
       });
     }
 
@@ -71,27 +71,26 @@ export const getUserPromotions = async (req, res) => {
     res.status(200).json({
       success: true,
       data: promotions,
-      message: 'Promotions retrieved successfully.'
+      message: "Promotions retrieved successfully.",
     });
-
   } catch (error) {
-    console.error('Error fetching user promotions:', error);
+    console.error("Error fetching user promotions:", error);
     // Handle potential Mongoose CastErrors for invalid IDs
-    if (error.name === 'CastError') {
+    if (error.name === "CastError") {
       return res.status(400).json({
         success: false,
-        message: 'Invalid user ID format.'
+        message: "Invalid user ID format.",
       });
     }
     // Return a generic error for other issues
     res.status(500).json({
       success: false,
-      message: 'An internal server error occurred while fetching promotions.'
+      message: "An internal server error occurred while fetching promotions.",
     });
   }
 };
 
-export const submitProof = async (req, res) => {
+/* export const submitProof = async (req, res) => {
   try {
     const { promotionId, viewsCount, notes } = req.body;
     const proofImages = req.files;
@@ -210,6 +209,145 @@ export const submitProof = async (req, res) => {
       message: 'Internal server error'
     });
   }
+}; */
+
+export const submitProof = async (req, res) => {
+  try {
+    const { promotionId, viewsCount, notes } = req.body;
+    const proofImages = req.files;
+
+    // Validate required fields
+    if (
+      !promotionId ||
+      !viewsCount ||
+      !proofImages ||
+      proofImages.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Promotion ID, views count, and proof images are required",
+      });
+    }
+
+    // Validate promotion exists
+    const promotion = await PromotionModel.findById(promotionId)
+      .populate("campaign")
+      .populate("promoter");
+
+    if (!promotion) {
+      return res.status(404).json({
+        success: false,
+        message: "Promotion not found",
+      });
+    }
+
+    // Check if promotion is in pending status
+    if (promotion.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot submit proof for promotion with status: ${promotion.status}`,
+      });
+    }
+
+    // Check campaign end date
+    const campaign = await CampaignModel.findById(promotion.campaign);
+    if (campaign && campaign.endDate && new Date() > campaign.endDate) {
+      return res.status(400).json({
+        success: false,
+        message: "Campaign has ended. Proof submission is closed.",
+      });
+    }
+
+    // Validate minimum views requirement
+    const minViews = campaign?.minViewsPerPromotion || 25;
+    if (parseInt(viewsCount) < minViews) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum ${minViews} views required. You reported ${viewsCount}.`,
+      });
+    }
+
+    // NEW LOGIC: Use the campaignId to create the proofs folder within the campaign's directory
+    const campaignId = promotion.campaign._id.toString();
+    //const uploadDir = path.join(process.cwd(), 'uploads', 'campaigns', campaignId, 'proofs');
+    const uploadDir = path.join(process.cwd(), "src", "uploads", "proofs");
+
+    // Ensure the directory exists
+    fs.mkdirSync(uploadDir, { recursive: true });
+
+    // Save proof images locally and build URLs
+    const proofMediaUrls = [];
+    for (const image of proofImages) {
+      const ext = path.extname(image.originalname);
+      const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+      const filePath = path.join(uploadDir, filename);
+
+      // Use fs.writeFileSync to save the file
+      fs.writeFileSync(filePath, image.buffer);
+
+      // Build a public URL (adjust this to match your static file serving)
+      //const publicUrl = `/uploads/campaigns/${campaignId}/proofs/${filename}`;
+      const publicUrl = `/src/uploads/proofs/${filename}`;
+      proofMediaUrls.push(publicUrl);
+    }
+
+    // Optional: AI validation of proof images
+    let aiValidationResult = null;
+    try {
+      aiValidationResult = await validateProofSubmission(
+        proofMediaUrls,
+        promotion
+      );
+    } catch (validationError) {
+      console.warn(
+        "AI validation failed, proceeding with manual review:",
+        validationError
+      );
+    }
+
+    // Update promotion with proof data
+    const updatedPromotion = await PromotionModel.findByIdAndUpdate(
+      promotionId,
+      {
+        status: aiValidationResult?.isValid ? "submitted" : "submitted", // Set to submitted for admin review
+        submittedAt: new Date(),
+        proofMedia: proofMediaUrls,
+        proofViews: parseInt(viewsCount),
+        notes: notes || "",
+        ...(aiValidationResult && {
+          aiValidation: {
+            isValid: aiValidationResult.isValid,
+            confidence: aiValidationResult.confidence,
+            feedback: aiValidationResult.feedback,
+            validatedAt: new Date(),
+          },
+        }),
+      },
+      { new: true, runValidators: true }
+    ).populate("campaign promoter");
+
+    // Add to campaign activity log
+    if (campaign) {
+      campaign.activityLog.push({
+        action: "Proof Submitted",
+        details: `Promoter ${promotion.promoter.displayName} submitted proof with ${viewsCount} views`,
+        timestamp: new Date(),
+      });
+      await campaign.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      data: updatedPromotion,
+      message: "Proof submitted successfully and awaiting review",
+    });
+  } catch (error) {
+    console.error("Error submitting proof:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
 };
 
 // Optional: Get proof submission details
@@ -218,27 +356,26 @@ export const getProofDetails = async (req, res) => {
     const { promotionId } = req.params;
 
     const promotion = await PromotionModel.findById(promotionId)
-      .populate('campaign')
-      .populate('promoter');
+      .populate("campaign")
+      .populate("promoter");
 
     if (!promotion) {
       return res.status(404).json({
         success: false,
-        message: 'Promotion not found'
+        message: "Promotion not found",
       });
     }
 
     res.status(200).json({
       success: true,
       data: promotion,
-      message: 'Proof details retrieved successfully'
+      message: "Proof details retrieved successfully",
     });
-
   } catch (error) {
-    console.error('Error fetching proof details:', error);
+    console.error("Error fetching proof details:", error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: "Internal server error",
     });
   }
 };
@@ -264,7 +401,7 @@ export const downloadPromotion = async (req, res) => {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
-        message: 'Missing required fields: campaignId and promoterId.',
+        message: "Missing required fields: campaignId and promoterId.",
         success: false,
       });
     }
@@ -277,20 +414,20 @@ export const downloadPromotion = async (req, res) => {
       await session.abortTransaction();
       session.endSession();
       return res.status(404).json({
-        message: 'Campaign or Promoter not found.',
+        message: "Campaign or Promoter not found.",
         success: false,
       });
     }
 
     // Check if the user is a promoter
-    if (promoter.role !== 'promoter') {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(403).json({
-        message: 'User is not authorized to download this promotion.',
-        success: false,
-      });
-    }
+    // if (promoter.role !== 'promoter') {
+    //   await session.abortTransaction();
+    //   session.endSession();
+    //   return res.status(403).json({
+    //     message: 'User is not authorized to download this promotion.',
+    //     success: false,
+    //   });
+    // }
 
     // Check if a promotion already exists for this campaign and promoter
     const existingPromotion = await PromotionModel.findOne({
@@ -298,63 +435,68 @@ export const downloadPromotion = async (req, res) => {
       promoter: promoterId,
     }).session(session);
 
-    if (existingPromotion) {
-      // If the promotion already exists and is already downloaded, return success
-      if (existingPromotion.isDownloaded) {
-        await session.commitTransaction();
-        session.endSession();
-        return res.status(200).json({
-          message: 'Promotion has already been downloaded.',
-          success: true,
-          promotion: existingPromotion,
-        });
-      }
-    }
+    // if (existingPromotion) {
+    //   // If the promotion already exists and is already downloaded, return success
+    //   if (existingPromotion.isDownloaded) {
+    //     await session.commitTransaction();
+    //     session.endSession();
+    //     return res.status(200).json({
+    //       message: 'Promotion has already been downloaded.',
+    //       success: true,
+    //       promotion: existingPromotion,
+    //     });
+    //   }
+    // }
 
     // Use the `canAssignPromoter` helper method from the Campaign model
-    if (!campaign.canAssignPromoter()) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({
-        message: 'This campaign is no longer accepting new promoters.',
-        success: false,
-      });
-    }
+    // if (!campaign.canAssignPromoter()) {
+    //   await session.abortTransaction();
+    //   session.endSession();
+    //   return res.status(400).json({
+    //     message: 'This campaign is no longer accepting new promoters.',
+    //     success: false,
+    //   });
+    // }
 
     // If no promotion exists, create a new one.
     let promotion;
     if (!existingPromotion) {
+      //console.log('None existing')
+
       promotion = new PromotionModel({
         campaign: campaignId,
         promoter: promoterId,
         payoutAmount: campaign.payoutPerPromotion,
         isDownloaded: true,
-        notes: 'Campaign post downloaded by promoter.',
+        notes: "Campaign post downloaded by promoter.",
       });
       await promotion.save({ session });
     } else {
+      //console.log('Already existing')
+
       // If a promotion exists but isn't marked as downloaded, update it
       existingPromotion.isDownloaded = true;
-      existingPromotion.status = 'pending'; // Reset status if needed, though 'pending' is the default
+      existingPromotion.status = "pending"; // Reset status if needed, though 'pending' is the default
       promotion = existingPromotion;
       await promotion.save({ session });
     }
 
     // Use the `assignPromoter` helper method from the Campaign model
-    campaign.assignPromoter();
+    //campaign.assignPromoter();
     await campaign.save({ session });
 
     await session.commitTransaction();
     session.endSession();
 
     res.status(200).json({
-      message: 'Campaign post downloaded successfully. You can now share it on your status.',
+      message:
+        "Campaign post downloaded successfully. You can now share it on your status.",
       success: true,
       campaign: {
         title: campaign.title,
         caption: campaign.caption,
         link: campaign.link,
-        mediaUrl: `${req.protocol}://${req.get('host')}${campaign.mediaUrl}`,
+        mediaUrl: `${req.protocol}://${req.get("host")}${campaign.mediaUrl}`,
         mediaType: campaign.mediaType,
       },
       promotionId: promotion._id,
@@ -362,9 +504,9 @@ export const downloadPromotion = async (req, res) => {
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    console.error('Error downloading promotion:', error.message);
+    console.error("Error downloading promotion:", error.message);
     res.status(500).json({
-      message: 'Error occurred while processing the download request.',
+      message: "Error occurred while processing the download request.",
       success: false,
       error: error.message,
     });
