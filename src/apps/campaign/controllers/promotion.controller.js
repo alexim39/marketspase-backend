@@ -512,3 +512,228 @@ export const downloadPromotion = async (req, res) => {
     });
   }
 };
+
+
+/**
+ * Controller to update a promotion's status by an admin.
+ * This function handles the financial logic for validating, rejecting, or marking a promotion as paid.
+ * It operates based on a two-step escrow model:
+ * 1. Funds are moved to the promoter's reserved wallet upon promotion acceptance.
+ * 2. Funds are moved from reserved to balance upon validation, or refunded to the advertiser upon rejection.
+ */
+export const updatePromotionStatus = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { id } = req.params;
+    const { status, rejectionReason } = req.body;
+
+    // 1. Validate input
+    if (!id || !status) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Promotion ID and new status are required.",
+      });
+    }
+
+    const validStatuses = ["validated", "rejected", "paid"];
+    if (!validStatuses.includes(status)) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status provided. Only 'validated', 'rejected', or 'paid' are allowed.",
+      });
+    }
+
+    // 2. Find the promotion and populate related documents
+    const promotion = await PromotionModel.findById(id)
+      .populate({
+        path: 'campaign',
+        populate: {
+          path: 'owner', // Populate the campaign owner (advertiser)
+          model: 'User'
+        }
+      })
+      .populate('promoter')
+      .session(session);
+
+    if (!promotion) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: "Promotion not found.",
+      });
+    }
+
+    const campaign = promotion.campaign;
+    const promoter = promotion.promoter;
+    const advertiser = campaign.owner;
+    const payoutAmount = promotion.payoutAmount;
+
+    // 3. Handle status transitions based on the new status
+    switch (status) {
+      case "validated":
+        if (promotion.status !== "submitted") {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({
+            success: false,
+            message: "Cannot validate a promotion that is not in 'submitted' status.",
+          });
+        }
+        
+        // **FINANCIAL LOGIC: Reserved to Balance Fund Transfer**
+        // The funds are already in the promoter's reserved wallet.
+        // We now move them to their main balance.
+        promoter.wallets.promoter.reserved -= payoutAmount;
+        promoter.wallets.promoter.balance += payoutAmount;
+
+        // Add a credit transaction log to the promoter's wallet
+        promoter.wallets.promoter.transactions.push({
+            amount: payoutAmount,
+            type: 'credit',
+            category: 'promotion',
+            description: `Earnings from campaign: ${campaign.title} (UPI: ${promotion.upi})`,
+            relatedCampaign: campaign._id,
+            relatedPromotion: promotion._id,
+            status: 'successful'
+        });
+
+        // Update promotion status and timestamp
+        promotion.status = "validated";
+        promotion.validatedAt = new Date();
+        
+        // Update campaign stats
+        campaign.validatedPromotions += 1;
+        
+        // Check if the campaign is completed
+        if (campaign.validatedPromotions >= campaign.maxPromoters) {
+          campaign.status = "completed";
+          campaign.endDate = new Date();
+        }
+
+        // Add to campaign activity log
+        campaign.activityLog.push({
+          action: "Promotion Validated",
+          details: `Promotion ID ${promotion._id} validated. Promoter ${promoter.displayName} earned ${payoutAmount} NGN.`,
+        });
+        
+        break;
+
+      case "rejected":
+        if (promotion.status !== "submitted") {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({
+            success: false,
+            message: "Cannot reject a promotion that is not in 'submitted' status.",
+          });
+        }
+        
+        // Update promotion status and rejection reason
+        promotion.status = "rejected";
+        promotion.rejectionReason = rejectionReason || "No reason provided.";
+
+        // **FINANCIAL LOGIC: Reserved Funds Refund to Advertiser**
+        // The funds were in the promoter's reserved wallet.
+        // We now debit them from there and credit them back to the advertiser's main balance.
+        promoter.wallets.promoter.reserved -= payoutAmount;
+        advertiser.wallets.advertiser.reserved += payoutAmount;
+
+        // Add a refund transaction log to the advertiser's wallet
+        advertiser.wallets.advertiser.transactions.push({
+            amount: payoutAmount,
+            type: 'credit',
+            category: 'refund',
+            description: `Refund for rejected promotion: ${promotion.upi}`,
+            relatedCampaign: campaign._id,
+            relatedPromotion: promotion._id,
+            status: 'successful'
+        });
+        
+        // Revert campaign stats
+        campaign.currentPromoters -= 1;
+        campaign.spentBudget -= payoutAmount; // Revert the spent budget
+        
+        // Check if the campaign can be re-opened for new promoters
+        if (campaign.status === "exhausted" && campaign.canAssignPromoter()) {
+          campaign.status = "active";
+        }
+        
+        // Add to campaign activity log
+        campaign.activityLog.push({
+          action: "Promotion Rejected",
+          details: `Promotion ID ${promotion._id} rejected. Funds refunded to advertiser. Reason: ${promotion.rejectionReason}.`,
+        });
+        
+        break;
+
+      case "paid":
+        if (promotion.status !== "validated") {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({
+            success: false,
+            message: "Cannot mark a promotion as 'paid' that is not in 'validated' status.",
+          });
+        }
+        // This 'paid' status should ideally be handled when a promoter successfully withdraws funds.
+        // For now, this logic is sufficient. It just updates a counter.
+        promotion.status = "paid";
+        promotion.paidAt = new Date();
+        
+        // Update campaign paid promotions count
+        campaign.paidPromotions += 1;
+        
+        // Add to campaign activity log
+        campaign.activityLog.push({
+          action: "Promotion Paid",
+          details: `Payout for promotion ID ${promotion._id} confirmed.`,
+        });
+        
+        break;
+
+      default:
+        await session.abortTransaction();
+        session.endSession();
+        break;
+    }
+
+    // 4. Save the changes to all documents
+    await promotion.save({ session });
+    await campaign.save({ session });
+    await promoter.save({ session });
+    await advertiser.save({ session });
+
+    // 5. Commit the transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    // 6. Send a success response
+    res.status(200).json({
+      success: true,
+      message: `Promotion status updated to '${status}' successfully.`,
+      data: promotion,
+    });
+  } catch (error) {
+    // 7. Handle errors and abort the transaction
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Error updating promotion status:", error);
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid promotion ID format.",
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: "An error occurred while updating the promotion status.",
+    });
+  }
+};

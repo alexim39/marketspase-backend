@@ -9,7 +9,7 @@ import {
     updateCampaignStatus
 } from '../controllers/campaign.controller.js'
 import { campaignUpload } from '../services/upload.js';
-import {   getUserPromotions, submitProof, getProofDetails, downloadPromotion } from '../controllers/promotion.controller.js'
+import {   getUserPromotions, submitProof, getProofDetails, downloadPromotion, updatePromotionStatus } from '../controllers/promotion.controller.js'
 import multer from 'multer';
 
 const upload = multer({
@@ -67,6 +67,8 @@ CampaignRouter.post('/:campaignId/accept', acceptCampaign);
 
 // Admin - update campaign status: approve, reject, pause,
 CampaignRouter.patch('/:id/status', updateCampaignStatus);
+// Admin - update promotion status: approve, reject, pause,
+CampaignRouter.patch('/promotion/:id/status', updatePromotionStatus);
 
 // GET /api/promotions/proof/:promotionId
 CampaignRouter.get('/promotions/proof/:promotionId', getProofDetails);

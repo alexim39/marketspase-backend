@@ -523,7 +523,7 @@ export const updateCampaignStatus = async (req, res) => {
     }
 
     // 4. Validate that the new status is a valid enum value
-    const validStatuses = ["active", "paused", "rejected", "completed", "exhausted", "expired", "pending"];
+    const validStatuses = ["active", "paused", "rejected","validated", "completed", "exhausted", "expired", "pending"];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
