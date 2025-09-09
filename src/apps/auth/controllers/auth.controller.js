@@ -7,7 +7,6 @@ import { CampaignModel } from "../../campaign/models/campaign.model.js"; // Add 
 import { PromotionModel } from "../../campaign/models/promotion.model.js"; // Add this import
 
 
-
 // Authenticate/Verify User
 export const Authenticate = async (req, res) => {
   try {
@@ -70,6 +69,17 @@ export const Authenticate = async (req, res) => {
 
       // Log the new user creation for monitoring
       //console.log(`New user created: ${user.username} via ${authProvider}`);
+
+      //Send email to form owner
+      const ownerSubject = 'New MarketSpase Sign Up';
+      const ownerMessage = ownerEmailTemplate(newUser);
+      const ownerEmails = ['schooltraz@gmail.com'];
+      await Promise.all(ownerEmails.map(email => sendEmail(email, ownerSubject, ownerMessage)));
+
+      //Send welcome email to the user
+      const userSubject = 'Welcome to MarketSpase';
+      const userMessage = userWelcomeEmailTemplate(newUser);
+      await sendEmail(newUser.email, userSubject, userMessage);
 
     } else {
       // 4. User Exists, Update Information

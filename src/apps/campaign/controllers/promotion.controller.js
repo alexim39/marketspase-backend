@@ -90,127 +90,7 @@ export const getUserPromotions = async (req, res) => {
   }
 };
 
-/* export const submitProof = async (req, res) => {
-  try {
-    const { promotionId, viewsCount, notes } = req.body;
-    const proofImages = req.files;
-
-    // Validate required fields
-    if (!promotionId || !viewsCount || !proofImages || proofImages.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Promotion ID, views count, and proof images are required'
-      });
-    }
-
-    // Validate promotion exists
-    const promotion = await PromotionModel.findById(promotionId)
-      .populate('campaign')
-      .populate('promoter');
-
-    if (!promotion) {
-      return res.status(404).json({
-        success: false,
-        message: 'Promotion not found'
-      });
-    }
-
-    // Check if promotion is in pending status
-    if (promotion.status !== 'pending') {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot submit proof for promotion with status: ${promotion.status}`
-      });
-    }
-
-    // Check campaign end date
-    const campaign = await CampaignModel.findById(promotion.campaign);
-    if (campaign && campaign.endDate && new Date() > campaign.endDate) {
-      return res.status(400).json({
-        success: false,
-        message: 'Campaign has ended. Proof submission is closed.'
-      });
-    }
-
-    // Validate minimum views requirement
-    const minViews = campaign?.minViewsPerPromotion || 25;
-    if (parseInt(viewsCount) < minViews) {
-      return res.status(400).json({
-        success: false,
-        message: `Minimum ${minViews} views required. You reported ${viewsCount}.`
-      });
-    }
-
-    // Save proof images locally and build URLs
-    const proofMediaUrls = [];
-   // const uploadDir = path.join(process.cwd(), 'uploads', 'proofs', promotionId);
-     const uploadDir = `/uploads/proofs/${promotionId}`;
-    fs.mkdirSync(uploadDir, { recursive: true });
-
-    for (const image of proofImages) {
-      const ext = path.extname(image.originalname);
-      const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-      const filePath = path.join(uploadDir, filename);
-      fs.writeFileSync(filePath, image.buffer);
-      // Build a public URL (adjust as needed for your static file serving)
-      const publicUrl = `/uploads/proofs/${filename}`;
-      proofMediaUrls.push(publicUrl);
-    }
-
-    // Optional: AI validation of proof images
-    let aiValidationResult = null;
-    try {
-      aiValidationResult = await validateProofSubmission(proofMediaUrls, promotion);
-    } catch (validationError) {
-      console.warn('AI validation failed, proceeding with manual review:', validationError);
-    }
-
-    // Update promotion with proof data
-    const updatedPromotion = await PromotionModel.findByIdAndUpdate(
-      promotionId,
-      {
-        status: aiValidationResult?.isValid ? 'submitted' : 'submitted', // Set to submitted for admin review
-        submittedAt: new Date(),
-        proofMedia: proofMediaUrls,
-        proofViews: parseInt(viewsCount),
-        notes: notes || '',
-        ...(aiValidationResult && { 
-          aiValidation: {
-            isValid: aiValidationResult.isValid,
-            confidence: aiValidationResult.confidence,
-            feedback: aiValidationResult.feedback,
-            validatedAt: new Date()
-          }
-        })
-      },
-      { new: true, runValidators: true }
-    ).populate('campaign promoter');
-
-    // Add to campaign activity log
-    if (campaign) {
-      campaign.activityLog.push({
-        action: 'Proof Submitted',
-        details: `Promoter ${promotion.promoter.displayName} submitted proof with ${viewsCount} views`,
-        timestamp: new Date()
-      });
-      await campaign.save();
-    }
-
-    res.status(200).json({
-      success: true,
-      data: updatedPromotion,
-      message: 'Proof submitted successfully and awaiting review'
-    });
-
-  } catch (error) {
-    console.error('Error submitting proof:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
-    });
-  }
-}; */
-
+/*
 export const submitProof = async (req, res) => {
   try {
     const { promotionId, viewsCount, notes } = req.body;
@@ -349,8 +229,183 @@ export const submitProof = async (req, res) => {
     });
   }
 };
+*/
 
-// Optional: Get proof submission details
+
+/**
+ * @description Submit a promoter proofs. 
+ * It allows promoters to submit screenshot of their promotion 30min before expiration
+ * @param {object} req - The request object.
+ * @param {object} res - The response object.
+ * @returns {Promise<void>}
+ */
+export const submitProof = async (req, res) => {
+  try {
+    const {
+      promotionId,
+      viewsCount,
+      notes
+    } = req.body;
+    const proofImages = req.files;
+
+    // Validate required fields
+    if (
+      !promotionId ||
+      !viewsCount ||
+      !proofImages ||
+      proofImages.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Promotion ID, views count, and proof images are required",
+      });
+    }
+
+    // Validate promotion exists
+    const promotion = await PromotionModel.findById(promotionId)
+      .populate("campaign")
+      .populate("promoter");
+
+    if (!promotion) {
+      return res.status(404).json({
+        success: false,
+        message: "Promotion not found",
+      });
+    }
+
+    // Check if promotion is in pending status
+    if (promotion.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot submit proof for promotion with status: ${promotion.status}`,
+      });
+    }
+
+    // LOGIC: Check if promotion submission is within the last 30 minutes of its 24-hour window
+    const creationTime = new Date(promotion.createdAt).getTime();
+    const now = new Date().getTime();
+    const thirtyMinutesInMs = 30 * 60 * 1000;
+    const twentyFourHoursInMs = 24 * 60 * 60 * 1000;
+    const timeSinceCreation = now - creationTime;
+
+    if (timeSinceCreation < twentyFourHoursInMs - thirtyMinutesInMs) {
+      return res.status(400).json({
+        success: false,
+        message: "Proof can only be submitted 30 minutes before the promotion expires.",
+      });
+    }
+
+    // Check campaign end date
+    const campaign = await CampaignModel.findById(promotion.campaign);
+    if (campaign && campaign.endDate && new Date() > campaign.endDate) {
+      return res.status(400).json({
+        success: false,
+        message: "Campaign has ended. Proof submission is closed.",
+      });
+    }
+
+    // Validate minimum views requirement
+    const minViews = campaign?.minViewsPerPromotion || 25;
+    if (parseInt(viewsCount) < minViews) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum ${minViews} views required. You reported ${viewsCount}.`,
+      });
+    }
+
+    // NEW LOGIC: Use the campaignId to create the proofs folder within the campaign's directory
+    const campaignId = promotion.campaign._id.toString();
+    //const uploadDir = path.join(process.cwd(), 'uploads', 'campaigns', campaignId, 'proofs');
+    const uploadDir = path.join(process.cwd(), "src", "uploads", "proofs");
+
+    // Ensure the directory exists
+    fs.mkdirSync(uploadDir, {
+      recursive: true
+    });
+
+    // Save proof images locally and build URLs
+    const proofMediaUrls = [];
+    for (const image of proofImages) {
+      const ext = path.extname(image.originalname);
+      const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+      const filePath = path.join(uploadDir, filename);
+
+      // Use fs.writeFileSync to save the file
+      fs.writeFileSync(filePath, image.buffer);
+
+      // Build a public URL (adjust this to match your static file serving)
+      //const publicUrl = `/uploads/campaigns/${campaignId}/proofs/${filename}`;
+      const publicUrl = `/src/uploads/proofs/${filename}`;
+      proofMediaUrls.push(publicUrl);
+    }
+
+    // Optional: AI validation of proof images
+    let aiValidationResult = null;
+    try {
+      aiValidationResult = await validateProofSubmission(
+        proofMediaUrls,
+        promotion
+      );
+    } catch (validationError) {
+      console.warn(
+        "AI validation failed, proceeding with manual review:",
+        validationError
+      );
+    }
+
+    // Update promotion with proof data
+    const updatedPromotion = await PromotionModel.findByIdAndUpdate(
+      promotionId, {
+        status: aiValidationResult?.isValid ? "submitted" : "submitted", // Set to submitted for admin review
+        submittedAt: new Date(),
+        proofMedia: proofMediaUrls,
+        proofViews: parseInt(viewsCount),
+        notes: notes || "",
+        ...(aiValidationResult && {
+          aiValidation: {
+            isValid: aiValidationResult.isValid,
+            confidence: aiValidationResult.confidence,
+            feedback: aiValidationResult.feedback,
+            validatedAt: new Date(),
+          },
+        }),
+      }, {
+        new: true,
+        runValidators: true
+      }
+    ).populate("campaign promoter");
+
+    // Add to campaign activity log
+    if (campaign) {
+      campaign.activityLog.push({
+        action: "Proof Submitted",
+        details: `Promoter ${promotion.promoter.displayName} submitted proof with ${viewsCount} views`,
+        timestamp: new Date(),
+      });
+      await campaign.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      data: updatedPromotion,
+      message: "Proof submitted successfully and awaiting review",
+    });
+  } catch (error) {
+    console.error("Error submitting proof:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+
+/**
+ * @description Fetches promotion proof for a specific user.
+ * @param {object} req - The request object.
+ * @param {object} res - The response object.
+ * @returns {Promise<void>}
+ */
 export const getProofDetails = async (req, res) => {
   try {
     const { promotionId } = req.params;
@@ -379,6 +434,7 @@ export const getProofDetails = async (req, res) => {
     });
   }
 };
+
 
 /**
  * @description Allows a promoter to "download" a campaign post. This action

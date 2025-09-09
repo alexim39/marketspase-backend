@@ -5,6 +5,10 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 
+// Cron Jobs
+import { PromotionExpirationCheckerCronJobs } from './src/apps/campaign/services/promotion.expiration.js';
+
+
 import AuthRouter from './src/apps/auth/index.js';
 import UserRouter from './src/apps/user/index.js';
 import WalletRouter from './src/apps/wallet/index.js';
@@ -59,6 +63,10 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
 .then(() => {
     // Application Starts Only when MongoDB is connected
     console.log('Connected to mongoDB')
+
+    // Start the cron jobs after a successful database connection
+    PromotionExpirationCheckerCronJobs();
+
     app.listen(port, () => {
         console.log(`Server is running on port: http://localhost:${port}`)
     })
