@@ -87,7 +87,7 @@ const userSchema = new mongoose.Schema(
       promoter: { type: walletSchema, default: () => ({}) },
     },
 
-    payoutAccounts: [payoutAccountSchema],
+    savedAccounts: [payoutAccountSchema],
 
     // Engagement & trust
     rating: { type: Number, default: 0 },

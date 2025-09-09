@@ -14,6 +14,6 @@ WalletRouter.post('/verify-and-record', verifyAndRecordPayment);
 WalletRouter.post('/withdraw-request', withdrawRequest);
 
 // confirm payment
-WalletRouter.delete('/saved-accounts/:userId/:accountId', deleteSavedAccount);
+WalletRouter.delete('/saved-accounts/:userId/:accountNumber', deleteSavedAccount);
 
 export default WalletRouter;

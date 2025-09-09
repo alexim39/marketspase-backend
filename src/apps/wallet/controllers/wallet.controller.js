@@ -7,6 +7,7 @@ import axios from 'axios';
 // server.js or index.js
 import dotenv from 'dotenv';
 dotenv.config();
+import {processPayment } from '../services/process-payment.js'
 
 // Set up Paystack configuration from environment variables
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACKTOKEN;
@@ -126,79 +127,91 @@ export const verifyAndRecordPayment = async (req, res) => {
 };
 
 
-
-
 // User withdrawal request
 export const withdrawRequest = async (req, res) => {
     const { bank, accountNumber, accountName, amount, userId, saveAccount, bankName } = req.body;
 
-    //console.log("withdrawRequest", req.body);return;
+    // Use a single session for the entire operation to ensure atomicity
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
     try {
-        // Find the user by ID
-        const user = await UserModel.findById(userId);
+        // --- 1. Input and User Validation ---
+        if (!userId || !amount || !bank || !accountNumber || !accountName) {
+            await session.abortTransaction();
+            return res.status(400).json({
+                message: "Missing required fields.",
+                success: false,
+            });
+        }
+
+        const withdrawalAmount = Number(amount);
+        if (isNaN(withdrawalAmount) || withdrawalAmount <= 0) {
+            await session.abortTransaction();
+            return res.status(400).json({
+                message: "Invalid withdrawal amount.",
+                success: false,
+            });
+        }
+        
+        // Find the user by ID within the transaction
+        const user = await UserModel.findById(userId).session(session);
 
         if (!user) {
-            return res.status(400).json({
+            await session.abortTransaction();
+            return res.status(404).json({
                 message: "User not found",
                 success: false,
             });
         }
+        
+        const promoterWallet = user.wallets.promoter;
 
-        // Check if the user has sufficient balance
-        if (user.wallets.promoter.balance < amount) {
+        // --- 2. Calculate Fee and Total Deduction ---
+        const WITHDRAWAL_FEE_RATE = 0.015;
+        const WITHDRAWAL_FLAT_FEE = 100;
+        const withdrawalFee = Math.max(withdrawalAmount * WITHDRAWAL_FEE_RATE, WITHDRAWAL_FLAT_FEE);
+        const totalDeduction = withdrawalAmount + withdrawalFee;
+
+        // Check for sufficient balance
+        if (promoterWallet.balance < totalDeduction) {
+            await session.abortTransaction();
             return res.status(400).json({
-                message: "Insufficient balance for transaction",
+                message: "Insufficient balance for transaction. Your balance must cover the withdrawal amount and the service fee.",
                 success: false,
             });
         }
 
-        // Deduct the amount from user's balance
-        user.wallets.promoter.balance -= amount;
-       // await user.save();
-
-        // Generate a unique reference ID
-        const reference = Math.floor(100000000 + Math.random() * 900000000).toString();
-
-        // Record the transaction as pending
-        user.transactions = {
-            userId: user._id,
-            amount: amount,
-            status: "Pending",
-            paymentMethod: "Withdrawal",
-            transactionType: "Debit", // its credit when the user bank account is credited
-            bankDetail: {
-                bankCode: bank,
-                accountNumber: accountNumber,
-                accountName: accountName,
-            },
-            reference,
+        // --- 3. Initial State Change (Deduction & Pending Transaction) ---
+        // Deduct the total amount (withdrawal + fee) from the user's balance
+        promoterWallet.balance -= totalDeduction;
+        
+        // Create a new pending transaction record
+        const newTransaction = {
+            amount: withdrawalAmount, // This is the amount the user requested to withdraw
+            fee: withdrawalFee, // Store the fee charged
+            totalDeduction: totalDeduction, // Store the total amount deducted
+            type: 'debit',
+            category: 'withdrawal',
+            description: `Withdrawal to ${bankName} account ending in ${accountNumber.slice(-4)}`,
+            status: 'pending',
+            createdAt: new Date(),
         };
-        await transaction.save();
+        promoterWallet.transactions.push(newTransaction);
+        
+        // --- 4. Process External Payment ---
+        // The `processPayment` function should only be passed the user's requested amount, not the fee.
+        const paymentResponse = await processPayment(bank, accountNumber, accountName, withdrawalAmount);
 
-        // Process the automatic payment
-        const paymentResponse = await processPayment(bank, accountNumber, accountName, amount);
-
+        // --- 5. Update Database based on Payment Response ---
+        // Find the transaction record we just created.
+        const transactionToUpdate = promoterWallet.transactions[promoterWallet.transactions.length - 1];
+        
         if (paymentResponse.success) {
-            // Update transaction status to successful
-            transaction.status = "Successful";
-            await transaction.save();
-
-            // // Send email notification to owner
-            // const ownerSubject = "New Withdrawal Request";
-            // const ownerMessage = ownerEmailTemplate(user);
-            // const ownerEmails = ["ago.fnc@gmail.com"];
-            // for (const email of ownerEmails) {
-            //     await sendEmail(email, ownerSubject, ownerMessage);
-            // }
-
-            // Send email notification to the user
-            // const userSubject = "Successful Withdrawal - MarketSpase";
-            // const userMessage = userWithdrawalEmailTemplate(user, req.body);
-            // await sendEmail(user.email, userSubject, userMessage);
-
-
-            // If the user chooses to save the account, add it to their saved accounts
+            // Update transaction status
+            transactionToUpdate.status = "successful";
+            
+            // Add account to saved accounts if requested
             if (saveAccount) {
                 const existingAccount = user.savedAccounts.find(
                     (account) => account.accountNumber === accountNumber
@@ -206,45 +219,53 @@ export const withdrawRequest = async (req, res) => {
 
                 if (!existingAccount) {
                     user.savedAccounts.push({
+                        bank: bankName,
                         bankCode: bank,
                         accountNumber: accountNumber,
                         accountName: accountName,
-                        bank: bankName,
                     });
-                    await user.save();
                 }
             }
 
+            // Save the entire user document within the transaction
+            await user.save({ session });
+            await session.commitTransaction();
+            
             return res.status(200).json({
                 message: "Withdrawal successful, payment has been processed.",
-                data: transaction,
                 success: true,
+                data: {
+                    balance: promoterWallet.balance,
+                    transaction: transactionToUpdate,
+                },
             });
+
         } else {
-            // If payment fails, refund balance and update transaction status
-            user.wallets.promoter.balance  += amount;
-            //await user.save();
+            // Payment failed: refund the total deduction (amount + fee)
+            transactionToUpdate.status = "failed";
+            promoterWallet.balance += totalDeduction;
 
-            user.transactions.status = "Failed";
-            await user.save();
-
-            // Notify the user and owner of the failure
-            // const failureSubject = "Withdrawal Failed";
-            // const failureMessage = userWithdrawalEmailTemplate(user, req.body, "Failed");
-            // await sendEmail(user.email, failureSubject, failureMessage);
-
+            // Save the user document with the refunded balance and failed status
+            await user.save({ session });
+            await session.commitTransaction();
+            
             return res.status(500).json({
                 message: "Payment failed. Your balance has been refunded.",
-                data: transaction,
                 success: false,
             });
         }
     } catch (error) {
-        console.error(error.message);
+        // In case of any error (DB or external API), abort the transaction
+        if (session.inTransaction()) {
+            await session.abortTransaction();
+        }
+        console.error("Error during withdrawal request:", error);
         res.status(500).json({
-            message: "An error occurred while processing the withdrawal.",
+            message: "An unexpected error occurred.",
             success: false,
         });
+    } finally {
+        session.endSession();
     }
 };
 
@@ -252,7 +273,11 @@ export const withdrawRequest = async (req, res) => {
 // Delete saved accounts
 export const deleteSavedAccount = async (req, res) => {
     try {
-        const { userId, accountId } = req.params;
+        const { userId, accountNumber } = req.params;
+
+        if (!userId || !accountNumber) {
+            return res.status(400).json({ success: false, message: 'User ID and Account ID are required.' });
+        }
 
         // Find the user by ID
         const user = await UserModel.findById(userId);
@@ -261,9 +286,9 @@ export const deleteSavedAccount = async (req, res) => {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        // Find the account to delete
+        // Find the index of the account to delete
         const accountIndex = user.savedAccounts.findIndex(
-            (account) => account._id.toString() === accountId
+            (account) => account.accountNumber.toString() === accountNumber
         );
 
         if (accountIndex === -1) {
@@ -279,6 +304,7 @@ export const deleteSavedAccount = async (req, res) => {
         res.status(200).json({
             success: true,
             message: 'Saved account deleted successfully',
+            data: user.savedAccounts,
         });
     } catch (error) {
         console.error('Error deleting saved account:', error);
