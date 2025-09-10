@@ -1,15 +1,15 @@
 import { UserModel } from '../models/user.model.js';
 
 /**
- * Add funds to advertiser wallet (deposit).
+ * Add funds to marketer wallet (deposit).
  */
 export async function depositFunds(userId, amount, description = 'Wallet deposit') {
   const user = await UserModel.findById(userId);
   if (!user) throw new Error('User not found');
 
-  user.wallets.advertiser.balance += amount;
+  user.wallets.marketer.balance += amount;
 
-  user.wallets.advertiser.transactions.push({
+  user.wallets.marketer.transactions.push({
     amount,
     type: 'credit',
     category: 'deposit',
@@ -18,24 +18,24 @@ export async function depositFunds(userId, amount, description = 'Wallet deposit
   });
 
   await user.save();
-  return user.wallets.advertiser;
+  return user.wallets.marketer;
 }
 
 /**
- * Reserve advertiser funds for a campaign (escrow).
+ * Reserve marketer funds for a campaign (escrow).
  */
 export async function reserveFundsForCampaign(userId, campaignId, amount) {
   const user = await UserModel.findById(userId);
   if (!user) throw new Error('User not found');
 
-  if (user.wallets.advertiser.balance < amount) {
+  if (user.wallets.marketer.balance < amount) {
     throw new Error('Insufficient balance to reserve funds');
   }
 
-  user.wallets.advertiser.balance -= amount;
-  user.wallets.advertiser.reserved += amount;
+  user.wallets.marketer.balance -= amount;
+  user.wallets.marketer.reserved += amount;
 
-  user.wallets.advertiser.transactions.push({
+  user.wallets.marketer.transactions.push({
     amount,
     type: 'debit',
     category: 'campaign',
@@ -45,25 +45,25 @@ export async function reserveFundsForCampaign(userId, campaignId, amount) {
   });
 
   await user.save();
-  return user.wallets.advertiser;
+  return user.wallets.marketer;
 }
 
 /**
  * Release escrowed funds to promoter after verification.
  */
-export async function releaseEscrow(advertiserId, promoterId, campaignId, promotionId, amount) {
-  const advertiser = await UserModel.findById(advertiserId);
+export async function releaseEscrow(marketerId, promoterId, campaignId, promotionId, amount) {
+  const marketer = await UserModel.findById(marketerId);
   const promoter = await UserModel.findById(promoterId);
 
-  if (!advertiser || !promoter) throw new Error('User(s) not found');
+  if (!marketer || !promoter) throw new Error('User(s) not found');
 
-  if (advertiser.wallets.advertiser.reserved < amount) {
+  if (marketer.wallets.marketer.reserved < amount) {
     throw new Error('Insufficient reserved funds');
   }
 
-  // Deduct from advertiser reserved
-  advertiser.wallets.advertiser.reserved -= amount;
-  advertiser.wallets.advertiser.transactions.push({
+  // Deduct from marketer reserved
+  marketer.wallets.marketer.reserved -= amount;
+  marketer.wallets.marketer.transactions.push({
     amount,
     type: 'debit',
     category: 'campaign',
@@ -84,9 +84,9 @@ export async function releaseEscrow(advertiserId, promoterId, campaignId, promot
     status: 'successful',
   });
 
-  await advertiser.save();
+  await marketer.save();
   await promoter.save();
-  return { advertiserWallet: advertiser.wallets.advertiser, promoterWallet: promoter.wallets.promoter };
+  return { marketerWallet: marketer.wallets.marketer, promoterWallet: promoter.wallets.promoter };
 }
 
 /**

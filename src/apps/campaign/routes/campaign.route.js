@@ -53,7 +53,7 @@ CampaignRouter.post('/promotions/download', downloadPromotion);
 
 /* Dynamic Routes */
 
-// get all campaigns for an advertiser
+// get all campaigns for an marketer
 CampaignRouter.get('/user/:userId', getAUserCampaigns);
 
 // get a campaign by id

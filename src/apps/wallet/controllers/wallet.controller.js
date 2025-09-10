@@ -34,7 +34,7 @@ export const verifyAndRecordPayment = async (req, res) => {
   // Check if a transaction with this reference already exists in the database
   try {
     const existingUser = await UserModel.findOne({
-      'wallets.advertiser.transactions.description': `Paystack funding: ${reference}`
+      'wallets.marketer.transactions.description': `Paystack funding: ${reference}`
     });
 
     if (existingUser) {
@@ -80,9 +80,9 @@ export const verifyAndRecordPayment = async (req, res) => {
     session.startTransaction();
 
     try {
-      // Find the user and update their advertiser wallet balance
-      // Since the frontend payload shows `advertiser` wallet, we'll assume that's the one to fund.
-      user.wallets.advertiser.balance += amount; 
+      // Find the user and update their marketer wallet balance
+      // Since the frontend payload shows `marketer` wallet, we'll assume that's the one to fund.
+      user.wallets.marketer.balance += amount; 
 
       // Create the new transaction object based on your schema
       const newTransaction = {
@@ -94,8 +94,8 @@ export const verifyAndRecordPayment = async (req, res) => {
         createdAt: new Date()
       };
 
-      // Push the new transaction to the advertiser's wallet
-      user.wallets.advertiser.transactions.push(newTransaction);
+      // Push the new transaction to the marketer's wallet
+      user.wallets.marketer.transactions.push(newTransaction);
 
       // Save the user document within the session
       await user.save({ session });
@@ -108,7 +108,7 @@ export const verifyAndRecordPayment = async (req, res) => {
       res.status(200).json({
         success: true,
         message: 'Payment verified and wallet successfully funded.',
-        newBalance: user.wallets.advertiser.balance,
+        newBalance: user.wallets.marketer.balance,
         transactionId: newTransaction._id // Mongoose automatically adds _id for subdocuments
       });
 

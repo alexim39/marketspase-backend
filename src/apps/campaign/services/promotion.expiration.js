@@ -8,7 +8,7 @@ import { CampaignModel } from '../models/campaign.model.js'; // Assuming this pa
 const handleExpiredPromotion = async (promotion, session) => {
   const payoutAmount = promotion.payoutAmount;
   const campaign = promotion.campaign;
-  const advertiser = promotion.campaign.owner;
+  const marketer = promotion.campaign.owner;
 
   // 1. Revert funds from the promoter's reserved wallet
   await UserModel.findByIdAndUpdate(
@@ -17,19 +17,19 @@ const handleExpiredPromotion = async (promotion, session) => {
     { session }
   );
 
-  // 2. Refund the advertiser's reserved wallet
+  // 2. Refund the marketer's reserved wallet
   await UserModel.findByIdAndUpdate(
-    advertiser._id,
-    { $inc: { 'wallets.advertiser.reserved': payoutAmount } },
+    marketer._id,
+    { $inc: { 'wallets.marketer.reserved': payoutAmount } },
     { session }
   );
 
-  // 3. Add a refund transaction log to the advertiser's wallet
+  // 3. Add a refund transaction log to the marketer's wallet
   await UserModel.findByIdAndUpdate(
-    advertiser._id,
+    marketer._id,
     {
       $push: {
-        'wallets.advertiser.transactions': {
+        'wallets.marketer.transactions': {
           amount: payoutAmount,
           type: 'credit',
           category: 'refund',
@@ -66,7 +66,7 @@ const handleExpiredPromotion = async (promotion, session) => {
       $push: {
         activityLog: {
           action: "Promotion Expired",
-          details: `Promotion ID ${promotion._id} expired. Funds refunded to advertiser.`,
+          details: `Promotion ID ${promotion._id} expired. Funds refunded to marketer.`,
           timestamp: new Date(),
         },
       },

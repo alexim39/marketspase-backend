@@ -24,16 +24,16 @@ export const SwitchUser = async (req, res) => {
             });
         }
 
-        // Check if the user's current role is either 'promoter' or 'advertiser'
-        if (user.role !== 'promoter' && user.role !== 'advertiser') {
+        // Check if the user's current role is either 'promoter' or 'marketer'
+        if (user.role !== 'promoter' && user.role !== 'marketer') {
             return res.status(400).json({
                 success: false,
-                message: `User's current role '${user.role}' cannot be switched. Only 'promoter' and 'advertiser' roles are supported for switching.`
+                message: `User's current role '${user.role}' cannot be switched. Only 'promoter' and 'marketer' roles are supported for switching.`
             });
         }
 
         // Determine the new role based on the current role
-        const newRole = user.role === 'promoter' ? 'advertiser' : 'promoter';
+        const newRole = user.role === 'promoter' ? 'marketer' : 'promoter';
 
         // Update the user's role
         user.role = newRole;
