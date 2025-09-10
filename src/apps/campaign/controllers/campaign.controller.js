@@ -26,6 +26,7 @@ export const createCampaign = async (req, res) => {
       startDate,
       endDate,
       currency,
+      enableTarget,
     } = req.body;
 
    // console.log("Received campaign creation request:", req.body);
@@ -107,6 +108,7 @@ export const createCampaign = async (req, res) => {
       link,
       category,
       budget,
+      enableTarget,
       payoutPerPromotion,
       maxPromoters,
       startDate,

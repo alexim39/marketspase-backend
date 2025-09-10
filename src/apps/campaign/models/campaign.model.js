@@ -29,7 +29,7 @@ const campaignSchema = new mongoose.Schema(
     validatedPromotions: { type: Number, default: 0 },
     paidPromotions: { type: Number, default: 0 },
     spentBudget: { type: Number, default: 0 },
-
+    enableTarget: { type: Boolean, dafault: true },
     // Campaign timeline
     startDate: { type: Date, required: true, default: Date.now },
     endDate: { type: Date },
