@@ -575,7 +575,7 @@ export const downloadPromotion = async (req, res) => {
  * This function handles the financial logic for validating, rejecting, or marking a promotion as paid.
  * It operates based on a two-step escrow model:
  * 1. Funds are moved to the promoter's reserved wallet upon promotion acceptance.
- * 2. Funds are moved from reserved to balance upon validation, or refunded to the advertiser upon rejection.
+ * 2. Funds are moved from reserved to balance upon validation, or refunded to the marketer upon rejection.
  */
 export const updatePromotionStatus = async (req, res) => {
   const session = await mongoose.startSession();
@@ -610,7 +610,7 @@ export const updatePromotionStatus = async (req, res) => {
       .populate({
         path: 'campaign',
         populate: {
-          path: 'owner', // Populate the campaign owner (advertiser)
+          path: 'owner', // Populate the campaign owner (marketer)
           model: 'User'
         }
       })
@@ -628,7 +628,7 @@ export const updatePromotionStatus = async (req, res) => {
 
     const campaign = promotion.campaign;
     const promoter = promotion.promoter;
-    const advertiser = campaign.owner;
+    const marketer = campaign.owner;
     const payoutAmount = promotion.payoutAmount;
 
     // 3. Handle status transitions based on the new status
@@ -695,14 +695,14 @@ export const updatePromotionStatus = async (req, res) => {
         promotion.status = "rejected";
         promotion.rejectionReason = rejectionReason || "No reason provided.";
 
-        // **FINANCIAL LOGIC: Reserved Funds Refund to Advertiser**
+        // **FINANCIAL LOGIC: Reserved Funds Refund to marketer**
         // The funds were in the promoter's reserved wallet.
-        // We now debit them from there and credit them back to the advertiser's main balance.
+        // We now debit them from there and credit them back to the marketer's main balance.
         promoter.wallets.promoter.reserved -= payoutAmount;
-        advertiser.wallets.advertiser.reserved += payoutAmount;
+        marketer.wallets.marketer.reserved += payoutAmount;
 
-        // Add a refund transaction log to the advertiser's wallet
-        advertiser.wallets.advertiser.transactions.push({
+        // Add a refund transaction log to the marketer's wallet
+        marketer.wallets.marketer.transactions.push({
             amount: payoutAmount,
             type: 'credit',
             category: 'refund',
@@ -724,7 +724,7 @@ export const updatePromotionStatus = async (req, res) => {
         // Add to campaign activity log
         campaign.activityLog.push({
           action: "Promotion Rejected",
-          details: `Promotion ID ${promotion._id} rejected. Funds refunded to advertiser. Reason: ${promotion.rejectionReason}.`,
+          details: `Promotion ID ${promotion._id} rejected. Funds refunded to marketer. Reason: ${promotion.rejectionReason}.`,
         });
         
         break;
@@ -764,7 +764,7 @@ export const updatePromotionStatus = async (req, res) => {
     await promotion.save({ session });
     await campaign.save({ session });
     await promoter.save({ session });
-    await advertiser.save({ session });
+    await marketer.save({ session });
 
     // 5. Commit the transaction
     await session.commitTransaction();

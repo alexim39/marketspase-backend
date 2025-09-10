@@ -9,11 +9,11 @@ const transactionSchema = new mongoose.Schema({
     enum: [
       'deposit',       // funding wallet
       'withdrawal',    // payout to bank/mobile money
-      'campaign',      // advertiser spend
+      'campaign',      // marketer spend
       'promotion',     // promoter earning
       'bonus',         // referral/loyalty bonus
       'fee',           // platform/admin fees
-      'refund'         // advertiser refund
+      'refund'         // marketer refund
     ],
     required: true
   },
@@ -74,7 +74,7 @@ const userSchema = new mongoose.Schema(
 
     role: {
       type: String,
-      enum: ['advertiser', 'promoter', 'admin'],
+      enum: ['marketer', 'promoter', 'admin'],
       default: 'promoter',
     },
 
@@ -83,7 +83,7 @@ const userSchema = new mongoose.Schema(
 
     // Dual wallets (separate tracking for each role)
     wallets: {
-      advertiser: { type: walletSchema, default: () => ({}) },
+      marketer: { type: walletSchema, default: () => ({}) },
       promoter: { type: walletSchema, default: () => ({}) },
     },
 

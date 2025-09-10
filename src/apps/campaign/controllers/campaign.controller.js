@@ -87,8 +87,8 @@ export const createCampaign = async (req, res) => {
       });
     }
 
-    const advertiserWallet = user.wallets.advertiser;
-    if (advertiserWallet.balance < budget) {
+    const marketerWallet = user.wallets.marketer;
+    if (marketerWallet.balance < budget) {
       // Delete the file if funds are insufficient
       if (req.file) {
         fs.unlinkSync(req.file.path);
@@ -120,9 +120,9 @@ export const createCampaign = async (req, res) => {
       activityLog: [{ action: 'Campaign Created', details: 'Initial campaign creation.' }],
     });
 
-    advertiserWallet.balance = Number(advertiserWallet.balance) - Number(budget);
-    advertiserWallet.reserved = Number(advertiserWallet.reserved) + Number(budget);
-    advertiserWallet.transactions.push({
+    marketerWallet.balance = Number(marketerWallet.balance) - Number(budget);
+    marketerWallet.reserved = Number(marketerWallet.reserved) + Number(budget);
+    marketerWallet.transactions.push({
       amount: budget,
       type: "debit",
       category: "campaign",
@@ -273,7 +273,7 @@ export const getCampaignsByStatus = async (req, res) => {
 
 /**
  * @description Allows a promoter to accept a campaign, creating a promotion record
- * and securely updating the reserved funds in both the advertiser's and promoter's
+ * and securely updating the reserved funds in both the marketer's and promoter's
  * wallets using a database transaction.
  * @param {object} req - The request object.
  * @param {object} res - The response object.
@@ -323,9 +323,9 @@ export const acceptCampaign = async (req, res) => {
     }
 
     const payoutAmount = campaign.payoutPerPromotion;
-    const advertiser = await UserModel.findById(campaign.owner).session(session);
+    const marketer = await UserModel.findById(campaign.owner).session(session);
 
-    if (!advertiser) {
+    if (!marketer) {
       await session.abortTransaction();
       return res.status(500).json({ success: false, message: 'Campaign owner not found.' });
     }
@@ -341,9 +341,9 @@ export const acceptCampaign = async (req, res) => {
     
 
     // 6. Update wallet balances within the transaction
-    // Deduct from advertiser's reserved wallet
-    advertiser.wallets.advertiser.reserved = (advertiser.wallets.advertiser.reserved || 0) - payoutAmount;
-    advertiser.wallets.advertiser.transactions.push({
+    // Deduct from marketer's reserved wallet
+    marketer.wallets.marketer.reserved = (marketer.wallets.marketer.reserved || 0) - payoutAmount;
+    marketer.wallets.marketer.transactions.push({
       amount: payoutAmount,
       type: "debit",
       category: "campaign",
@@ -375,7 +375,7 @@ export const acceptCampaign = async (req, res) => {
     }
 
     // 8. Save all documents
-    await advertiser.save({ session });
+    await marketer.save({ session });
     await promoter.save({ session });
     await campaign.save({ session });
     
