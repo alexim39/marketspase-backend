@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+/* import mongoose from "mongoose";
 
 const promotionSchema = new mongoose.Schema(
   {
@@ -42,3 +42,4 @@ promotionSchema.pre("save", function (next) {
 });
 
 export const PromotionModel = mongoose.model("Promotion", promotionSchema);
+ */

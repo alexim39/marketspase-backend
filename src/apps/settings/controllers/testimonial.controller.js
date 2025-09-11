@@ -378,6 +378,9 @@ export const getRandomTestimonials = async (req, res) => {
         $project: {
           _id: 0, // Exclude the original testimonial ID
           message: '$message', // Get the message from the testimonial document
+          rating: { 
+            $ifNull: ['$rating', 0] // Get the rating or default to 0 if not present
+          },
           avatar: { 
             $ifNull: ['$userInfo.avatar', '/img/avatar.png'] // Get user's avatar or a default
           },

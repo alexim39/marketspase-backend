@@ -1,4 +1,4 @@
-import cron from "node-cron";
+/* import cron from "node-cron";
 import { PromotionModel } from "./../models/promotion.model.js";
 import { UserModel } from "./../../user/models/user.model.js";
 
@@ -33,3 +33,4 @@ cron.schedule("0 * * * *", async () => {
     console.error("❌ Error running fallback validation cron:", err);
   }
 });
+ */
