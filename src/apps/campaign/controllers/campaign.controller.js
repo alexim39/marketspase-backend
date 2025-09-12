@@ -444,7 +444,7 @@ export const getAllCampaigns = async (req, res) => {
 /**
  * Controller to get a single campaign by its ID.
  * It populates the 'owner' field with all user data (excluding the password)
- * and the 'promotions' virtual with all promotion data.
+ * and the 'promotions' virtual with all promotion data, including the promoter details.
  */
 export const getCampaignById = async (req, res) => {
   try {
@@ -462,15 +462,18 @@ export const getCampaignById = async (req, res) => {
     // 3. Find the campaign by its ID
     const campaign = await CampaignModel.findById(id)
       // 4. Populate the 'owner' field with all user details, excluding the password.
-      // An empty select string or a select string with just '-password' populates all other fields.
       .populate({
         path: "owner",
         select: "-password",
       })
-      // 5. Populate the 'promotions' virtual field with all promotion details.
-      // Leaving the select option blank or omitting it altogether populates all fields.
+      // 5. Populate the 'promotions' virtual field and then populate the 'promoter' field within each promotion.
       .populate({
         path: "promotions",
+        // Nested populate to get the promoter details
+        populate: {
+          path: "promoter",
+          select: "-password", // Exclude password from the promoter's details
+        },
       })
       .exec();
 

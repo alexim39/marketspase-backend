@@ -282,18 +282,18 @@ export const submitProof = async (req, res) => {
     }
 
     // LOGIC: Check if promotion submission is within the last 30 minutes of its 24-hour window
-    const creationTime = new Date(promotion.createdAt).getTime();
-    const now = new Date().getTime();
-    const thirtyMinutesInMs = 30 * 60 * 1000;
-    const twentyFourHoursInMs = 24 * 60 * 60 * 1000;
-    const timeSinceCreation = now - creationTime;
+    // const creationTime = new Date(promotion.createdAt).getTime();
+    // const now = new Date().getTime();
+    // const thirtyMinutesInMs = 30 * 60 * 1000;
+    // const twentyFourHoursInMs = 24 * 60 * 60 * 1000;
+    // const timeSinceCreation = now - creationTime;
 
-    if (timeSinceCreation < twentyFourHoursInMs - thirtyMinutesInMs) {
-      return res.status(400).json({
-        success: false,
-        message: "Proof can only be submitted 30 minutes before the promotion expires.",
-      });
-    }
+    // if (timeSinceCreation < twentyFourHoursInMs - thirtyMinutesInMs) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Proof can only be submitted 30 minutes before the promotion expires.",
+    //   });
+    // }
 
     // Check campaign end date
     const campaign = await CampaignModel.findById(promotion.campaign);
@@ -335,7 +335,8 @@ export const submitProof = async (req, res) => {
 
       // Build a public URL (adjust this to match your static file serving)
       //const publicUrl = `/uploads/campaigns/${campaignId}/proofs/${filename}`;
-      const publicUrl = `/src/uploads/proofs/${filename}`;
+      //const publicUrl = `/src/uploads/proofs/${filename}`;
+      const publicUrl = `/uploads/proofs/${filename}`;
       proofMediaUrls.push(publicUrl);
     }
 
