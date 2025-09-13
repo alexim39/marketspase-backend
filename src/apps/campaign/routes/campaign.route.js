@@ -56,7 +56,7 @@ CampaignRouter.post('/promotions/download', downloadPromotion);
 // get all campaigns for an marketer
 CampaignRouter.get('/user/:userId', getAUserCampaigns);
 
-// get a campaign by id
+// get a campaign by id - used by admin and owner of campaign
 CampaignRouter.get('/:id', getCampaignById);
 
 //
