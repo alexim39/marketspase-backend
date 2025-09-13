@@ -386,7 +386,7 @@ export const acceptCampaign = async (req, res) => {
     // 10. Send success response
     res.json({
       success: true,
-      message: 'You have successfully accepted this campaign. Funds have been reserved for you. Check your promotion page to submit initial proof.',
+      message: 'Promotion accepted. Funds have been reserved for you. Check your promotion page to submit completion proof.',
       promotion: promotion
     });
 
