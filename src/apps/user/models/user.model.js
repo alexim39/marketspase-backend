@@ -13,7 +13,9 @@ const transactionSchema = new mongoose.Schema({
       'promotion',     // promoter earning
       'bonus',         // referral/loyalty bonus
       'fee',           // platform/admin fees
-      'refund'         // marketer refund
+      'refund',         // marketer refund
+      'transfer',
+      'commission'
     ],
     required: true
   },
@@ -27,7 +29,7 @@ const transactionSchema = new mongoose.Schema({
   // Transaction state tracking
   status: { 
     type: String, 
-    enum: ['pending', 'successful', 'failed'], 
+    enum: ['pending', 'successful', 'failed', 'reserved'], 
     default: 'pending' 
   },
 

@@ -239,7 +239,7 @@ export const submitProof = async (req, res) => {
  * @param {object} res - The response object.
  * @returns {Promise<void>}
  */
-export const submitProof = async (req, res) => {
+/* export const submitProof = async (req, res) => {
   try {
     const {
       promotionId,
@@ -282,18 +282,18 @@ export const submitProof = async (req, res) => {
     }
 
     // LOGIC: Check if promotion submission is within the last 30 minutes of its 24-hour window
-    // const creationTime = new Date(promotion.createdAt).getTime();
-    // const now = new Date().getTime();
-    // const thirtyMinutesInMs = 30 * 60 * 1000;
-    // const twentyFourHoursInMs = 24 * 60 * 60 * 1000;
-    // const timeSinceCreation = now - creationTime;
+    const creationTime = new Date(promotion.createdAt).getTime();
+    const now = new Date().getTime();
+    const thirtyMinutesInMs = 30 * 60 * 1000;
+    const twentyFourHoursInMs = 24 * 60 * 60 * 1000;
+    const timeSinceCreation = now - creationTime;
 
-    // if (timeSinceCreation < twentyFourHoursInMs - thirtyMinutesInMs) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Proof can only be submitted 30 minutes before the promotion expires.",
-    //   });
-    // }
+    if (timeSinceCreation < twentyFourHoursInMs - thirtyMinutesInMs) {
+      return res.status(400).json({
+        success: false,
+        message: "Proof can only be submitted 30 minutes before the promotion expires.",
+      });
+    }
 
     // Check campaign end date
     const campaign = await CampaignModel.findById(promotion.campaign);
@@ -334,8 +334,6 @@ export const submitProof = async (req, res) => {
       fs.writeFileSync(filePath, image.buffer);
 
       // Build a public URL (adjust this to match your static file serving)
-      //const publicUrl = `/uploads/campaigns/${campaignId}/proofs/${filename}`;
-      //const publicUrl = `/src/uploads/proofs/${filename}`;
       const publicUrl = `/uploads/proofs/${filename}`;
       proofMediaUrls.push(publicUrl);
     }
@@ -399,6 +397,221 @@ export const submitProof = async (req, res) => {
     });
   }
 };
+ */
+
+
+
+
+/**
+ * @description Submit a promoter proofs. 
+ * It allows promoters to submit screenshot of their promotion 30min before expiration
+ * @param {object} req - The request object.
+ * @param {object} res - The response object.
+ * @returns {Promise<void>}
+ */
+export const submitProof = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const {
+      promotionId,
+      viewsCount,
+      notes
+    } = req.body;
+    const proofImages = req.files;
+    const {promoterId} = req.params; // Assuming authentication middleware sets req.user
+
+    // Validate required fields
+    if (
+      !promotionId ||
+      !viewsCount ||
+      !proofImages ||
+      proofImages.length === 0
+    ) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Promotion ID, views count, and proof images are required",
+      });
+    }
+
+    // Validate promotion exists within transaction
+    const promotion = await PromotionModel.findById(promotionId)
+      .populate("campaign")
+      .populate("promoter")
+      .session(session);
+
+    if (!promotion) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: "Promotion not found",
+      });
+    }
+
+    // Verify the authenticated user owns this promotion
+    if (promotion.promoter._id.toString() !== promoterId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to submit proof for this promotion",
+      });
+    }
+
+    // Check if promotion is in pending status
+    if (promotion.status !== "pending") {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: `Cannot submit proof for promotion with status: ${promotion.status}`,
+      });
+    }
+
+    // LOGIC: Check if promotion submission is within the last 30 minutes of its 24-hour window
+    // const creationTime = new Date(promotion.createdAt).getTime();
+    // const now = new Date().getTime();
+    // const thirtyMinutesInMs = 30 * 60 * 1000;
+    // const twentyFourHoursInMs = 24 * 60 * 60 * 1000;
+    // const timeSinceCreation = now - creationTime;
+
+    // if (timeSinceCreation < twentyFourHoursInMs - thirtyMinutesInMs) {
+    //   await session.abortTransaction();
+    //   session.endSession();
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Proof can only be submitted 30 minutes before the promotion expires.",
+    //   });
+    // }
+
+    // Check campaign end date and status
+    const campaign = promotion.campaign;
+    if (campaign && campaign.endDate && new Date() > campaign.endDate) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Campaign has ended. Proof submission is closed.",
+      });
+    }
+
+    if (campaign.status !== 'active') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: `Campaign is ${campaign.status}. Proof submission is closed.`,
+      });
+    }
+
+    // Validate minimum views requirement
+    const minViews = campaign.minViewsPerPromotion || 25;
+    if (parseInt(viewsCount) < minViews) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: `Minimum ${minViews} views required. You reported ${viewsCount}.`,
+      });
+    }
+
+    // Create proofs directory
+    //const uploadDir = path.join(process.cwd(), "uploads", "proofs", promotionId);
+    const uploadDir = path.join(process.cwd(), "src", "uploads", "proofs");
+    fs.mkdirSync(uploadDir, { recursive: true });
+
+    // Save proof images locally and build URLs
+    const proofMediaUrls = [];
+    for (const image of proofImages) {
+      const ext = path.extname(image.originalname);
+      const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+      const filePath = path.join(uploadDir, filename);
+
+      fs.writeFileSync(filePath, image.buffer);
+      //const publicUrl = `/uploads/proofs/${promotionId}/${filename}`;
+      const publicUrl = `/uploads/proofs/${filename}`;
+      proofMediaUrls.push(publicUrl);
+    }
+
+    // Optional: AI validation of proof images
+    let aiValidationResult = null;
+    try {
+      aiValidationResult = await validateProofSubmission(
+        proofMediaUrls,
+        promotion
+      );
+    } catch (validationError) {
+      console.warn(
+        "AI validation failed, proceeding with manual review:",
+        validationError
+      );
+    }
+
+    // Update promotion with proof data using model methods
+    promotion.status = "submitted";
+    promotion.submittedAt = new Date();
+    promotion.proofMedia = proofMediaUrls;
+    promotion.proofViews = parseInt(viewsCount);
+    promotion.notes = notes || "";
+    
+    // Add AI validation results if available
+    if (aiValidationResult) {
+      promotion.aiValidation = {
+        isValid: aiValidationResult.isValid,
+        confidence: aiValidationResult.confidence,
+        feedback: aiValidationResult.feedback,
+        validatedAt: new Date(),
+      };
+    }
+    
+    // Add to promotion activity log
+    promotion.activityLog.push({
+      action: "Proof Submitted",
+      details: `Submitted proof with ${viewsCount} views${aiValidationResult ? ` (AI confidence: ${aiValidationResult.confidence}%)` : ''}`,
+      timestamp: new Date(),
+      performedBy: promoterId
+    });
+
+    // Add to campaign activity log
+    campaign.activityLog.push({
+      action: "Proof Submitted",
+      details: `Promoter ${promotion.promoter.displayName} submitted proof with ${viewsCount} views for promotion UPI: ${promotion.upi}`,
+      timestamp: new Date(),
+      performedBy: promoterId
+    });
+
+    // Save all documents within transaction
+    await promotion.save({ session });
+    await campaign.save({ session });
+
+    // Commit transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      success: true,
+      data: promotion,
+      message: aiValidationResult?.isValid 
+        ? "Proof submitted successfully and AI validation passed" 
+        : "Proof submitted successfully and awaiting review",
+    });
+  } catch (error) {
+    // Rollback transaction on error
+    await session.abortTransaction();
+    session.endSession();
+    
+    console.error("Error submitting proof:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
 
 
 /**
@@ -446,7 +659,7 @@ export const getProofDetails = async (req, res) => {
  * @param {object} res - The response object from Express.js.
  * @returns {Promise<void>}
  */
-export const downloadPromotion = async (req, res) => {
+/* export const downloadPromotion = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -568,6 +781,197 @@ export const downloadPromotion = async (req, res) => {
       error: error.message,
     });
   }
+}; */
+
+
+
+/**
+ * @description Allows a promoter to "download" a campaign post. This action
+ * marks the promotion as 'isDownloaded' and registers the promoter to the campaign.
+ * It also checks if the campaign has available slots and updates the campaign's
+ * `currentPromoters` count within a secure transaction.
+ * @param {object} req - The request object containing campaignId and promoterId.
+ * @param {object} res - The response object from Express.js.
+ * @returns {Promise<void>}
+ */
+export const downloadPromotion = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { campaignId, promoterId } = req.body;
+
+    // Validate required fields
+    if (!campaignId || !promoterId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: "Missing required fields: campaignId and promoterId.",
+        success: false,
+      });
+    }
+
+    // Find the campaign and user (promoter) with population
+    const campaign = await CampaignModel.findById(campaignId)
+      .populate('owner')
+      .session(session);
+    const promoter = await UserModel.findById(promoterId).session(session);
+
+    if (!campaign || !promoter) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        message: "Campaign or Promoter not found.",
+        success: false,
+      });
+    }
+
+    // Check if the user is a promoter
+    if (promoter.role !== 'promoter') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({
+        message: 'User is not authorized to download this promotion.',
+        success: false,
+      });
+    }
+
+    // Check if campaign is active
+    if (campaign.status !== 'active') {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: `Campaign is not active. Current status: ${campaign.status}`,
+        success: false,
+      });
+    }
+
+    // Check if campaign can accept more promoters
+    if (!campaign.canAssignPromoter()) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: 'Campaign is full or budget exhausted.',
+        success: false,
+      });
+    }
+
+    // Check if a promotion already exists for this campaign and promoter
+    const existingPromotion = await PromotionModel.findOne({
+      campaign: campaignId,
+      promoter: promoterId,
+    }).session(session);
+
+    // If no promotion exists, create a new one.
+    let promotion;
+    if (!existingPromotion) {
+      promotion = new PromotionModel({
+        campaign: campaignId,
+        promoter: promoterId,
+        payoutAmount: campaign.payoutPerPromotion,
+        isDownloaded: true,
+        notes: "Campaign post downloaded by promoter.",
+        activityLog: [{
+          action: "Campaign Downloaded",
+          details: "Promoter downloaded campaign materials",
+          timestamp: new Date()
+        }]
+      });
+      await promotion.save({ session });
+    } else {
+      // If a promotion exists but isn't marked as downloaded, update it
+      existingPromotion.isDownloaded = true;
+      existingPromotion.notes = "Campaign post re-downloaded by promoter.";
+      existingPromotion.activityLog.push({
+        action: "Campaign Re-downloaded",
+        details: "Promoter re-downloaded campaign materials",
+        timestamp: new Date()
+      });
+      promotion = existingPromotion;
+      await promotion.save({ session });
+    }
+
+    // Use the `assignPromoter` helper method from the Campaign model
+    campaign.assignPromoter();
+    
+    // Reserve funds from marketer's wallet to promoter's reserved wallet
+    const marketer = campaign.owner;
+    const payoutAmount = campaign.payoutPerPromotion;
+    
+    // Check if marketer has sufficient reserved funds
+    if (marketer.wallets.marketer.reserved < payoutAmount) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(402).json({
+        message: "Insufficient reserved funds in marketer's wallet.",
+        success: false,
+      });
+    }
+    
+    // Transfer funds from marketer's reserved to promoter's reserved
+    marketer.wallets.marketer.reserved -= payoutAmount;
+    promoter.wallets.promoter.reserved += payoutAmount;
+    
+    // Add transaction records
+    marketer.wallets.marketer.transactions.push({
+      amount: payoutAmount,
+      type: "debit",
+      category: "campaign",
+      description: `Funds reserved for promoter ${promoter.displayName} for campaign: "${campaign.title}"`,
+      relatedCampaign: campaignId,
+      relatedPromotion: promotion._id,
+      status: "successful",
+    });
+    
+    promoter.wallets.promoter.transactions.push({
+      amount: payoutAmount,
+      type: "credit",
+      category: "promotion",
+      description: `Funds reserved from campaign: "${campaign.title}"`,
+      relatedCampaign: campaignId,
+      relatedPromotion: promotion._id,
+      status: "reserved",
+    });
+    
+    // Update campaign activity log
+    campaign.activityLog.push({
+      action: "Promoter Registered",
+      details: `Promoter ${promoter.displayName} downloaded campaign. Total promoters: ${campaign.currentPromoters}`,
+      timestamp: new Date()
+    });
+
+    // Save all documents
+    await campaign.save({ session });
+    await marketer.save({ session });
+    await promoter.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      message: "Campaign post downloaded successfully. You can now share it on your status.",
+      success: true,
+      campaign: {
+        title: campaign.title,
+        caption: campaign.caption,
+        link: campaign.link,
+        mediaUrl: `${req.protocol}://${req.get("host")}${campaign.mediaUrl}`,
+        mediaType: campaign.mediaType,
+      },
+      promotionId: promotion._id,
+      upi: promotion.upi,
+      reservedAmount: payoutAmount
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Error downloading promotion:", error.message);
+    res.status(500).json({
+      message: "Error occurred while processing the download request.",
+      success: false,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
 };
 
 
@@ -578,7 +982,7 @@ export const downloadPromotion = async (req, res) => {
  * 1. Funds are moved to the promoter's reserved wallet upon promotion acceptance.
  * 2. Funds are moved from reserved to balance upon validation, or refunded to the marketer upon rejection.
  */
-export const updatePromotionStatus = async (req, res) => {
+/* export const updatePromotionStatus = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -791,6 +1195,248 @@ export const updatePromotionStatus = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "An error occurred while updating the promotion status.",
+    });
+  }
+}; */
+
+
+
+
+/**
+ * Controller to update a promotion's status by an admin.
+ * This function handles the financial logic for validating, rejecting, or marking a promotion as paid.
+ * It operates based on a two-step escrow model:
+ * 1. Funds are moved to the promoter's reserved wallet upon promotion acceptance.
+ * 2. Funds are moved from reserved to balance upon validation, or refunded to the marketer upon rejection.
+ */
+export const updatePromotionStatus = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { id } = req.params;
+    const { status, rejectionReason } = req.body;
+    const {performedBy} = req.params; // Get the user performing the action
+
+    // 1. Validate input
+    if (!id || !status) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Promotion ID and new status are required.",
+      });
+    }
+
+    if (!performedBy) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required to perform this action.",
+      });
+    }
+
+    const validStatuses = ["validated", "rejected", "paid"];
+    if (!validStatuses.includes(status)) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status provided. Only 'validated', 'rejected', or 'paid' are allowed.",
+      });
+    }
+
+    // 2. Find the promotion and populate related documents
+    const promotion = await PromotionModel.findById(id)
+      .populate({
+        path: 'campaign',
+        populate: {
+          path: 'owner', // Populate the campaign owner (marketer)
+          model: 'User'
+        }
+      })
+      .populate('promoter')
+      .session(session);
+
+    if (!promotion) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: "Promotion not found.",
+      });
+    }
+
+    const campaign = promotion.campaign;
+    const promoter = promotion.promoter;
+    const marketer = campaign.owner;
+    const payoutAmount = promotion.payoutAmount || campaign.payoutPerPromotion;
+
+    // 3. Handle status transitions based on the new status
+    switch (status) {
+      case "validated":
+        if (promotion.status !== "submitted") {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({
+            success: false,
+            message: "Cannot validate a promotion that is not in 'submitted' status.",
+          });
+        }
+        
+        // Use the model method for consistency
+        promotion.validatePromotion(performedBy);
+        
+        // **FINANCIAL LOGIC: Reserved to Balance Fund Transfer**
+        // The funds are already in the promoter's reserved wallet.
+        // We now move them to their main balance.
+        promoter.wallets.promoter.reserved -= payoutAmount;
+        promoter.wallets.promoter.balance += payoutAmount;
+
+        // Add a credit transaction log to the promoter's wallet
+        promoter.wallets.promoter.transactions.push({
+            amount: payoutAmount,
+            type: 'credit',
+            category: 'promotion',
+            description: `Earnings from campaign: ${campaign.title} (UPI: ${promotion.upi})`,
+            relatedCampaign: campaign._id,
+            relatedPromotion: promotion._id,
+            status: 'successful'
+        });
+
+        // Update campaign stats using model method
+        campaign.validatePromotion();
+        
+        // Check if the campaign is completed
+        if (campaign.validatedPromotions >= campaign.maxPromoters) {
+          campaign.updateStatus("completed", performedBy, "All promotions validated");
+          campaign.endDate = new Date();
+        }
+
+        // Add to campaign activity log with performedBy
+        campaign.activityLog.push({
+          action: "Promotion Validated",
+          details: `Promotion UPI ${promotion.upi} validated. Promoter ${promoter.displayName} earned ${payoutAmount} NGN.`,
+          performedBy: performedBy,
+          timestamp: new Date()
+        });
+        
+        break;
+
+      case "rejected":
+        if (promotion.status !== "submitted") {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({
+            success: false,
+            message: "Cannot reject a promotion that is not in 'submitted' status.",
+          });
+        }
+        
+        // Use the model method for consistency
+        promotion.rejectPromotion(rejectionReason || "No reason provided.", performedBy);
+
+        // **FINANCIAL LOGIC: Reserved Funds Refund to marketer**
+        // The funds were in the promoter's reserved wallet.
+        // We now debit them from there and credit them back to the marketer's reserved balance.
+        promoter.wallets.promoter.reserved -= payoutAmount;
+        marketer.wallets.marketer.reserved += payoutAmount;
+
+        // Add a refund transaction log to the marketer's wallet
+        marketer.wallets.marketer.transactions.push({
+            amount: payoutAmount,
+            type: 'credit',
+            category: 'refund',
+            description: `Refund for rejected promotion: ${promotion.upi}`,
+            relatedCampaign: campaign._id,
+            relatedPromotion: promotion._id,
+            status: 'successful'
+        });
+        
+        // Revert campaign stats
+        campaign.currentPromoters -= 1;
+        campaign.totalPromotions -= 1;
+        campaign.spentBudget -= payoutAmount; // Revert the spent budget
+        
+        // Check if the campaign can be re-opened for new promoters
+        if (campaign.status === "exhausted" && campaign.canAssignPromoter()) {
+          campaign.updateStatus("active", performedBy, "Promotion rejected, campaign reopened");
+        }
+        
+        // Add to campaign activity log with performedBy
+        campaign.activityLog.push({
+          action: "Promotion Rejected",
+          details: `Promotion UPI ${promotion.upi} rejected. Funds refunded to marketer. Reason: ${promotion.rejectionReason}.`,
+          performedBy: performedBy,
+          timestamp: new Date()
+        });
+        
+        break;
+
+      case "paid":
+        if (promotion.status !== "validated") {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({
+            success: false,
+            message: "Cannot mark a promotion as 'paid' that is not in 'validated' status.",
+          });
+        }
+        
+        // Use the model method for consistency
+        promotion.markAsPaid(performedBy);
+        
+        // Update campaign using the recordPromoterPayment method
+        campaign.recordPromoterPayment(payoutAmount);
+        
+        // Add to campaign activity log with performedBy
+        campaign.activityLog.push({
+          action: "Promotion Paid",
+          details: `Payout for promotion UPI ${promotion.upi} confirmed.`,
+          performedBy: performedBy,
+          timestamp: new Date()
+        });
+        
+        break;
+
+      default:
+        await session.abortTransaction();
+        session.endSession();
+        break;
+    }
+
+    // 4. Save the changes to all documents
+    await promotion.save({ session });
+    await campaign.save({ session });
+    await promoter.save({ session });
+    await marketer.save({ session });
+
+    // 5. Commit the transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    // 6. Send a success response
+    res.status(200).json({
+      success: true,
+      message: `Promotion status updated to '${status}' successfully.`,
+      data: promotion,
+    });
+  } catch (error) {
+    // 7. Handle errors and abort the transaction
+    await session.abortTransaction();
+    session.endSession();
+    console.error("Error updating promotion status:", error);
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid promotion ID format.",
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: "An error occurred while updating the promotion status.",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

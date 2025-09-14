@@ -6,7 +6,8 @@ import {
     acceptCampaign,
     getAllCampaigns,
     getCampaignById,
-    updateCampaignStatus
+    updateCampaignStatus,
+    updateCampaign
 } from '../controllers/campaign.controller.js'
 import { campaignUpload } from '../services/upload.js';
 import {   getUserPromotions, submitProof, getProofDetails, downloadPromotion, updatePromotionStatus } from '../controllers/promotion.controller.js'
@@ -35,9 +36,10 @@ CampaignRouter.get('/', getCampaignsByStatus);
 
 // create campaign payment
 CampaignRouter.post('/create', campaignUpload.single('media'), createCampaign);
+CampaignRouter.put('/edit/:id/:performedBy', campaignUpload.single('media'), updateCampaign);
 
 // POST /api/promotions/submit-proof
-CampaignRouter.post('/promotions/submit-proof', upload.array('proofImages', 3), submitProof);
+CampaignRouter.post('/promotions/submit-proof/:promoterId', upload.array('proofImages', 3), submitProof);
 
 // admin - get all campaigns
 CampaignRouter.get('/campaigns', getAllCampaigns);
@@ -68,7 +70,7 @@ CampaignRouter.post('/:campaignId/accept', acceptCampaign);
 // Admin - update campaign status: approve, reject, pause,
 CampaignRouter.patch('/:id/status', updateCampaignStatus);
 // Admin - update promotion status: approve, reject, pause,
-CampaignRouter.patch('/promotion/:id/status', updatePromotionStatus);
+CampaignRouter.patch('/promotion/:id/status/:performedBy', updatePromotionStatus);
 
 // GET /api/promotions/proof/:promotionId
 CampaignRouter.get('/promotions/proof/:promotionId', getProofDetails);
