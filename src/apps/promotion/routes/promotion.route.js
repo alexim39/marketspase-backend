@@ -1,18 +1,17 @@
-/* import express from 'express';
+import express from 'express';
 import { 
-    getTransactions,
-    withdrawRequest, deleteSavedAccount
-} from '../controllers/transaction.controller.js'
+    getPromotionById
+} from '../controllers/promotion.controller.js'
 
-const TransactionRouter = express.Router();
+const PromoterRouter = express.Router();
 
-// get transactions
-TransactionRouter.get('/:userId', getTransactions);
-
-// confirm payment
-TransactionRouter.post('/withdraw-request', withdrawRequest);
+// get promotion
+PromoterRouter.get('/:id/:userId', getPromotionById);
 
 // confirm payment
-TransactionRouter.delete('/saved-accounts/:userId/:accountId', deleteSavedAccount);
+//TransactionRouter.post('/withdraw-request', withdrawRequest);
 
-export default TransactionRouter; */
+// confirm payment
+//TransactionRouter.delete('/saved-accounts/:userId/:accountId', deleteSavedAccount);
+
+export default PromoterRouter;

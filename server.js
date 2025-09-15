@@ -17,6 +17,7 @@ import SettingsRouter from './src/apps/settings/index.js';
 import ContactRouter from './src/apps/contact/index.js';
 import DashboardRouter from './src/apps/dashboard/index.js';
 import AdminAuthRouter from './src/apps/admin/auth/index.js';
+import PromoterRouter from './src/apps/promotion/index.js';
 
 
 const port = process.env.PORT || 8080;
@@ -54,6 +55,7 @@ app.use('/settings', SettingsRouter);
 app.use('/contact', ContactRouter);
 app.use('/dashboard', DashboardRouter);
 app.use('/admin', AdminAuthRouter);
+app.use('/promotion', PromoterRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
