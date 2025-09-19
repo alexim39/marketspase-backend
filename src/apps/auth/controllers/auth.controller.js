@@ -1,7 +1,7 @@
 import { UserModel } from "../../user/models/user.model.js";
 import { sendEmail } from "../../../services/emailService.js";
 import { generateUniqueUsername } from '../services/username-generator.js'; 
-import { ownerEmailTemplate } from '../services/email/ownerTemplate.js'; 
+import { adminWelcomeEmailTemplate } from '../services/email/adminTemplate.js'; 
 import { userWelcomeEmailTemplate } from '../services/email/userWelcomeTemplate.js';
 import { CampaignModel } from "../../campaign/models/campaign.model.js"; // Add this import
 import { PromotionModel } from "../../campaign/models/promotion.model.js"; // Add this import
@@ -72,7 +72,7 @@ export const Authenticate = async (req, res) => {
 
       //Send email to form owner
       const ownerSubject = 'New MarketSpase Sign Up';
-      const ownerMessage = ownerEmailTemplate(newUser);
+      const ownerMessage = adminWelcomeEmailTemplate(newUser);
       const ownerEmails = ['schooltraz@gmail.com'];
       await Promise.all(ownerEmails.map(email => sendEmail(email, ownerSubject, ownerMessage)));
 

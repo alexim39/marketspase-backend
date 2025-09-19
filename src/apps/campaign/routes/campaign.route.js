@@ -1,71 +1,53 @@
 import express from 'express';
-import { 
-    createCampaign, 
-    getAUserCampaigns,
-    getCampaignsByStatus,
-    acceptCampaign,
-    getAllCampaigns,
-    getCampaignById,
-    updateCampaignStatus,
-    updateCampaign
-} from '../controllers/campaign.controller.js'
+import { acceptCampaign } from '../controllers/accept-campaign.controller.js'
+import { createCampaign } from '../controllers/create-campaign.controller.js'
+import { updateCampaignStatus, updateCampaign } from '../controllers/update-campaign.controller.js'
+import { getCampaignById, getAUserCampaigns, getCampaignsByStatus, getAllCampaigns } from '../controllers/get.controller.js'
 import { campaignUpload } from '../services/upload.js';
-import {   getUserPromotions, submitProof, getProofDetails, downloadPromotion, updatePromotionStatus } from '../controllers/promotion.controller.js'
-import multer from 'multer';
+import { getProofDetails,  updatePromotionStatus } from '../controllers/promotion.controller.js'
 
-const upload = multer({
-  storage: multer.memoryStorage(), // Store files in memory for cloud upload
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-    files: 3 // Max 3 files
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed'));
-    }
-  }
-});
+
+
 
 const CampaignRouter = express.Router();
 
-
 // get campaigns by status (e.g., /campaign?status=active)
 CampaignRouter.get('/', getCampaignsByStatus);
-
-// create campaign payment
+// create campaign
 CampaignRouter.post('/create', campaignUpload.single('media'), createCampaign);
+// edit campaign
 CampaignRouter.put('/edit/:id/:performedBy', campaignUpload.single('media'), updateCampaign);
+// promoter accept campaign
+CampaignRouter.post('/:campaignId/accept', acceptCampaign);
+// get all campaigns for an marketer
+CampaignRouter.get('/user/:userId', getAUserCampaigns);
 
-// POST /api/promotions/submit-proof
-CampaignRouter.post('/promotions/submit-proof/:promoterId', upload.array('proofImages', 3), submitProof);
+
+
+
+
+
+
+
+
+
+
 
 // admin - get all campaigns
 CampaignRouter.get('/campaigns', getAllCampaigns);
 
-/**
- * @route POST /api/promotions/download
- * @description Allows a promoter to register for a campaign and download the media.
- * @access Private (Promoter only)
- */
-CampaignRouter.post('/promotions/download', downloadPromotion);
+
 
 
 
 /* Dynamic Routes */
 
-// get all campaigns for an marketer
-CampaignRouter.get('/user/:userId', getAUserCampaigns);
+
 
 // get a campaign by id - used by admin and owner of campaign
 CampaignRouter.get('/:id', getCampaignById);
 
-//
-CampaignRouter.get('/promotions/user/:userId', getUserPromotions);
 
-// apply for a campaign
-CampaignRouter.post('/:campaignId/accept', acceptCampaign);
 
 // Admin - update campaign status: approve, reject, pause,
 CampaignRouter.patch('/:id/status', updateCampaignStatus);
