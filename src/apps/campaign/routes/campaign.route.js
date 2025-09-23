@@ -23,16 +23,6 @@ CampaignRouter.post('/:campaignId/accept', acceptCampaign);
 CampaignRouter.get('/user/:userId', getAUserCampaigns);
 
 
-
-
-
-
-
-
-
-
-
-
 // admin - get all campaigns
 CampaignRouter.get('/campaigns', getAllCampaigns);
 

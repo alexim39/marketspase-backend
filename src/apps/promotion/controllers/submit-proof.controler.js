@@ -96,12 +96,12 @@ export const submitProof = async (req, res) => {
     }
 
      // Check if it's too early to submit (30 minutes before expiration)
-    if (!isNearingExpiration(promotion)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Proof submission is only allowed within 30 minutes of expiration'
-      });
-    }
+    // if (!isNearingExpiration(promotion)) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: 'Proof submission is only allowed within 30 minutes of expiration'
+    //   });
+    // }
 
 
     // Check campaign end date and status
@@ -148,7 +148,6 @@ export const submitProof = async (req, res) => {
       const filePath = path.join(uploadDir, filename);
 
       fs.writeFileSync(filePath, image.buffer);
-      //const publicUrl = `/uploads/proofs/${promotionId}/${filename}`;
       const publicUrl = `/uploads/proofs/${filename}`;
       proofMediaUrls.push(publicUrl);
     }

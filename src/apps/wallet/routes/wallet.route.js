@@ -1,6 +1,7 @@
 import express from 'express';
-import { verifyAndRecordPayment, deleteSavedAccount } from '../controllers/wallet.controller.js'
+import { deleteSavedAccount } from '../controllers/delet-saved-account.controller.js'
 import { withdrawRequest } from '../controllers/withdrawal.controller.js'
+import { verifyAndRecordPayment } from '../controllers/verify-record-payment.controller.js'
 
 
 const WalletRouter = express.Router();
