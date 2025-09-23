@@ -1,13 +1,13 @@
 import express from 'express';
 import {  
-    SwitchUser, 
-    UpdateProfile, 
     UpdateProfessionalInfo, 
     UpdateUsername, 
     getAppUsers,
     getAppUserById,
     toggleUserActiveStatus
-} from '../controllers/user.controller.js'
+} from '../controllers/user.controller.js';
+import { UpdateProfile } from '../controllers/profile-update.controller.js'
+import { SwitchUser } from '../controllers/switch-user.controller.js'
 
 const UserRouter = express.Router();
 

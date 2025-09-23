@@ -61,6 +61,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
       sparse: true,
+      unique: true,  // Add unique constraint
       match: [/^\S+@\S+\.\S+$/, "Invalid email format"],
     },
     password: {
@@ -81,7 +82,6 @@ const userSchema = new mongoose.Schema(
     },
 
     avatar: { type: String, default: '/img/avatar.png' },
-    phone: { type: String, trim: true },
 
     // Dual wallets (separate tracking for each role)
     wallets: {
@@ -109,7 +109,12 @@ const userSchema = new mongoose.Schema(
         state: { type: String, trim: true },
         country: { type: String, trim: true }
       },
-      phone: { type: String, trim: true },
+      phone: { 
+        type: String, 
+        trim: true, 
+        unique: true,  // Keep unique
+        default: null  // Explicit default
+      },
       dob: { type: Date },
       biography: { type: String, trim: true },
     },

@@ -9,7 +9,7 @@ import { newCampaignEmailTemplate } from '../email/newCampaignTemplate.js';
 const DAILY_LIMIT = 4; // per user per day
 const BATCH_SIZE = 500; // emails per run
 
-cron.schedule('*/5 * * * *', async () => {   // every 5 min
+cron.schedule('*/15 * * * *', async () => {   // every 15 min
   try {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const campaigns = await CampaignModel.find({
