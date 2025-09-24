@@ -1,6 +1,7 @@
 import express from 'express';
 import { acceptCampaign } from '../controllers/accept-campaign.controller.js'
 import { createCampaign } from '../controllers/create-campaign.controller.js'
+import { saveCampaign } from '../controllers/save-campaign.controller.js'
 import { updateCampaignStatus, updateCampaign } from '../controllers/update-campaign.controller.js'
 import { getCampaignById, getAUserCampaigns, getCampaignsByStatus, getAllCampaigns } from '../controllers/get.controller.js'
 import { campaignUpload } from '../services/upload.js';
@@ -15,6 +16,8 @@ const CampaignRouter = express.Router();
 CampaignRouter.get('/', getCampaignsByStatus);
 // create campaign
 CampaignRouter.post('/create', campaignUpload.single('media'), createCampaign);
+// save campaign to draft
+CampaignRouter.post('/save', campaignUpload.single('media'), saveCampaign);
 // edit campaign
 CampaignRouter.put('/edit/:id/:performedBy', campaignUpload.single('media'), updateCampaign);
 // promoter accept campaign
