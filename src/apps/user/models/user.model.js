@@ -146,6 +146,15 @@ const userSchema = new mongoose.Schema(
         type: Boolean,
         default: true,
       },
+      categoryBasedAds: {
+        type: Boolean,
+        default: false,
+      },
+      locationBasedAds: {
+        type: Boolean,
+        default: false,
+      },
+      adCategories: [{ type: String }],
     }
   },
   { timestamps: true }

@@ -18,7 +18,7 @@ const campaignSchema = new mongoose.Schema(
 
     // Budgeting
     budget: { type: Number, required: true, min: 500 }, // Updated min to 500 NGN
-    payoutPerPromotion: { type: Number, required: true, min: 100 },
+    payoutPerPromotion: { type: Number, required: true, min: 200 },
     currency: { type: String, default: "NGN" },
 
     // Promotion & Tracking

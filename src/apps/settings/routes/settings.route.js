@@ -12,6 +12,7 @@ import {
   toggleFeatured,
   deleteTestimonial
 } from '../controllers/admin.controller.js';
+import { UpdateAdPreferences } from '../controllers/update-ads-preferences.controller.js';
 
 const SettingsRouter = express.Router();
 
@@ -35,6 +36,15 @@ SettingsRouter.post('/testimonial/reaction', reactToTestimonial);
 SettingsRouter.get('/testimonial', getTestimonials);
 SettingsRouter.get('/testimonial/dashboard', getRandomTestimonials);
 SettingsRouter.get('/testimonial/:userId', getUserTestimonial);
+
+
+/**
+ * Submits the user data to the controller to update ads preferences.
+ * Method: put
+ * /api/users/profile/profession:
+ */
+SettingsRouter.put('/preferences/ads', UpdateAdPreferences);
+
 
 
 

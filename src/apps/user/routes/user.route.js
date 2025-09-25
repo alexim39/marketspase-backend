@@ -43,7 +43,6 @@ UserRouter.put('/profile/profession', UpdateProfessionalInfo);
  */
 UserRouter.put('/profile/username', UpdateUsername);
 
-
 /* Dynamic Routes */
 
 

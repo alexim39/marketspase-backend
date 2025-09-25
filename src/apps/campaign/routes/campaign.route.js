@@ -3,17 +3,18 @@ import { acceptCampaign } from '../controllers/accept-campaign.controller.js'
 import { createCampaign } from '../controllers/create-campaign.controller.js'
 import { saveCampaign } from '../controllers/save-campaign.controller.js'
 import { updateCampaignStatus, updateCampaign } from '../controllers/update-campaign.controller.js'
-import { getCampaignById, getAUserCampaigns, getCampaignsByStatus, getAllCampaigns } from '../controllers/get.controller.js'
+import { getCampaignById, getAUserCampaigns, getAllCampaigns } from '../controllers/get.controller.js'
 import { campaignUpload } from '../services/upload.js';
-import { getProofDetails,  updatePromotionStatus } from '../controllers/promotion.controller.js'
+import { getProofDetails, updatePromotionStatus } from '../controllers/promotion.controller.js'
+import { getCampaignsByStatusAndUserId } from '../controllers/getByStatusAndUserId.controller.js'
 
 
 
 
 const CampaignRouter = express.Router();
 
-// get campaigns by status (e.g., /campaign?status=active)
-CampaignRouter.get('/', getCampaignsByStatus);
+// get campaigns by status (e.g., /campaign?status=active?userId=userId)
+CampaignRouter.get('/', getCampaignsByStatusAndUserId);
 // create campaign
 CampaignRouter.post('/create', campaignUpload.single('media'), createCampaign);
 // save campaign to draft
