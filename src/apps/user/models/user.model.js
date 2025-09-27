@@ -61,7 +61,6 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
       sparse: true,
-      unique: true,  // Add unique constraint
       match: [/^\S+@\S+\.\S+$/, "Invalid email format"],
     },
     password: {
@@ -112,7 +111,6 @@ const userSchema = new mongoose.Schema(
       phone: { 
         type: String, 
         trim: true, 
-        unique: true,  // Keep unique
         default: null  // Explicit default
       },
       dob: { type: Date },
