@@ -414,7 +414,7 @@ if (paymentResponse.reference) {
 
 // Handle transfer approval requirements
 if (paymentResponse.requiresApproval) {
-    transactionToUpdate.status = "pending_approval";
+    transactionToUpdate.status = "pending";
     transactionToUpdate.failureReason = paymentResponse.message;
     
     await user.save({ session });

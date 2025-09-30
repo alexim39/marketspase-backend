@@ -9,7 +9,7 @@ import mongoose from 'mongoose';
 export const UpdateProfile = async (req, res) => {
     try {
         // Extract the userId from the request body or authenticated user
-        const { userId, email, phone, street, city, state, country, biography, dob } = req.body;
+        const { userId, email, phone, gender, street, city, state, country, biography, dob } = req.body;
 
         // Basic validation: Check if a userId is provided
         if (!userId) {
@@ -35,6 +35,9 @@ export const UpdateProfile = async (req, res) => {
                 message: 'User not found.'
             });
         }
+
+        // Declare the updateData object at the top
+        const updateData = {};
 
         // Email validation and uniqueness check
         if (email !== undefined && email !== null) {
@@ -65,36 +68,9 @@ export const UpdateProfile = async (req, res) => {
             }
             
             // Allow setting email to null/empty if needed, but validate format when provided
+
+            updateData.email = cleanedEmail || null;
         }
-
-        // Phone number validation and uniqueness check
-        /* if (phone !== undefined && phone !== null) {
-            const cleanedPhone = phone.toString().trim();
-            
-            // Basic phone validation (adjust regex as needed for your region)
-            const phoneRegex = /^\+?[\d\s\-\(\)]{10,}$/;
-            if (cleanedPhone && !phoneRegex.test(cleanedPhone)) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Invalid phone number format. Please provide a valid phone number.'
-                });
-            }
-
-            // Check for duplicate phone number only if phone is not empty
-            if (cleanedPhone) {
-                const existingUserWithPhone = await UserModel.findOne({
-                    'personalInfo.phone': cleanedPhone,
-                    _id: { $ne: userId } // Exclude current user from the check
-                });
-
-                if (existingUserWithPhone) {
-                    return res.status(409).json({
-                        success: false,
-                        message: 'This phone number is already registered with another account.'
-                    });
-                }
-            }
-        } */
 
 
         // Phone number validation and uniqueness check
@@ -142,7 +118,7 @@ export const UpdateProfile = async (req, res) => {
         }
 
         // Prepare the update object with only provided fields
-        const updateData = {};
+        //const updateData = {};
         
         // Only add fields to updateData if they are provided
         if (email !== undefined) {
@@ -154,6 +130,7 @@ export const UpdateProfile = async (req, res) => {
         }
         
         if (biography !== undefined) updateData['personalInfo.biography'] = biography;
+        if (gender !== undefined) updateData['personalInfo.gender'] = gender;
         if (dob !== undefined) updateData['personalInfo.dob'] = dob;
         
         // Address fields

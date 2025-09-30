@@ -126,6 +126,7 @@ const userSchema = new mongoose.Schema(
       },
       dob: { type: Date },
       biography: { type: String, trim: true },
+      gender: { type: String, default: '' },
     },
     professionalInfo: {
       skills: [{ type: String }],
