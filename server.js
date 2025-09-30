@@ -12,6 +12,7 @@ import './src/apps/campaign/services/jobs/campaign-notification.job.js';
 import AuthRouter from './src/apps/auth/index.js';
 import UserRouter from './src/apps/user/index.js';
 import WalletRouter from './src/apps/wallet/index.js';
+import webhookRoutes from './src/apps/wallet/routes/webhook.routes.js';
 import CampaignRouter from './src/apps/campaign/index.js';
 import SettingsRouter from './src/apps/settings/index.js';
 import ContactRouter from './src/apps/contact/index.js';
@@ -44,6 +45,9 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 // Also, increase the limit for URL-encoded data to be safe.
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Webhook routes (must be before express.json() middleware)
+app.use('/api/webhook', webhookRoutes);
 
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));

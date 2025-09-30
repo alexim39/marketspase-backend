@@ -30,6 +30,9 @@ export const verifyAndRecordPayment = async (req, res) => {
 
   const { reference } = paystackResult.response;
 
+  //console.log('Reference being sent to Paystack:', reference);
+  //console.log('Paystack:', paystackResult.response);
+
   // 2. Prevent Double-Processing
   // Check if a transaction with this reference already exists in the database
   try {
@@ -65,7 +68,7 @@ export const verifyAndRecordPayment = async (req, res) => {
 
       try {
         const emailContent = paymentDeclinedEmailTemplate({
-          userName: user.name,
+          userName: user.displayName,
           amount: amount,
           transactionReference: reference,
           reason: 'Paystack verification failed or transaction was not successful.',
@@ -131,7 +134,7 @@ export const verifyAndRecordPayment = async (req, res) => {
       // Send approved email to the user
       try {
         const emailContent = paymentApprovedEmailTemplate({
-          userName: user.name,
+          userName: user.displayName,
           amount: amount,
           transactionReference: reference,
           newBalance: user.wallets.marketer.balance,

@@ -8,6 +8,8 @@ import { withdrawalSuccessfulTemplate } from '../services/email/withdrawalSucces
 import { withdrawalFailedTemplate } from '../services/email/withdrawalFailedTemplate.js';
 import { accountVerifiedTemplate } from '../services/email/accountVerifiedTemplate.js';
 
+import { handleTransferWebhook } from '../services/transfer-webhook.js';
+
 dotenv.config();
 import { processPayment } from '../services/process-payment.js';
 
@@ -353,7 +355,7 @@ export const withdrawRequest = async (req, res) => {
         // --- 3. Initial State Change (Deduction & Pending Transaction) ---
         promoterWallet.balance -= totalDeduction;
         
-        // Create a new pending transaction record
+        /* // Create a new pending transaction record
         const newTransaction = {
             amount: withdrawalAmount,
             fee: withdrawalFee,
@@ -374,12 +376,224 @@ export const withdrawRequest = async (req, res) => {
                 }
             }
         };
-        promoterWallet.transactions.push(newTransaction);
+        promoterWallet.transactions.push(newTransaction); */
+
+        // Create a new processing transaction record (instead of pending)
+const newTransaction = {
+    amount: withdrawalAmount,
+    fee: withdrawalFee,
+    totalDeduction: totalDeduction,
+    type: 'debit',
+    category: 'withdrawal',
+    description: `Withdrawal to ${bankName} account ending in ${accountNumber.slice(-4)}`,
+    status: 'processing', // Start with processing status for webhooks
+    createdAt: new Date(),
+    securityFlags: {
+        accountVerified: verificationLevel !== 'unverified',
+        verificationLevel: verificationLevel,
+        isNewAccount: isNewAccount,
+        requiresAdditionalVerification: requiresAdditionalVerification,
+        nameMatchDetails: {
+            userDisplayName: user.displayName,
+            providedAccountName: accountName
+        }
+    }
+};
+promoterWallet.transactions.push(newTransaction);
+
+// Get the transaction reference before processing payment
+const transactionToUpdate = promoterWallet.transactions[promoterWallet.transactions.length - 1];
         
         // --- 4. Process External Payment ---
-        const paymentResponse = await processPayment(bank, accountNumber, accountName, withdrawalAmount);
+const paymentResponse = await processPayment(bank, accountNumber, accountName, withdrawalAmount);
 
-        // --- 5. Update Database based on Payment Response ---
+// Store the reference in the transaction immediately
+if (paymentResponse.reference) {
+    transactionToUpdate.reference = paymentResponse.reference;
+}
+
+// Handle transfer approval requirements
+if (paymentResponse.requiresApproval) {
+    transactionToUpdate.status = "pending_approval";
+    transactionToUpdate.failureReason = paymentResponse.message;
+    
+    await user.save({ session });
+    await session.commitTransaction();
+
+    return res.status(400).json({
+        message: "Withdrawal requires manual approval from Paystack. This may take up to 24 hours.",
+        success: false,
+        code: "REQUIRES_APPROVAL",
+        data: {
+            balance: promoterWallet.balance,
+            requiresApproval: true
+        }
+    });
+}
+
+
+// Handle insufficient balance in Paystack account
+if (paymentResponse.insufficientBalance) {
+    // Refund the user immediately
+    promoterWallet.balance += totalDeduction;
+    transactionToUpdate.status = "failed";
+    transactionToUpdate.failureReason = "Service temporarily unavailable";
+    
+    await user.save({ session });
+    await session.commitTransaction();
+
+    return res.status(503).json({
+        message: "Withdrawal service temporarily unavailable. Please try again later.",
+        success: false,
+        code: "SERVICE_UNAVAILABLE",
+        data: {
+            refundedAmount: totalDeduction,
+            newBalance: promoterWallet.balance
+        }
+    });
+}
+
+
+// Handle immediate success (for cases where transfer is instant)
+if (paymentResponse.success && paymentResponse.status === "success") {
+    transactionToUpdate.status = "successful";
+    transactionToUpdate.processedAt = new Date();
+    
+    // Add account to saved accounts if requested and verified
+    if (saveAccount && verificationLevel !== 'unverified') {
+        const existingAccount = user.savedAccounts.find(
+            account => account.accountNumber === accountNumber
+        );
+
+        if (!existingAccount) {
+            user.savedAccounts.push({
+                bank: bankName,
+                bankCode: bank,
+                accountNumber: accountNumber,
+                accountName: accountName,
+                verified: true,
+                verifiedAt: new Date(),
+                firstUsed: new Date(),
+                lastUsed: new Date()
+            });
+        } else {
+            // Update last used timestamp for existing account
+            existingAccount.lastUsed = new Date();
+        }
+    }
+
+    await user.save({ session });
+    await session.commitTransaction();
+
+    // Send success email
+    try {
+        const emailContent = withdrawalSuccessfulTemplate({
+            userName: user.displayName,
+            amount: withdrawalAmount,
+            accountNumber: accountNumber.slice(-4),
+            bankName: bankName,
+            fee: withdrawalFee,
+            newBalance: promoterWallet.balance
+        });
+        
+        await sendEmail({
+            to: user.email,
+            subject: 'Withdrawal Successful - MarketSpase',
+            html: emailContent
+        });
+    } catch (emailError) {
+        console.error('Failed to send success email notification:', emailError);
+    }
+
+    return res.status(200).json({
+        message: "Withdrawal successful! Payment has been processed.",
+        success: true,
+        data: {
+            balance: promoterWallet.balance,
+            transaction: {
+                id: transactionToUpdate._id,
+                amount: transactionToUpdate.amount,
+                fee: transactionToUpdate.fee,
+                status: transactionToUpdate.status,
+                reference: transactionToUpdate.reference
+            },
+            security: {
+                accountVerified: true,
+                verificationLevel: verificationLevel,
+                requiresAdditionalVerification: requiresAdditionalVerification
+            }
+        },
+    });
+}
+
+
+// If payment is processing (most common case with webhooks), just save the reference
+if (paymentResponse.success) {
+    // Transaction status remains 'processing' - webhook will update it
+    await user.save({ session });
+    await session.commitTransaction();
+
+    return res.status(200).json({
+        message: "Withdrawal request received and is being processed.",
+        success: true,
+        data: {
+            balance: promoterWallet.balance,
+            transaction: {
+                id: transactionToUpdate._id,
+                amount: transactionToUpdate.amount,
+                fee: transactionToUpdate.fee,
+                status: transactionToUpdate.status,
+                reference: transactionToUpdate.reference
+            },
+            note: "You will receive a notification when the transfer is completed."
+        },
+    });
+} else {
+    // Payment failed: refund the total deduction
+    transactionToUpdate.status = "failed";
+    transactionToUpdate.failureReason = paymentResponse.message || "Payment processing failed";
+    transactionToUpdate.processedAt = new Date();
+    promoterWallet.balance += totalDeduction;
+
+    await user.save({ session });
+    await session.commitTransaction();
+
+    // Send failed withdrawal email
+    try {
+        const emailContent = withdrawalFailedTemplate({
+            userName: user.displayName,
+            amount: withdrawalAmount,
+            accountNumber: accountNumber.slice(-4),
+            bankName: bankName,
+            reason: paymentResponse.message || "Payment processing failed",
+            refundedAmount: totalDeduction,
+            newBalance: promoterWallet.balance
+        });
+        
+        await sendEmail({
+            to: user.email,
+            subject: 'Withdrawal Failed - MarketSpase',
+            html: emailContent
+        });
+    } catch (emailError) {
+        console.error('Failed to send failure email notification:', emailError);
+    }
+
+    return res.status(500).json({
+        message: `Payment failed: ${paymentResponse.message || "Unknown error"}. Your balance has been refunded.`,
+        success: false,
+        code: "PAYMENT_FAILED",
+        data: {
+            refundedAmount: totalDeduction,
+            newBalance: promoterWallet.balance
+        }
+    });
+}
+
+
+        
+
+       /*  // --- 5. Update Database based on Payment Response ---
         const transactionToUpdate = promoterWallet.transactions[promoterWallet.transactions.length - 1];
         
         if (paymentResponse.success) {
@@ -502,7 +716,7 @@ export const withdrawRequest = async (req, res) => {
                     newBalance: promoterWallet.balance
                 }
             });
-        }
+        } */
     } catch (error) {
         if (session.inTransaction()) {
             await session.abortTransaction();

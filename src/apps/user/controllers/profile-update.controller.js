@@ -68,7 +68,7 @@ export const UpdateProfile = async (req, res) => {
         }
 
         // Phone number validation and uniqueness check
-        if (phone !== undefined && phone !== null) {
+        /* if (phone !== undefined && phone !== null) {
             const cleanedPhone = phone.toString().trim();
             
             // Basic phone validation (adjust regex as needed for your region)
@@ -94,6 +94,51 @@ export const UpdateProfile = async (req, res) => {
                     });
                 }
             }
+        } */
+
+
+        // Phone number validation and uniqueness check
+        if (phone !== undefined && phone !== null) {
+            const cleanedPhone = phone.toString().trim();
+
+            // Normalize the phone number to a consistent format
+            const normalizePhone = (phone) => {
+                // Remove non-numeric characters and ensure it starts with the country code
+                const numericPhone = phone.replace(/\D/g, ''); // Remove all non-numeric characters
+                if (numericPhone.startsWith('234')) {
+                    return numericPhone; // Already in international format
+                } else if (numericPhone.startsWith('0')) {
+                    return `234${numericPhone.slice(1)}`; // Convert local format to international
+                }
+                return numericPhone; // Return as-is if already normalized
+            };
+
+            const normalizedPhone = normalizePhone(cleanedPhone);
+
+            // Basic phone validation (adjust regex as needed for your region)
+            const phoneRegex = /^234\d{10}$/; // Nigerian phone numbers in international format
+            if (!phoneRegex.test(normalizedPhone)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid phone number format. Please provide a valid phone number.',
+                });
+            }
+
+            // Check for duplicate phone number
+            const existingUserWithPhone = await UserModel.findOne({
+                'personalInfo.phone': normalizedPhone,
+                _id: { $ne: userId }, // Exclude current user from the check
+            });
+
+            if (existingUserWithPhone) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'This phone number is already registered with another account.',
+                });
+            }
+
+            // Add the normalized phone number to the update data
+            updateData['personalInfo.phone'] = normalizedPhone;
         }
 
         // Prepare the update object with only provided fields
