@@ -1,10 +1,10 @@
 import { CampaignModel } from "../models/campaign.model.js";
-import { PromotionModel } from "../models/promotion.model.js";
 import { UserModel } from "../../user/models/user.model.js";
 import mongoose from "mongoose";
-import fs from "fs"; // Add this import
-import path from "path"; // Useful for path operations
-
+// ADD THESE IMPORTS:
+import { sendEmail } from "../../../services/emailService.js";
+import { campaignApprovedTemplate } from '../services/email/campaignApprovedTemplate.js';
+import { campaignRejectedTemplate } from '../services/email/campaignRejectedTemplate.js';
 
 /**
  * Controller to change the status of a campaign.
@@ -102,6 +102,49 @@ export const UpdateCampaignStatus = async (req, res) => {
     // 12. Commit the transaction
     await session.commitTransaction();
     session.endSession();
+
+    // 13. Send email notification based on status change
+    try {
+        const marketer = await UserModel.findById(campaign.owner);
+        if (marketer && marketer.email) {
+            if (status === 'active') {
+                // Send campaign approved email
+                const emailContent = campaignApprovedTemplate({
+                    userName: marketer.displayName || marketer.name,
+                    campaignTitle: campaign.title,
+                    campaignId: campaign._id,
+                    budget: campaign.budget
+                });
+                
+                await sendEmail({
+                    to: marketer.email,
+                    subject: 'Campaign Approved - MarketSpase',
+                    html: emailContent
+                });
+                
+            } else if (status === 'rejected') {
+                // Send campaign rejected email
+                const refundAmount = campaign.budget - campaign.spentBudget;
+                const emailContent = campaignRejectedTemplate({
+                    userName: marketer.displayName || marketer.name,
+                    campaignTitle: campaign.title,
+                    budget: campaign.budget,
+                    refundAmount: refundAmount,
+                    rejectionReason: details || "Please review our campaign guidelines and try again."
+                });
+                
+                await sendEmail({
+                    to: marketer.email,
+                    subject: 'Campaign Not Approved - MarketSpase',
+                    html: emailContent
+                });
+            }
+        }
+    } catch (emailError) {
+        console.error('Failed to send campaign status email:', emailError);
+        // Don't fail the main request if email fails
+    }
+
 
     // 13. Send a success response
     res.status(200).json({

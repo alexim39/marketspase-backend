@@ -1,9 +1,12 @@
 import { UserModel } from '../../user/models/user.model.js';
 import { sendEmail } from "../../../services/emailService.js";
-import { ownerWalletEmailTemplate } from '../services/email/ownerTemplate.js';
-import { userWalletEmailTemplate } from '../services/email/userTemplate.js';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+
+// ADD THESE NEW IMPORTS:
+import { withdrawalSuccessfulTemplate } from '../services/email/withdrawalSuccessfulTemplate.js';
+import { withdrawalFailedTemplate } from '../services/email/withdrawalFailedTemplate.js';
+import { accountVerifiedTemplate } from '../services/email/accountVerifiedTemplate.js';
 
 dotenv.config();
 import { processPayment } from '../services/process-payment.js';
@@ -410,25 +413,30 @@ export const withdrawRequest = async (req, res) => {
 
             await user.save({ session });
             await session.commitTransaction();
+
             
-            // Send notification email
+           // Send notification email
+           // Send success notification email
             try {
+                const emailContent = withdrawalSuccessfulTemplate({
+                    userName: user.displayName,
+                    amount: withdrawalAmount,
+                    accountNumber: accountNumber.slice(-4),
+                    bankName: bankName,
+                    fee: withdrawalFee,
+                    newBalance: promoterWallet.balance
+                });
+                
                 await sendEmail({
                     to: user.email,
-                    subject: 'Withdrawal Successful',
-                    html: userWalletEmailTemplate({
-                        userName: user.displayName,
-                        amount: withdrawalAmount,
-                        accountNumber: accountNumber.slice(-4),
-                        bankName: bankName,
-                        fee: withdrawalFee,
-                        newBalance: promoterWallet.balance
-                    })
+                    subject: 'Withdrawal Successful - MarketSpase',
+                    html: emailContent
                 });
             } catch (emailError) {
-                console.error('Failed to send email notification:', emailError);
+                console.error('Failed to send success email notification:', emailError);
                 // Don't fail the withdrawal if email fails
             }
+
             
             return res.status(200).json({
                 message: "Withdrawal successful! Payment has been processed.",
@@ -459,6 +467,31 @@ export const withdrawRequest = async (req, res) => {
 
             await user.save({ session });
             await session.commitTransaction();
+
+
+             // Send failed withdrawal email
+            try {
+                const emailContent = withdrawalFailedTemplate({
+                    userName: user.displayName,
+                    amount: withdrawalAmount,
+                    accountNumber: accountNumber.slice(-4),
+                    bankName: bankName,
+                    reason: paymentResponse.message || "Payment processing failed",
+                    refundedAmount: totalDeduction,
+                    newBalance: promoterWallet.balance
+                });
+                
+                await sendEmail({
+                    to: user.email,
+                    subject: 'Withdrawal Failed - MarketSpase',
+                    html: emailContent
+                });
+            } catch (emailError) {
+                console.error('Failed to send failure email notification:', emailError);
+                // Don't fail the response if email fails
+            }
+
+
             
             return res.status(500).json({
                 message: `Payment failed: ${paymentResponse.message || "Unknown error"}. Your balance has been refunded.`,
@@ -533,6 +566,27 @@ export const verifyBankAccount = async (req, res) => {
 
             await user.save({ session });
             await session.commitTransaction();
+
+
+            // Send account verification success email
+            try {
+                const emailContent = accountVerifiedTemplate({
+                    userName: user.displayName,
+                    bankName: bankName,
+                    accountNumber: accountNumber.slice(-4),
+                    accountName: accountName
+                });
+                
+                await sendEmail({
+                    to: user.email,
+                    subject: 'Bank Account Verified - MarketSpase',
+                    html: emailContent
+                });
+            } catch (emailError) {
+                console.error('Failed to send verification email:', emailError);
+                // Don't fail the verification if email fails
+            }
+
             
             return res.status(200).json({
                 message: "Account verification successful",

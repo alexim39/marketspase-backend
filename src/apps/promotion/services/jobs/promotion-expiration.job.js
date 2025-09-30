@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import mongoose from 'mongoose';
 import { PromotionModel } from '../../models/promotion.model.js';
 import { UserModel } from '../../../user/models/user.model.js';
-import { CampaignModel } from '../../models/campaign.model.js';
+import { CampaignModel } from '../../../campaign/models/campaign.model.js';
 
 // Helper function to handle the refund logic
 const handleExpiredPromotion = async (promotion, session) => {

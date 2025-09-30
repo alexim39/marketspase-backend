@@ -1,6 +1,4 @@
-import { CampaignModel } from "../models/campaign.model.js";
-import { PromotionModel } from "../models/promotion.model.js";
-import { UserModel } from "../../user/models/user.model.js";
+import { PromotionModel } from "../../promotion/models/promotion.model.js";
 import path from "path";
 import fs from "fs";
 import mongoose from "mongoose";

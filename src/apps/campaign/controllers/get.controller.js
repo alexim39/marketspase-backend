@@ -1,6 +1,4 @@
 import { CampaignModel } from "../models/campaign.model.js";
-import { PromotionModel } from "../models/promotion.model.js";
-import { UserModel } from "../../user/models/user.model.js";
 import mongoose from "mongoose";
 import fs from "fs"; // Add this import
 import path from "path"; // Useful for path operations

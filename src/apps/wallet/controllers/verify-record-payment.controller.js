@@ -1,7 +1,7 @@
 import { UserModel} from '../../user/models/user.model.js';
 import { sendEmail } from "../../../services/emailService.js";
-import { ownerWalletEmailTemplate } from '../services/email/ownerTemplate.js';
-import { userWalletEmailTemplate } from '../services/email/userTemplate.js';
+import { paymentDeclinedEmailTemplate } from '../services/email/paymentDeclinedTemplate.js';
+import { paymentApprovedEmailTemplate } from '../services/email/paymentApprovedTemplate.js';
 import mongoose from 'mongoose';
 import axios from 'axios';
 // server.js or index.js
@@ -61,6 +61,20 @@ export const verifyAndRecordPayment = async (req, res) => {
 
     const paystackVerificationData = response.data.data;
     if (!paystackVerificationData || paystackVerificationData.status !== 'success') {
+
+
+      try {
+        const emailContent = paymentDeclinedEmailTemplate({
+          userName: user.name,
+          amount: amount,
+          transactionReference: reference,
+          reason: 'Paystack verification failed or transaction was not successful.',
+        });
+        await sendEmail(user.email, 'Payment Declined', emailContent);
+      } catch (emailError) {
+        console.error('Failed to send declined email:', emailError);
+      }
+
         return sendError(res, 'Paystack verification failed or transaction not successful.', 400);
     }
     
@@ -112,10 +126,44 @@ export const verifyAndRecordPayment = async (req, res) => {
         transactionId: newTransaction._id // Mongoose automatically adds _id for subdocuments
       });
 
+
+
+      // Send approved email to the user
+      try {
+        const emailContent = paymentApprovedEmailTemplate({
+          userName: user.name,
+          amount: amount,
+          transactionReference: reference,
+          newBalance: user.wallets.marketer.balance,
+        });
+        await sendEmail(user.email, 'Payment Approved', emailContent);
+      } catch (emailError) {
+        console.error('Failed to send approved email:', emailError);
+      }
+
+
+
     } catch (transactionError) {
       // Abort the transaction in case of any error
       await session.abortTransaction();
       session.endSession();
+
+
+
+      // Send declined email to the user
+      try {
+        const emailContent = paymentDeclinedEmailTemplate({
+          userName: user.name,
+          amount: amount,
+          transactionReference: reference,
+          reason: 'Failed to update wallet and record transaction due to a database error.',
+        });
+        await sendEmail(user.email, 'Payment Declined', emailContent);
+      } catch (emailError) {
+        console.error('Failed to send declined email:', emailError);
+      }
+
+
       sendError(res, 'Failed to update wallet and record transaction due to a database error.', 500);
     }
 

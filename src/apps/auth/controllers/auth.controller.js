@@ -4,7 +4,7 @@ import { generateUniqueUsername } from '../services/username-generator.js';
 import { adminWelcomeEmailTemplate } from '../services/email/adminTemplate.js'; 
 import { userWelcomeEmailTemplate } from '../services/email/userWelcomeTemplate.js';
 import { CampaignModel } from "../../campaign/models/campaign.model.js"; // Add this import
-import { PromotionModel } from "../../campaign/models/promotion.model.js"; // Add this import
+import { PromotionModel } from "../../promotion/models/promotion.model.js"; // Add this import
 
 
 // Authenticate/Verify User
