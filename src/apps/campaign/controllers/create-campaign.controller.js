@@ -2,7 +2,9 @@ import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
 import mongoose from "mongoose";
 import fs from "fs";
-
+// ADD THESE IMPORTS:
+import { sendEmail } from "../../../services/emailService.js";
+import { adminCampaignApprovalTemplate } from '../services/email/adminCampaignApprovalTemplate.js';
 
 /**
  * @description Creates a new campaign. This function handles the validation,
@@ -177,10 +179,42 @@ export const createCampaign = async (req, res) => {
       mediaType: mediaType,
     });
 
-    // Notify users via email of new campaign availability
-    //const emailTemplate = newCampaignEmailTemplate(newUser);
-   // const ownerEmails = ['schooltraz@gmail.com'];
-    //await Promise.all(ownerEmails.map(email => sendEmail(email, 'New Campaign Available', emailTemplate)));
+
+  // Notify admins of new campaign for approval (AFTER sending response)
+  try {
+      const marketer = await UserModel.findById(owner);
+      const adminEmails = process.env.ADMIN_EMAILS ? process.env.ADMIN_EMAILS.split(',') : ['admin@marketspase.com', 'alex.i@marketspase.com', 'aleximenwo@gmail.com'];
+      
+      const emailContent = adminCampaignApprovalTemplate({
+          title: newCampaign.title,
+          campaignId: newCampaign._id,
+          marketerName: marketer?.displayName || 'Unknown Marketer',
+          budget: newCampaign.budget,
+          category: newCampaign.category,
+          maxPromoters: newCampaign.maxPromoters,
+          payoutPerPromotion: newCampaign.payoutPerPromotion,
+          mediaType: newCampaign.mediaType,
+          caption: newCampaign.caption,
+          requirements: newCampaign.requirements,
+          targetLocations: newCampaign.targetLocations
+      });
+      
+      // Send to all admin emails
+      await Promise.all(
+          adminEmails.map(email => 
+              sendEmail({
+                  to: email.trim(),
+                  subject: `New Campaign Pending Approval: ${newCampaign.title}`,
+                  html: emailContent
+              })
+          )
+      );
+      
+      console.log(`Admin notification sent for campaign: ${newCampaign._id}`);
+  } catch (emailError) {
+      console.error('Failed to send admin notification email:', emailError);
+      // Don't fail the main request if email fails
+  }
 
 
   } catch (error) {
