@@ -7,7 +7,7 @@ import path from 'path';
 
 // Cron Jobs
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
-import './src/apps/campaign/services/jobs/campaign-notification.job.js';
+import './src/apps/campaign/services/jobs/campaign-notification.job.js'; 
 
 import AuthRouter from './src/apps/auth/index.js';
 import UserRouter from './src/apps/user/index.js';
