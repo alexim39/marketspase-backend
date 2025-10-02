@@ -1,13 +1,13 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import dotenv  from "dotenv"
+import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
 
 // Cron Jobs
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
-import './src/apps/campaign/services/jobs/campaign-notification.job.js'; 
+import './src/apps/campaign/services/jobs/campaign-notification.job.js';
 
 import AuthRouter from './src/apps/auth/index.js';
 import UserRouter from './src/apps/user/index.js';
@@ -20,13 +20,16 @@ import DashboardRouter from './src/apps/dashboard/index.js';
 import AdminAuthRouter from './src/apps/admin/auth/index.js';
 import PromoterRouter from './src/apps/promotion/index.js';
 
-
 const port = process.env.PORT || 8080;
 const app = express();
-app.use(express.json()); // Use json middleware
-app.use(express.urlencoded({extended: false})); // Use formdata middleware
-dotenv.config()
+dotenv.config();
+
+// Middleware
+app.use(express.json({ limit: '50mb' })); // Increase JSON payload limit
+app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Increase URL-encoded payload limit
 app.use(cookieParser());
+
+// CORS Configuration
 app.use(cors({
     credentials: true,
     origin: [
@@ -35,21 +38,21 @@ app.use(cors({
         'http://localhost:4202', 
         'https://marketspase.com', 
         'http://marketspase.com',
-        'www.marketspase.com',
-        'https://marketspase.com',
-        'https://admin.marketspase.com',
         'https://www.marketspase.com',
-
-        
-    ]
+        'https://admin.marketspase.com',
+    ],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 
+// Handle preflight requests
+app.options('*', cors());
 
-// Set up middleware
-// This is where you need to adjust the limit for incoming JSON payloads.
-app.use(express.json({ limit: '50mb' }));
-// Also, increase the limit for URL-encoded data to be safe.
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Debugging middleware to log request origins
+app.use((req, res, next) => {
+    console.log('Request Origin:', req.headers.origin);
+    next();
+});
 
 // Webhook routes (must be before express.json() middleware)
 app.use('/api/webhook', webhookRoutes);
@@ -72,15 +75,14 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
 /* DB connection */
 mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@cluster0.fblwb.mongodb.net/${process.env.MONGODB_DATABASE}?retryWrites=true&w=majority&appName=Cluster0`)
 .then(() => {
-    // Application Starts Only when MongoDB is connected
-    console.log('Connected to mongoDB')
+    console.log('Connected to mongoDB');
 
     // Start the cron jobs after a successful database connection
     PromotionExpirationCheckerCronJobs();
 
     app.listen(port, () => {
-        console.log(`Server is running on port: http://localhost:${port}`)
-    })
+        console.log(`Server is running on port: http://localhost:${port}`);
+    });
 }).catch((error) => {
-    console.error('Error from mongoDB connection ', error)
-})
+    console.error('Error from mongoDB connection ', error);
+});
