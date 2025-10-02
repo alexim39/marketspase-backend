@@ -36,6 +36,11 @@ app.use(cors({
         'https://marketspase.com', 
         'http://marketspase.com',
         'www.marketspase.com',
+        'https://marketspase.com',
+        'https://admin.marketspase.com',
+        'https://www.marketspase.com',
+
+        
     ]
 }));
 
