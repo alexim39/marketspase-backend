@@ -178,7 +178,7 @@ export const downloadPromotion = async (req, res) => {
         title: campaign.title,
         caption: campaign.caption,
         link: campaign.link,
-        mediaUrl: `${req.protocol}s://${req.get("host")}${campaign.mediaUrl}`,
+        mediaUrl: `${req.protocol}://${req.get("host")}${campaign.mediaUrl}`,
         mediaType: campaign.mediaType,
       },
       promotionId: promotion._id,
