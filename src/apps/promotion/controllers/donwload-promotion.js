@@ -171,35 +171,35 @@ export const downloadPromotion = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    // res.status(200).json({
-    //   message: "Campaign post downloaded successfully. You can now share it on your status.",
-    //   success: true,
-    //   campaign: {
-    //     title: campaign.title,
-    //     caption: campaign.caption,
-    //     link: campaign.link,
-    //     mediaUrl: `${req.protocol}://${req.get("host")}${campaign.mediaUrl}`,
-    //     mediaType: campaign.mediaType,
-    //   },
-    //   promotionId: promotion._id,
-    //   upi: promotion.upi,
-    //   reservedAmount: payoutAmount
-    // });
-
     res.status(200).json({
-        message: "Campaign post downloaded successfully. You can now share it on your status.",
-        success: true,
-        campaign: {
-            title: campaign.title,
-            caption: campaign.caption,
-            link: campaign.link,
-            mediaUrl: `http://${req.get("host")}${campaign.mediaUrl}`, // Force HTTPS
-            mediaType: campaign.mediaType,
-        },
-        promotionId: promotion._id,
-        upi: promotion.upi,
-        reservedAmount: payoutAmount
+      message: "Campaign post downloaded successfully. You can now share it on your status.",
+      success: true,
+      campaign: {
+        title: campaign.title,
+        caption: campaign.caption,
+        link: campaign.link,
+        mediaUrl: `${req.protocol}s://${req.get("host")}${campaign.mediaUrl}`,
+        mediaType: campaign.mediaType,
+      },
+      promotionId: promotion._id,
+      upi: promotion.upi,
+      reservedAmount: payoutAmount
     });
+
+    // res.status(200).json({
+    //     message: "Campaign post downloaded successfully. You can now share it on your status.",
+    //     success: true,
+    //     campaign: {
+    //         title: campaign.title,
+    //         caption: campaign.caption,
+    //         link: campaign.link,
+    //         mediaUrl: `https://${req.get("host")}${campaign.mediaUrl}`, // Force HTTPS
+    //         mediaType: campaign.mediaType,
+    //     },
+    //     promotionId: promotion._id,
+    //     upi: promotion.upi,
+    //     reservedAmount: payoutAmount
+    // });
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
