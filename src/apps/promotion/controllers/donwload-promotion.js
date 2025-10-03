@@ -193,7 +193,7 @@ export const downloadPromotion = async (req, res) => {
             title: campaign.title,
             caption: campaign.caption,
             link: campaign.link,
-            mediaUrl: `https://${req.get("host")}${campaign.mediaUrl}`, // Force HTTPS
+            mediaUrl: `http://${req.get("host")}${campaign.mediaUrl}`, // Force HTTPS
             mediaType: campaign.mediaType,
         },
         promotionId: promotion._id,
