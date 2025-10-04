@@ -94,50 +94,50 @@ export const checkExpiringPromotions = async () => {
  * Additional job to auto-reject expired promotions (24+ hours old)
  * This runs every 30 minutes
  */
-export const autoRejectExpiredPromotions = async () => {
-  try {
-    console.log('🕐 Checking for expired promotions...');
+// export const autoRejectExpiredPromotions = async () => {
+//   try {
+//     console.log('🕐 Checking for expired promotions...');
     
-    // Calculate time threshold: 24 hours ago
-    const twentyFourHoursAgo = new Date(Date.now() - (24 * 60 * 60 * 1000));
+//     // Calculate time threshold: 24 hours ago
+//     const twentyFourHoursAgo = new Date(Date.now() - (24 * 60 * 60 * 1000));
     
-    // Find promotions that:
-    // - Are older than 24 hours
-    // - Still have status 'pending' (never submitted proof)
-    const expiredPromotions = await PromotionModel.find({
-      status: 'pending',
-      createdAt: { $lte: twentyFourHoursAgo }
-    })
-    .populate('campaign', 'title');
+//     // Find promotions that:
+//     // - Are older than 24 hours
+//     // - Still have status 'pending' (never submitted proof)
+//     const expiredPromotions = await PromotionModel.find({
+//       status: 'pending',
+//       createdAt: { $lte: twentyFourHoursAgo }
+//     })
+//     .populate('campaign', 'title');
 
-    console.log(`🗑️ Found ${expiredPromotions.length} expired promotions to reject`);
+//     console.log(`🗑️ Found ${expiredPromotions.length} expired promotions to reject`);
 
-    for (const promotion of expiredPromotions) {
-      try {
-        // Auto-reject the promotion
-        promotion.status = 'rejected';
-        promotion.rejectionReason = 'Promotion expired - Proof not submitted within 24 hours';
+//     for (const promotion of expiredPromotions) {
+//       try {
+//         // Auto-reject the promotion
+//         promotion.status = 'rejected';
+//         promotion.rejectionReason = 'Promotion expired - Proof not submitted within 24 hours';
         
-        promotion.activityLog.push({
-          action: 'Auto-Rejected',
-          details: 'Promotion automatically rejected due to expiration (24 hours elapsed)',
-          timestamp: new Date()
-        });
+//         promotion.activityLog.push({
+//           action: 'Auto-Rejected',
+//           details: 'Promotion automatically rejected due to expiration (24 hours elapsed)',
+//           timestamp: new Date()
+//         });
 
-        await promotion.save();
-        console.log(`✅ Auto-rejected expired promotion ${promotion._id}`);
+//         await promotion.save();
+//         console.log(`✅ Auto-rejected expired promotion ${promotion._id}`);
         
-      } catch (rejectError) {
-        console.error(`❌ Failed to auto-reject promotion ${promotion._id}:`, rejectError);
-      }
-    }
+//       } catch (rejectError) {
+//         console.error(`❌ Failed to auto-reject promotion ${promotion._id}:`, rejectError);
+//       }
+//     }
 
-    console.log(`🎉 Auto-rejection process completed. Rejected ${expiredPromotions.length} promotions.`);
+//     console.log(`🎉 Auto-rejection process completed. Rejected ${expiredPromotions.length} promotions.`);
     
-  } catch (error) {
-    console.error('❌ Error in auto-rejection cron job:', error);
-  }
-};
+//   } catch (error) {
+//     console.error('❌ Error in auto-rejection cron job:', error);
+//   }
+// };
 
 // Schedule the jobs
 export const startPromotionReminderJobs = () => {
@@ -145,9 +145,9 @@ export const startPromotionReminderJobs = () => {
   cron.schedule('*/15 * * * *', checkExpiringPromotions);
   
   // Auto-reject expired promotions every 30 minutes
-  cron.schedule('*/30 * * * *', autoRejectExpiredPromotions);
+  //cron.schedule('*/30 * * * *', autoRejectExpiredPromotions);
   
   console.log('🚀 Promotion reminder cron jobs started');
   console.log('   - Expiration reminders: every 15 minutes');
-  console.log('   - Auto-rejections: every 30 minutes');
+  //console.log('   - Auto-rejections: every 30 minutes');
 };
