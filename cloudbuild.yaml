@@ -1,0 +1,7 @@
+steps:
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: ['install']
+    dir: 'marketspase-api'
+
+options:
+  logging: 'GCS_ONLY'
