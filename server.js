@@ -7,6 +7,7 @@ import path from 'path';
 
 // Cron Jobs
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
+import { startPromotionReminderJobs } from './src/apps/promotion/services/jobs/promotionReminders.js';
 import './src/apps/campaign/services/jobs/campaign-notification.job.js'; 
 
 import AuthRouter from './src/apps/auth/index.js';
@@ -19,6 +20,9 @@ import ContactRouter from './src/apps/contact/index.js';
 import DashboardRouter from './src/apps/dashboard/index.js';
 import AdminAuthRouter from './src/apps/admin/auth/index.js';
 import PromoterRouter from './src/apps/promotion/index.js';
+// Add this to your main server file
+
+
 
 const port = process.env.PORT || 8080;
 const app = express();
@@ -79,6 +83,8 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
 
     // Start the cron jobs after a successful database connection
     PromotionExpirationCheckerCronJobs();
+    // Start the cron jobs when server starts
+    startPromotionReminderJobs();
 
     app.listen(port, () => {
         console.log(`Server is running on port: http://localhost:${port}`);
