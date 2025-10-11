@@ -76,24 +76,24 @@ export const UpdateCampaignStatus = async (req, res) => {
     if (status === "rejected" || status === "cancelled") {
       // If campaign is rejected/cancelled, refund reserved funds to marketer
       const marketer = await UserModel.findById(campaign.owner).session(session);
-      if (marketer) {
-        const refundAmount = campaign.budget - campaign.spentBudget;
-        if (refundAmount > 0) {
-          marketer.wallets.marketer.reserved -= refundAmount;
-          marketer.wallets.marketer.balance += refundAmount;
+      // if (marketer) {
+      //   const refundAmount = campaign.budget - campaign.spentBudget;
+      //   if (refundAmount > 0) {
+      //     marketer.wallets.marketer.reserved -= refundAmount;
+      //     marketer.wallets.marketer.balance += refundAmount;
           
-          marketer.wallets.marketer.transactions.push({
-            amount: refundAmount,
-            type: "credit",
-            category: "campaign_refund",
-            description: `Funds refunded for ${status} campaign: "${campaign.title}"`,
-            relatedCampaign: campaign._id,
-            status: "successful",
-          });
+      //     marketer.wallets.marketer.transactions.push({
+      //       amount: refundAmount,
+      //       type: "credit",
+      //       category: "campaign_refund",
+      //       description: `Funds refunded for ${status} campaign: "${campaign.title}"`,
+      //       relatedCampaign: campaign._id,
+      //       status: "successful",
+      //     });
           
-          await marketer.save({ session });
-        }
-      }
+      //     await marketer.save({ session });
+      //   }
+      // }
     }
 
     // 11. Save the updated campaign document within the transaction
@@ -116,12 +116,6 @@ export const UpdateCampaignStatus = async (req, res) => {
                     budget: campaign.budget
                 });
                 
-                // await sendEmail({
-                //     to: marketer.email,
-                //     subject: 'Campaign Approved - MarketSpase',
-                //     html: emailContent
-                // });
-
               //Send welcome email to the user
               await sendEmail(marketer.email, 'Campaign Approved - MarketSpase', emailContent);
                 
@@ -136,13 +130,8 @@ export const UpdateCampaignStatus = async (req, res) => {
                     rejectionReason: details || "Please review our campaign guidelines and try again."
                 });
                 
-                // await sendEmail({
-                //     to: marketer.email,
-                //     subject: 'Campaign Not Approved - MarketSpase',
-                //     html: emailContent
-                // });
 
-                //Send welcome email to the user
+              //Send welcome email to the user
               await sendEmail(marketer.email, 'Campaign Not Approved - MarketSpase', emailContent);
             }
         }
