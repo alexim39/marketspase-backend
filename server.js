@@ -20,6 +20,7 @@ import ContactRouter from './src/apps/contact/index.js';
 import DashboardRouter from './src/apps/dashboard/index.js';
 import AdminAuthRouter from './src/apps/admin/auth/index.js';
 import PromoterRouter from './src/apps/promotion/index.js';
+import NotificationRouter from './src/apps/notification/index.js';
 
 // Port
 const port = process.env.PORT || 8080;
@@ -70,6 +71,7 @@ app.use('/contact', ContactRouter);
 app.use('/dashboard', DashboardRouter);
 app.use('/admin', AdminAuthRouter);
 app.use('/promotion', PromoterRouter);
+app.use('/notifications', NotificationRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));

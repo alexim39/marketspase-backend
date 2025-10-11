@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { NotificationService } from '../../notification/services/notification.service.js';
 
 // Function to generate a unique 6-digit number
 const generateUniqueUpi = () => {
@@ -117,7 +118,7 @@ promotionSchema.virtual('isOverdue').get(function() {
 });
 
 // Pre-save middleware to update timestamps based on status changes
-promotionSchema.pre('save', function(next) {
+promotionSchema.pre('save', async function(next) {
   if (this.isModified('status')) {
     const now = new Date();
     
@@ -128,6 +129,17 @@ promotionSchema.pre('save', function(next) {
         details: 'Promoter submitted proof for validation',
         timestamp: now
       });
+
+       // Notify campaign owner
+      const campaign = await mongoose.model('Campaign').findById(this.campaign);
+      if (campaign) {
+        await NotificationService.createPromotionSubmittedNotification(
+          campaign.owner, 
+          this, 
+          campaign
+        );
+      }
+
     }
     
     if (this.status === 'validated' && !this.validatedAt) {
@@ -137,6 +149,16 @@ promotionSchema.pre('save', function(next) {
         details: 'Promotion validated and approved for payment',
         timestamp: now
       });
+
+      // Notify promoter
+      const campaign = await mongoose.model('Campaign').findById(this.campaign);
+      if (campaign) {
+        await NotificationService.createPromotionValidatedNotification(
+          this.promoter,
+          this,
+          campaign
+        );
+      }
     }
     
     if (this.status === 'paid' && !this.paidAt) {
