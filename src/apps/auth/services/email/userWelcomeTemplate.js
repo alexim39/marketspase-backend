@@ -1,7 +1,7 @@
 export const userWelcomeEmailTemplate = (user) => {
   const year = new Date().getFullYear();
-  const formattedName = user.name
-    ? user.name.charAt(0).toUpperCase() + user.name.slice(1).toLowerCase()
+  const formattedName = user.displayName
+    ? user.displayName.charAt(0).toUpperCase() + user.displayName.slice(1).toLowerCase()
     : '';
 
   return `

@@ -200,15 +200,17 @@ export const createCampaign = async (req, res) => {
       });
       
       // Send to all admin emails
-      await Promise.all(
-          adminEmails.map(email => 
-              sendEmail({
-                  to: email.trim(),
-                  subject: `New Campaign Pending Approval: ${newCampaign.title}`,
-                  html: emailContent
-              })
-          )
-      );
+      // await Promise.all(
+      //     adminEmails.map(email => 
+      //         sendEmail({
+      //             to: email.trim(),
+      //             subject: `New Campaign Pending Approval: ${newCampaign.title}`,
+      //             html: emailContent
+      //         })
+      //     )
+      // );
+
+      await Promise.all(adminEmails.map(email => sendEmail(email, `New Campaign Pending Approval: ${newCampaign.title}`, emailContent)));
       
       console.log(`Admin notification sent for campaign: ${newCampaign._id}`);
   } catch (emailError) {
