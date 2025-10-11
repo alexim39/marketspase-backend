@@ -116,11 +116,14 @@ export const UpdateCampaignStatus = async (req, res) => {
                     budget: campaign.budget
                 });
                 
-                await sendEmail({
-                    to: marketer.email,
-                    subject: 'Campaign Approved - MarketSpase',
-                    html: emailContent
-                });
+                // await sendEmail({
+                //     to: marketer.email,
+                //     subject: 'Campaign Approved - MarketSpase',
+                //     html: emailContent
+                // });
+
+              //Send welcome email to the user
+              await sendEmail(marketer.email, 'Campaign Approved - MarketSpase', emailContent);
                 
             } else if (status === 'rejected') {
                 // Send campaign rejected email
@@ -133,11 +136,14 @@ export const UpdateCampaignStatus = async (req, res) => {
                     rejectionReason: details || "Please review our campaign guidelines and try again."
                 });
                 
-                await sendEmail({
-                    to: marketer.email,
-                    subject: 'Campaign Not Approved - MarketSpase',
-                    html: emailContent
-                });
+                // await sendEmail({
+                //     to: marketer.email,
+                //     subject: 'Campaign Not Approved - MarketSpase',
+                //     html: emailContent
+                // });
+
+                //Send welcome email to the user
+              await sendEmail(marketer.email, 'Campaign Not Approved - MarketSpase', emailContent);
             }
         }
     } catch (emailError) {

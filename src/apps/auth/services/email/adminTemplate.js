@@ -15,7 +15,7 @@ export const adminWelcomeEmailTemplate = (user) => {
   <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #eee;">
     
     <div style="background:#673ab7;padding:25px 20px;text-align:center;">
-      <img src="https://MarketSpase.com/img/logo2.PNG" alt="MarketSpase Logo" style="height:32px;">
+      <img src="https://marketspase.com/img/logo.JPG" alt="MarketSpase Logo" style="height:32px;">
     </div>
     
     <div style="padding:30px 20px;">
