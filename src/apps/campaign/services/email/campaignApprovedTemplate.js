@@ -2,7 +2,10 @@
 export const campaignApprovedTemplate = (campaignData) => {
   const year = new Date().getFullYear();
   const formattedName = campaignData.userName
-    ? campaignData.userName.charAt(0).toUpperCase() + campaignData.userName.slice(1).toLowerCase()
+    ? campaignData.userName
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ')
     : '';
 
   return `

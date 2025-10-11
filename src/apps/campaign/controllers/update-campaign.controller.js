@@ -110,7 +110,7 @@ export const UpdateCampaignStatus = async (req, res) => {
             if (status === 'active') {
                 // Send campaign approved email
                 const emailContent = campaignApprovedTemplate({
-                    userName: marketer.displayName || marketer.name,
+                    userName: marketer.displayName,
                     campaignTitle: campaign.title,
                     campaignId: campaign._id,
                     budget: campaign.budget
@@ -123,14 +123,13 @@ export const UpdateCampaignStatus = async (req, res) => {
                 // Send campaign rejected email
                 const refundAmount = campaign.budget - campaign.spentBudget;
                 const emailContent = campaignRejectedTemplate({
-                    userName: marketer.displayName || marketer.name,
+                    userName: marketer.displayName,
                     campaignTitle: campaign.title,
                     budget: campaign.budget,
                     refundAmount: refundAmount,
                     rejectionReason: details || "Please review our campaign guidelines and try again."
                 });
                 
-
               //Send welcome email to the user
               await sendEmail(marketer.email, 'Campaign Not Approved - MarketSpase', emailContent);
             }
