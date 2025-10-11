@@ -30,6 +30,7 @@ export const processPayment = async (bankCode, accountNumber, accountName, amoun
       };
     }
 
+    
     const recipientCode = recipientResponse.data.data.recipient_code;
 
     // Step 2: Initiate transfer with auto-finalize parameters
