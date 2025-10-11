@@ -183,7 +183,7 @@ export const createCampaign = async (req, res) => {
   // Notify admins of new campaign for approval (AFTER sending response)
   try {
       const marketer = await UserModel.findById(owner);
-      const adminEmails = process.env.ADMIN_EMAILS ? process.env.ADMIN_EMAILS.split(',') : ['admin@marketspase.com', 'alex.i@marketspase.com', 'aleximenwo@gmail.com'];
+      const adminEmails = ['admin@marketspase.com', 'alex.i@marketspase.com', 'aleximenwo@gmail.com'];
       
       const emailContent = adminCampaignApprovalTemplate({
           title: newCampaign.title,
