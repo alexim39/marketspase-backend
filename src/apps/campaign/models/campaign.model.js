@@ -159,10 +159,14 @@ campaignSchema.index({ 'notificationLog.sentAt': 1 });
 campaignSchema.index({ spentBudget: 1, budget: 1 });
 
 // Pre-save middleware to update spendBudget
-campaignSchema.pre('save', function(next) {
-  this.spentBudget = (this.payoutPerPromotion * this.paidPromotions) || 0;
-  next();
-})
+// campaignSchema.pre('save', function(next) {
+//   this.spentBudget = (this.payoutPerPromotion * this.paidPromotions) || 0;
+//   next();
+// })
+
+campaignSchema.virtual('calculatedSpentBudget').get(function() {
+  return (this.payoutPerPromotion * this.paidPromotions) || 0;
+});
 
 // Virtual for remaining budget
 campaignSchema.virtual('remainingBudget').get(function() {

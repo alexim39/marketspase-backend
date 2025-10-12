@@ -6,7 +6,8 @@ import { UpdateCampaignStatus } from '../controllers/update-campaign.controller.
 import { EditCampaign } from '../controllers/edit-campaign.controller.js'
 import { getCampaignById, getAUserCampaigns, getAllCampaigns } from '../controllers/get.controller.js'
 import { campaignUpload } from '../services/upload.js';
-import { getProofDetails, updatePromotionStatus } from '../controllers/promotion.controller.js'
+import { updatePromotionStatus } from '../controllers/update-promotion-status.controller.js'
+import { getProofDetails, } from '../controllers/get-proof-details.controller.js'
 import { getCampaignsByStatusAndUserId } from '../controllers/getByStatusAndUserId.controller.js'
 
 
