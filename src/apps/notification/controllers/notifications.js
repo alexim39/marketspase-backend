@@ -6,11 +6,10 @@ import { NotificationModel } from '../models/notification.model.js';
 // Get user notifications
 export const getNotifications = async (req, res) => {
    try {
-    console.log('Fetching notifications for user:', req.params.userId);
-    console.log('Fetching notifications for user:', req.query.userId);
+    //console.log('Fetching notifications for user:', req.query.userId);
     const { limit = 20, skip = 0, status } = req.query;
     const notifications = await NotificationModel.getUserNotifications(
-      req.params.userId, 
+      req.query.userId, 
       { limit: parseInt(limit), skip: parseInt(skip), status }
     );
     
@@ -35,7 +34,7 @@ export const getNotifications = async (req, res) => {
 // Get unread count
 export const getUnreadCount = async (req, res) => {
    try {
-    const count = await NotificationService.getUserNotificationCount(req.user._id);
+    const count = await NotificationService.getUserNotificationCount(req.query.userId);
     res.json({
       success: true,
       data: { count }
@@ -53,10 +52,11 @@ export const getUnreadCount = async (req, res) => {
 // Mark as read
 export const markAsRead = async (req, res) => {
     try {
-    const notification = await NotificationService.markAsRead(
+    const notification = await NotificationService.markAsRead(req.params.id);
+   /*  const notification = await NotificationService.markAsRead(
       req.params.id, 
-      req.user._id
-    );
+      req.query.userId
+    ); */
     
     if (!notification) {
       return res.status(404).json({
@@ -82,7 +82,8 @@ export const markAsRead = async (req, res) => {
 // Mark all as read
 export const markAllAsRead = async (req, res) => {
    try {
-    await NotificationService.markAllAsRead(req.user._id);
+    //console.log('Marking all notifications as read for user3:', req.body);
+    await NotificationService.markAllAsRead(req.body.userId);
     res.json({
       success: true,
       message: 'All notifications marked as read'
@@ -100,7 +101,6 @@ export const markAllAsRead = async (req, res) => {
 // Add SSE endpoint
 export const addSSEEndpoint = async (req, res) => {
  const userId = req.query.userId;
- //const userId = req.user._id.toString();
   
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',

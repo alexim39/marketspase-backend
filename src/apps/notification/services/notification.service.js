@@ -21,15 +21,109 @@ export class NotificationService {
     }
   }
 
-//   static async createNotification(notificationData) {
-//     try {
-//       return await NotificationModel.createNotification(notificationData);
-//     } catch (error) {
-//       console.error('Error creating notification:', error);
-//       throw error;
-//     }
-//   }
+  // WHERE TO USE: In campaign scheduling service - send reminders to promoters who haven't submitted proof before deadline
+  static async createSubmissionReminder(promoterId, campaign, promotion, daysRemaining) {
+    return this.createNotification({
+      recipient: promoterId,
+      type: 'submission_reminder',
+      title: 'Submission Reminder',
+      message: `Reminder: You have ${daysRemaining} day(s) left to submit proof for "${campaign.title}"`,
+      data: {
+        campaignId: campaign._id,
+        promotionId: promotion._id,
+        daysRemaining,
+        deadline: campaign.deadline,
+        actionUrl: `/promotions/${promotion._id}/submit`
+      },
+      priority: daysRemaining <= 1 ? 'high' : 'medium'
+    });
+  }
 
+  // WHERE TO USE: In payment processing service - notify promoter when their earnings are ready for withdrawal
+  static async createPayoutReadyNotification(promoterId, amount, pendingPayoutsCount) {
+    return this.createNotification({
+      recipient: promoterId,
+      type: 'payout_ready',
+      title: 'Payout Ready!',
+      message: `₦${amount} is ready for withdrawal. You have ${pendingPayoutsCount} completed promotions.`,
+      data: {
+        amount,
+        pendingPayoutsCount,
+        actionUrl: '/wallet/withdraw'
+      },
+      priority: 'high'
+    });
+  }
+
+  // WHERE TO USE: In admin dashboard - when admin approves a marketer's campaign
+  static async createCampaignApprovedNotification(marketerId, campaign) {
+    return this.createNotification({
+      recipient: marketerId,
+      type: 'campaign_approved',
+      title: 'Campaign Approved!',
+      message: `Your campaign "${campaign.title}" has been approved and is now active.`,
+      data: {
+        campaignId: campaign._id,
+        campaignTitle: campaign.title,
+        actionUrl: `/campaigns/${campaign._id}`
+      },
+      priority: 'medium'
+    });
+  }
+
+  // WHERE TO USE: In admin dashboard - when admin rejects a marketer's campaign with reason
+  static async createCampaignRejectedNotification(marketerId, campaign, rejectionReason) {
+    return this.createNotification({
+      recipient: marketerId,
+      type: 'campaign_rejected',
+      title: 'Campaign Requires Changes',
+      message: `Your campaign "${campaign.title}" was rejected: ${rejectionReason}`,
+      data: {
+        campaignId: campaign._id,
+        campaignTitle: campaign.title,
+        rejectionReason,
+        actionUrl: `/campaigns/${campaign._id}/edit`
+      },
+      priority: 'medium'
+    });
+  }
+
+  // WHERE TO USE: In campaign monitoring service - when campaign budget is fully utilized
+  static async createBudgetExhaustedNotification(marketerId, campaign) {
+    return this.createNotification({
+      recipient: marketerId,
+      type: 'budget_exhausted',
+      title: 'Campaign Budget Exhausted',
+      message: `Budget for "${campaign.title}" has been fully utilized. Campaign has been paused.`,
+      data: {
+        campaignId: campaign._id,
+        campaignTitle: campaign.title,
+        spentAmount: campaign.spentAmount,
+        totalBudget: campaign.budget,
+        actionUrl: `/campaigns/${campaign._id}/budget`
+      },
+      priority: 'high'
+    });
+  }
+
+  // WHERE TO USE: In marketer dashboard - when marketer rejects a promoter's submitted proof
+  static async createPromotionRejectedNotification(promoterId, promotion, campaign, rejectionReason) {
+    return this.createNotification({
+      recipient: promoterId,
+      type: 'promotion_rejected',
+      title: 'Proof Rejected',
+      message: `Your submission for "${campaign.title}" was rejected: ${rejectionReason}`,
+      data: {
+        campaignId: campaign._id,
+        promotionId: promotion._id,
+        rejectionReason,
+        actionUrl: `/promotions/${promotion._id}/resubmit`
+      },
+      priority: 'medium'
+    });
+  }
+
+  // Existing methods below...
   static async createPromotionAssignedNotification(promoterId, campaign, promotion) {
     return this.createNotification({
       recipient: promoterId,
@@ -112,15 +206,23 @@ export class NotificationService {
     });
   }
 
-  static async markAsRead(notificationId, userId) {
+  static async markAsRead(notificationId) {
     return NotificationModel.findOneAndUpdate(
-      { _id: notificationId, recipient: userId },
+      { _id: notificationId },
       { 
         status: 'read',
         readAt: new Date()
       },
       { new: true }
     );
+   /*  return NotificationModel.findOneAndUpdate(
+      { _id: notificationId, recipient: userId },
+      { 
+        status: 'read',
+        readAt: new Date()
+      },
+      { new: true }
+    ); */
   }
 
   static async markAllAsRead(userId) {

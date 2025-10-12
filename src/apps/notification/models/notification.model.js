@@ -92,4 +92,39 @@ notificationSchema.statics.getUserNotifications = function(userId, options = {})
     .populate('data.promotionId', 'upi status');
 };
 
+// NEW: Static method to clean up old read notifications manually
+notificationSchema.statics.cleanupOldReadNotifications = function(daysOld = 7) {
+  const cutoffDate = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
+  
+  return this.deleteMany({
+    status: { $in: ['read', 'dismissed'] },
+    $or: [
+      { readAt: { $lt: cutoffDate } },
+      { 
+        // Also delete if marked as read/dismissed but no readAt (for backward compatibility)
+        status: { $in: ['read', 'dismissed'] },
+        readAt: { $exists: false },
+        createdAt: { $lt: cutoffDate }
+      }
+    ]
+  });
+};
+
+// Optional: Also add a method to count notifications that will be deleted (for logging)
+notificationSchema.statics.countOldReadNotifications = function(daysOld = 7) {
+  const cutoffDate = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
+  
+  return this.countDocuments({
+    status: { $in: ['read', 'dismissed'] },
+    $or: [
+      { readAt: { $lt: cutoffDate } },
+      { 
+        status: { $in: ['read', 'dismissed'] },
+        readAt: { $exists: false },
+        createdAt: { $lt: cutoffDate }
+      }
+    ]
+  });
+};
+
 export const NotificationModel = mongoose.model("Notification", notificationSchema);

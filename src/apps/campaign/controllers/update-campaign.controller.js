@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import { sendEmail } from "../../../services/emailService.js";
 import { campaignApprovedTemplate } from '../services/email/campaignApprovedTemplate.js';
 import { campaignRejectedTemplate } from '../services/email/campaignRejectedTemplate.js';
+import { NotificationService } from "../../notification/services/notification.service.js";
 
 /**
  * Controller to change the status of a campaign.
@@ -94,6 +95,8 @@ export const UpdateCampaignStatus = async (req, res) => {
       //     await marketer.save({ session });
       //   }
       // }
+
+     
     }
 
     // 11. Save the updated campaign document within the transaction
@@ -118,6 +121,12 @@ export const UpdateCampaignStatus = async (req, res) => {
                 
               //Send welcome email to the user
               await sendEmail(marketer.email, 'Campaign Approved - MarketSpase', emailContent);
+
+              // Send appropriate notification based on status change
+              await NotificationService.createCampaignApprovedNotification(
+                campaign.owner._id,
+                campaign
+              );
                 
             } else if (status === 'rejected') {
                 // Send campaign rejected email
@@ -132,6 +141,14 @@ export const UpdateCampaignStatus = async (req, res) => {
                 
               //Send welcome email to the user
               await sendEmail(marketer.email, 'Campaign Not Approved - MarketSpase', emailContent);
+
+              // Send appropriate notification based on status change
+              await NotificationService.createCampaignRejectedNotification(
+                campaign.owner._id,
+                campaign,
+                reason
+              );
+              //await campaign.logNotification('campaign_rejected', campaign.owner._id, { reason });
             }
         }
     } catch (emailError) {

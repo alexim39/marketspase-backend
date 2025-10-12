@@ -62,3 +62,6 @@ cron.schedule('*/15 * * * *', async () => {   // every 15 min
     console.error('Error in campaign notification cron:', err);
   }
 });
+
+// At the end of your file
+export default cron;

@@ -9,6 +9,7 @@ import path from 'path';
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
 import { startPromotionReminderJobs } from './src/apps/promotion/services/jobs/promotionReminders.js';
 import './src/apps/campaign/services/jobs/campaign-notification.job.js'; 
+import './src/apps/notification/services/jobs/notification-scheduler.js'; 
 
 import AuthRouter from './src/apps/auth/index.js';
 import UserRouter from './src/apps/user/index.js';
