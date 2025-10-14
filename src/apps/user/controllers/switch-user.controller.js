@@ -39,6 +39,9 @@ export const SwitchUser = async (req, res) => {
         user.role = newRole;
         const updatedUser = await user.save();
 
+        // log this activity
+        await user.logActivity('role_change', `You switched user role to ${user.role}`, {});
+
         // Respond with success
         res.status(200).json({
             success: true,

@@ -133,6 +133,9 @@ export const UpdateUsername = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
+    // log this activity
+    await user.logActivity('profile_update', `You updated your profile username to ${username}`, {});
+
     // 7. Send success response
     res.status(200).json({
       success: true,

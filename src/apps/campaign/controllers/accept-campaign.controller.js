@@ -79,48 +79,6 @@ export const acceptCampaign = async (req, res) => {
     });
     await promotion.save({ session });
     
-
-    // 6. Update wallet balances within the transaction
-    // Deduct from marketer's reserved wallet
-    // marketer.wallets.marketer.reserved = (marketer.wallets.marketer.reserved || 0) - payoutAmount;
-    // marketer.wallets.marketer.transactions.push({
-    //   amount: payoutAmount,
-    //   type: "debit",
-    //   category: "campaign",
-    //   description: `Funds transferred to promoter for campaign: "${campaign.title}"`,
-    //   relatedCampaign: campaignId,
-    //   status: "successful",
-    // });
-
-    // Credit promoter's reserved wallet
-    // promoter.wallets.promoter.reserved = (promoter.wallets.promoter.reserved || 0) + payoutAmount;
-    // promoter.wallets.promoter.transactions.push({
-    //   amount: payoutAmount,
-    //   type: "credit",
-    //   category: "promotion",
-    //   description: `Funds reserved from campaign: "${campaign.title}"`,
-    //   relatedCampaign: campaignId,
-    //   relatedPromotion: promotion._id,
-    //   status: "successful",
-    // });
-
-    // 7. Update campaign using the assignPromoter method
-    //campaign.assignPromoter();
-    
-    // IMPORTANT: Update spentBudget to reflect the reserved funds
-    // This ensures the campaign budget tracking is accurate
-    //campaign.spentBudget += payoutAmount;
-    
-    // Check if the campaign should be marked as exhausted
-    // if (campaign.spentBudget >= campaign.budget || campaign.totalPromotions >= campaign.maxPromoters) {
-    //   campaign.status = 'exhausted';
-    //   campaign.activityLog.push({
-    //     action: "Campaign Exhausted",
-    //     details: `Campaign budget exhausted after ${campaign.totalPromotions} promotions`,
-    //     timestamp: new Date()
-    //   });
-    // }
-
     // 8. Save all documents
     //await marketer.save({ session });
     await promoter.save({ session });
@@ -129,6 +87,9 @@ export const acceptCampaign = async (req, res) => {
     // 9. Commit the transaction
     await session.commitTransaction();
     session.endSession();
+
+    // user activity log
+    await promoter.logActivity('campaign_update', `You accepted a new campaign promotion`, {});
 
     // 10. Send success response
     res.json({

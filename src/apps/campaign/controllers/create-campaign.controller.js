@@ -171,6 +171,9 @@ export const createCampaign = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
+    // user activity log
+    await user.logActivity('campaign_create', `You created a new campaign`, {});
+
     res.status(201).json({
       message: "Campaign created successfully. Funds have been reserved and it is now awaiting review.",
       success: true,

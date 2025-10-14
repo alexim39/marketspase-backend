@@ -174,6 +174,8 @@ export const UpdateProfile = async (req, res) => {
             });
         }
 
+        await updatedUser.logActivity('profile_update', `You updated your profile details`, {});
+
         // Respond with success
         res.status(200).json({
             success: true,

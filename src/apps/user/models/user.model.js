@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import { activitySchema } from './activity.schema.js';
+
 
 const transactionSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
@@ -241,7 +243,25 @@ const userSchema = new mongoose.Schema(
         default: false,
       },
       adCategories: [{ type: String }],
-    }
+    },
+
+    // Add activity tracking array
+    activityLog: [activitySchema],
+      
+    // Activity tracking settings
+    activitySettings: {
+      retainPeriod: { 
+        type: Number, 
+        default: 365, // Days to retain activity logs
+        min: 30,
+        max: 1095 // 3 years max
+      },
+      enabled: { 
+        type: Boolean, 
+        default: true 
+      }
+    },
+
   },
   { timestamps: true }
 );
@@ -320,7 +340,74 @@ userSchema.methods = {
   unmuteNotifications() {
     this.notificationStats.muteUntil = null;
     return this.save();
+  },
+
+
+  // Log user activity
+  logActivity(action, description, options = {}) {
+    //console.log('LogActivity called:', { action, description, options });
+    
+    if (!this.activitySettings.enabled) {
+      console.log('Activity logging disabled');
+      return Promise.resolve(this);
+    }
+    
+    const activity = {
+      action,
+      description,
+      resourceType: options.resourceType,
+      resourceId: options.resourceId,
+      metadata: options.metadata || {},
+      ipAddress: options.ipAddress,
+      userAgent: options.userAgent,
+      timestamp: new Date()
+    };
+    
+    console.log('Activity to be saved:', activity);
+    
+    this.activityLog.unshift(activity);
+    
+    // Limit the number of stored activities
+    const maxActivities = 1000;
+    if (this.activityLog.length > maxActivities) {
+      this.activityLog = this.activityLog.slice(0, maxActivities);
+    }
+    
+    return this.save().then(result => {
+      console.log('Activity saved successfully');
+      return result;
+    }).catch(error => {
+      console.error('Failed to save activity:', error);
+      throw error;
+    });
+  },
+
+  // Get recent activities with pagination
+  getRecentActivities(limit = 50, offset = 0) {
+    return this.activityLog.slice(offset, offset + limit);
+  },
+  
+  // Search activities by action or description
+  searchActivities(query, limit = 50) {
+    const searchRegex = new RegExp(query, 'i');
+    return this.activityLog.filter(activity => 
+      searchRegex.test(activity.action) || 
+      searchRegex.test(activity.description)
+    ).slice(0, limit);
+  },
+  
+  // Clean up old activities based on retain period
+  cleanupOldActivities() {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - this.activitySettings.retainPeriod);
+    
+    this.activityLog = this.activityLog.filter(
+      activity => activity.timestamp > cutoffDate
+    );
+    
+    return this.save();
   }
+
 };
 
 // Static methods for user model
@@ -357,6 +444,47 @@ userSchema.statics = {
         } 
       }
     );
+  },
+
+
+  // Find users by recent activity
+  async findByRecentActivity(action, hours = 24) {
+    const cutoffDate = new Date(Date.now() - hours * 60 * 60 * 1000);
+    
+    return this.find({
+      'activityLog': {
+        $elemMatch: {
+          action: action,
+          timestamp: { $gte: cutoffDate }
+        }
+      }
+    });
+  },
+  
+  // Bulk cleanup of old activities across all users
+  async cleanupAllOldActivities() {
+    const users = await this.find({ 'activitySettings.retainPeriod': { $exists: true } });
+    
+    const cleanupPromises = users.map(user => user.cleanupOldActivities());
+    return Promise.all(cleanupPromises);
+  },
+  
+  // Get system-wide activity statistics
+  async getActivityStats(days = 30) {
+    const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    
+    return this.aggregate([
+      { $unwind: '$activityLog' },
+      { $match: { 'activityLog.timestamp': { $gte: cutoffDate } } },
+      {
+        $group: {
+          _id: '$activityLog.action',
+          count: { $sum: 1 },
+          lastPerformed: { $max: '$activityLog.timestamp' }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
   }
 };
 
@@ -394,6 +522,33 @@ userSchema.pre('save', function(next) {
     // Apply role-specific defaults
     const roleDefaults = defaultSettings[this.role] || {};
     this.notificationSettings = { ...this.notificationSettings, ...roleDefaults };
+  }
+
+  // Only log if this is an existing document being modified
+  if (!this.isNew && this.isModified()) {
+    const modifiedFields = Object.keys(this.modifiedPaths());
+    
+    // Log profile updates
+    if (modifiedFields.some(field => field.startsWith('personalInfo') || 
+                                    field.startsWith('professionalInfo'))) {
+      this.logActivity('profile_update', 'User updated profile information', {
+        metadata: { modifiedFields }
+      }).catch(console.error); // Prevent save failure if logging fails
+    }
+    
+    // Log notification settings changes
+    if (modifiedFields.some(field => field.startsWith('notificationSettings'))) {
+      this.logActivity('notification_settings_update', 'User updated notification preferences', {
+        metadata: { modifiedFields }
+      }).catch(console.error);
+    }
+    
+    // Log preference changes
+    if (modifiedFields.some(field => field.startsWith('preferences'))) {
+      this.logActivity('preferences_update', 'User updated application preferences', {
+        metadata: { modifiedFields }
+      }).catch(console.error);
+    }
   }
   next();
 });

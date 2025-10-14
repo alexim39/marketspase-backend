@@ -25,6 +25,10 @@ export const toggleNotification = async (req, res) => {
     user.preferences.notification = state;
     await user.save();
 
+    
+    // set log activity
+    await user.logActivity('notification_settings_update', `You ${state ? 'enabled' : 'disabled'} notification settings`, {});
+
     res.status(200).json({
       message: `Notifications ${state ? 'enabled' : 'disabled'} successfully`,
       data: {

@@ -171,20 +171,8 @@ export const downloadPromotion = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    // res.status(200).json({
-    //   message: "Campaign post downloaded successfully. You can now share it on your status.",
-    //   success: true,
-    //   campaign: {
-    //     title: campaign.title,
-    //     caption: campaign.caption,
-    //     link: campaign.link,
-    //     mediaUrl: `${req.protocol}://${req.get("host")}${campaign.mediaUrl}`,
-    //     mediaType: campaign.mediaType,
-    //   },
-    //   promotionId: promotion._id,
-    //   upi: promotion.upi,
-    //   reservedAmount: payoutAmount
-    // });
+    // user activity log
+    await promoter.logActivity('campaign_update', `You downloaded a new campaign promotion`, {});
 
     res.status(200).json({
         message: "Campaign post downloaded successfully. You can now share it on your status.",

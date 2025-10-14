@@ -533,6 +533,11 @@ if (paymentResponse.success) {
     await user.save({ session });
     await session.commitTransaction();
 
+
+     // log this activity
+    await user.logActivity('withdrawal_complete', `You successfully completed a withdrawal request`, {
+    });
+
     return res.status(200).json({
         message: "Withdrawal request received and is being processed.",
         success: true,
@@ -569,6 +574,8 @@ if (paymentResponse.success) {
             refundedAmount: totalDeduction,
             newBalance: promoterWallet.balance
         });
+
+        await user.logActivity('withdrawal_request', `Failed withdrawal request attempt`, {});
         
         await sendEmail({
             to: user.email,
