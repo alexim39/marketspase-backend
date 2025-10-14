@@ -74,7 +74,8 @@ const campaignSchema = new mongoose.Schema(
           'promotion_validated',
           'promotion_rejected',
           'low_balance',
-          'payment_processed'
+          'payment_processed',
+          'deadline_reminder'
         ],
         required: true
       },

@@ -22,7 +22,7 @@ const promotionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["pending", "assigned", "submitted", "validated", "rejected", "paid"],
+    enum: ["pending", "submitted", "validated", "rejected", "paid"],
     default: "pending",
   },
   submittedAt: Date,
@@ -35,7 +35,7 @@ const promotionSchema = new mongoose.Schema({
     validate: {
       validator: function(value) {
         // Only require proofViews when status is submitted or beyond
-        return this.status === "pending" || this.status === "assigned" || value !== undefined;
+        return this.status === "pending" || value !== undefined;
       },
       message: "Proof views are required when promotion is submitted"
     }
@@ -76,12 +76,13 @@ const promotionSchema = new mongoose.Schema({
     type: {
       type: String,
       enum: [
-        'promotion_assigned',
+        'promotion_pending',
         'promotion_submitted',
         'promotion_validated',
         'promotion_rejected',
         'submission_reminder',
-        'payment_processed'
+        'payment_processed',
+        'deadline_reminder',
       ],
       required: true
     },
@@ -169,7 +170,7 @@ promotionSchema.virtual('isOverdue').get(function() {
 
 // Virtual for needsSubmissionReminder
 promotionSchema.virtual('needsSubmissionReminder').get(function() {
-  if (this.status !== 'assigned') return false;
+  if (this.status !== 'pending') return false;
   
   const now = new Date();
   const assignmentTime = new Date(this.createdAt);
@@ -186,7 +187,7 @@ promotionSchema.pre('save', async function(next) {
   if (this.isModified('status')) {
     const now = new Date();
     
-    if (this.status === 'assigned') {
+    if (this.status === 'pending') {
       this.activityLog.push({
         action: 'Promotion Assigned',
         details: 'Promotion assigned to promoter',
@@ -202,7 +203,7 @@ promotionSchema.pre('save', async function(next) {
             campaign,
             this
           );
-          await this.logNotification('promotion_assigned', {
+          await this.logNotification('promotion_apending', {
             campaignId: campaign._id,
             campaignTitle: campaign.title
           });
@@ -356,7 +357,7 @@ promotionSchema.methods = {
 
   // Check if submission reminder should be sent
   shouldSendSubmissionReminder() {
-    if (this.status !== 'assigned') return false;
+    if (this.status !== 'pending') return false;
     
     const now = new Date();
     const assignmentTime = new Date(this.createdAt);
@@ -369,7 +370,7 @@ promotionSchema.methods = {
     return hoursSinceAssignment > 12 && 
            (!this.reminders.submission.lastSent || 
             (now - this.reminders.submission.lastSent) / (1000 * 60 * 60) > 24) &&
-           this.status === 'assigned';
+           this.status === 'pending';
   },
 
   // Record validation reminder sent (for campaign owners)
@@ -402,7 +403,7 @@ promotionSchema.statics = {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     
     return this.find({
-      status: 'assigned',
+      status: 'pending',
       createdAt: { $lt: twelveHoursAgo },
       $or: [
         { 'reminders.submission.lastSent': { $lt: twentyFourHoursAgo } },

@@ -4,11 +4,13 @@ import { PromotionModel } from '../../../promotion/models/promotion.model.js';
 import { CampaignModel } from '../../../campaign/models/campaign.model.js';
 import { UserModel } from '../../../user/models/user.model.js';
 import { NotificationService } from '../notification.service.js';
+import { NotificationModel } from '../../models/notification.model.js';
 
 // Daily reminder for pending submissions (9 AM and 6 PM)
+//cron.schedule('*/1 * * * *', async () => {
 cron.schedule('0 9,18 * * *', async () => {
   try {
-    console.log('Running improved submission reminder job...');
+    console.log('Running submission reminder job...');
     
     // Use the new static method to find promotions needing reminders
     const pendingPromotions = await PromotionModel.findPromotionsNeedingSubmissionReminders();
@@ -50,7 +52,7 @@ cron.schedule('0 9,18 * * *', async () => {
 });
 
 // Budget monitoring job (runs every hour)
-cron.schedule('0 * * * *', async () => {
+/* cron.schedule('0 * * * *', async () => {
   try {
     console.log('Running budget monitoring job...');
     
@@ -80,9 +82,10 @@ cron.schedule('0 * * * *', async () => {
   } catch (error) {
     console.error('Error in budget monitoring job:', error);
   }
-});
+}); */
 
 // Weekly performance summary (Monday 9 AM)
+//cron.schedule('*/1 * * * *', async () => {
 cron.schedule('0 9 * * 1', async () => {
   try {
     console.log('Running weekly performance summary job...');
@@ -156,6 +159,7 @@ cron.schedule('0 9 * * 1', async () => {
 });
 
 // Low balance monitoring (runs every 6 hours)
+//cron.schedule('*/1 * * * *', async () => {
 cron.schedule('0 */6 * * *', async () => {
   try {
     console.log('Running low balance monitoring job...');
@@ -189,11 +193,9 @@ cron.schedule('0 */6 * * *', async () => {
   }
 });
 
-//console.log('Notification scheduler started successfully');
-//export default schedule;
-
 
 // 1. Budget Alerts - Every hour
+//cron.schedule('*/1 * * * *', async () => {
 cron.schedule('0 * * * *', async () => {
   // Budget alert implementation above
   try {
@@ -233,9 +235,9 @@ cron.schedule('0 * * * *', async () => {
 });
 
 // 2. Submission Reminders - 9 AM & 6 PM daily
+//cron.schedule('*/1 * * * *', async () => {
 cron.schedule('0 9,18 * * *', async () => {
   // Submission reminder implementation above
-
    try {
     console.log('Running submission reminder job...');
     
@@ -252,7 +254,8 @@ cron.schedule('0 9,18 * * *', async () => {
           // Find promotions that need reminders for this campaign
           const pendingPromotions = await PromotionModel.find({
             campaign: campaign._id,
-            status: 'assigned',
+            //status: 'assigned',
+            status: 'pending',
             createdAt: { $lt: new Date(Date.now() - 12 * 60 * 60 * 1000) },
             submissionReminderSent: { $ne: true }
           }).populate('promoter');
@@ -294,6 +297,7 @@ cron.schedule('0 9,18 * * *', async () => {
 });
 
 // 3. Deadline Reminders - 8 AM daily
+//cron.schedule('*/1 * * * *', async () => {
 cron.schedule('0 8 * * *', async () => {
   // Deadline reminder implementation above
   try {
@@ -338,6 +342,7 @@ cron.schedule('0 8 * * *', async () => {
 });
 
 // 4. Weekly Summary - Monday 9 AM
+//cron.schedule('*/1 * * * *', async () => {
 cron.schedule('0 9 * * 1', async () => {
   // Existing weekly summary code
     try {
@@ -453,6 +458,7 @@ cron.schedule('0 9 * * 1', async () => {
 });
 
 // 5. Low Balance Monitoring - Every 6 hours
+//cron.schedule('*/1 * * * *', async () => {
 cron.schedule('0 */6 * * *', async () => {
   // Existing low balance monitoring
   try {
@@ -517,6 +523,7 @@ cron.schedule('0 */6 * * *', async () => {
 });
 
 // Enhanced cleanup job with better logging and error handling
+//cron.schedule('*/1 * * * *', async () => {
 cron.schedule('0 2 * * *', async () => {
   const jobStartTime = new Date();
   console.log(`🔄 [${jobStartTime.toISOString()}] Starting notification cleanup job...`);

@@ -11,7 +11,8 @@ const notificationSchema = new mongoose.Schema({
   type: {
     type: String,
     enum: [
-      'promotion_assigned',     // Promoter assigned to campaign
+      'promotion_pending',     // Promoter pending to campaign
+      //'promotion_assigned',     // Promoter assigned to campaign
       'promotion_submitted',    // Promoter submitted proof
       'promotion_validated',    // Promotion validated
       'promotion_rejected',     // Promotion rejected
@@ -22,7 +23,10 @@ const notificationSchema = new mongoose.Schema({
       'low_balance',           // Marketer wallet low
       'payout_ready',          // Promoter has funds to withdraw
       'system_announcement',   // Platform announcements
-      'reminder'               // Reminder notifications
+      'reminder',               // Reminder notifications
+      'weekly_summary',       // Weekly performance summary
+      'submission_reminder', // Reminder to submit promotion
+      'deadline_reminder'    // Reminder of upcoming campaign deadline
     ],
     required: true
   },
