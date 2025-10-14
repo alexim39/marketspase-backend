@@ -72,14 +72,14 @@ export const Authenticate = async (req, res) => {
 
       //Send email to form owner
       const ownerSubject = 'New MarketSpase Sign Up';
-      const ownerMessage = adminWelcomeEmailTemplate(newUser);
+      const ownerMessage = adminWelcomeEmailTemplate(user);
       const ownerEmails = ['schooltraz@gmail.com'];
       await Promise.all(ownerEmails.map(email => sendEmail(email, ownerSubject, ownerMessage)));
 
       //Send welcome email to the user
       const userSubject = 'Welcome to MarketSpase';
-      const userMessage = userWelcomeEmailTemplate(newUser);
-      await sendEmail(newUser.email, userSubject, userMessage);
+      const userMessage = userWelcomeEmailTemplate(user);
+      await sendEmail(user.email, userSubject, userMessage);
 
     } else {
       // 4. User Exists, Update Information

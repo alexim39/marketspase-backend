@@ -1,7 +1,10 @@
 export const userWelcomeEmailTemplate = (user) => {
   const year = new Date().getFullYear();
   const formattedName = user.displayName
-    ? user.displayName.charAt(0).toUpperCase() + user.displayName.slice(1).toLowerCase()
+    ? user.displayName
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ')
     : '';
 
   return `
@@ -21,16 +24,16 @@ export const userWelcomeEmailTemplate = (user) => {
     <div style="padding:30px 20px;">
       <h1 style="font-size:24px;font-weight:bold;color:#673ab7;margin:0 0 20px;">Welcome to MarketSpase, ${formattedName}!</h1>
       
-      <p style="font-size:16px;line-height:1.6;margin:0 0 24px;">You've just joined the smart way to connect marketers and promoters through WhatsApp Status. Whether you're looking to promote your content or earn money sharing posts, MarketSpase makes it simple and secure.</p>
+      <p style="font-size:16px;line-height:1.6;margin:0 0 24px;">You've just joined the smart way to connect marketers and promoters through WhatsApp Status. Whether you're looking to market your content or earn money posting content on your WhatsApp, MarketSpase makes it simple and secure.</p>
       
       <h2 style="font-size:18px;font-weight:600;color:#1a202c;margin:30px 0 16px;">Here's how MarketSpase works:</h2>
 
       <div style="background:#f7fafc;padding:20px;border-radius:8px;margin-bottom:24px;">
         <h3 style="font-size:16px;font-weight:600;color:#673ab7;margin:0 0 12px;">📢 For Marketers:</h3>
         <ul style="margin:0;padding-left:20px;font-size:14px;line-height:1.5;">
-          <li>Upload your posts and set your budget</li>
-          <li>Your ads gets a unique tracking ID</li>
-          <li>Track reach, views, and campaign performance</li>
+          <li>Upload your ads and set your budget</li>
+          <li>Your ads gets a unique tracking ID and embedded watermark</li>
+          <li>Track reach, views, and ads performance</li>
           <li>Pay only when promoters deliver results</li>
         </ul>
       </div>
@@ -38,10 +41,10 @@ export const userWelcomeEmailTemplate = (user) => {
       <div style="background:#f0fff4;padding:20px;border-radius:8px;margin-bottom:24px;">
         <h3 style="font-size:16px;font-weight:600;color:#38a169;margin:0 0 12px;">💰 For Promoters:</h3>
         <ul style="margin:0;padding-left:20px;font-size:14px;line-height:1.5;">
-          <li>Browse available campaigns and choose what to promote</li>
+          <li>Browse available ads and choose what to promote</li>
           <li>Share posts on your WhatsApp Status</li>
           <li>Earn money when your posts get 25+ views within 24 hours</li>
-          <li>Build your reputation and access higher-paying campaigns</li>
+          <li>Build your reputation and access higher-paying ads</li>
         </ul>
       </div>
 
@@ -65,7 +68,7 @@ export const userWelcomeEmailTemplate = (user) => {
         <p style="font-size:14px;line-height:1.5;margin:0;color:#c53030;"><strong>💡 Pro Tip:</strong> Promoters with higher engagement rates and reliability scores get access to premium campaigns with better payouts!</p>
       </div>
 
-      <p style="font-size:15px;line-height:1.6;">Questions? Check our <a href="https://marketspase.com/faq" style="color:#673ab7;font-weight:600;text-decoration:none;">FAQ</a> or reach out at <a href="mailto:contact@marketspase.com" style="color:#673ab7;text-decoration:none;">contact@marketspase.com</a></p>
+      <p style="font-size:15px;line-height:1.6;">Questions? Check our <a href="https://marketspase.com/resources/faqs" style="color:#673ab7;font-weight:600;text-decoration:none;">FAQ</a> or reach out at <a href="mailto:contact@marketspase.com" style="color:#673ab7;text-decoration:none;">contact@marketspase.com</a></p>
 
       <p style="font-size:15px;margin-top:30px;">Welcome aboard!<br><strong>The MarketSpase Team</strong></p>
     </div>

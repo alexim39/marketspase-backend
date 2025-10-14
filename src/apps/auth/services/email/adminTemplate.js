@@ -1,7 +1,10 @@
 export const adminWelcomeEmailTemplate = (user) => {
   const year = new Date().getFullYear();
   const formattedName = user.displayName
-    ? user.displayName.charAt(0).toUpperCase() + user.displayName.slice(1).toLowerCase()
+    ? user.displayName
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ')
     : '';
 
   return `
