@@ -8,6 +8,7 @@ import {
 } from '../controllers/user.controller.js';
 import { UpdateProfile } from '../controllers/profile-update.controller.js'
 import { SwitchUser } from '../controllers/switch-user.controller.js'
+import { getRevenueStats, getEngagementStats } from '../controllers/admin/admin-dashobard-stats.controller.js'
 
 const UserRouter = express.Router();
 
@@ -42,6 +43,10 @@ UserRouter.put('/profile/profession', UpdateProfessionalInfo);
  * /api/users/profile/profession:
  */
 UserRouter.put('/profile/username', UpdateUsername);
+
+UserRouter.get('/stats/revenue', getRevenueStats);
+
+UserRouter.get('/stats/engagement', getEngagementStats);
 
 
 /* Dynamic Routes */
