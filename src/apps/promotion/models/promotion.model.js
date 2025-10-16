@@ -168,7 +168,7 @@ promotionSchema.virtual('isOverdue').get(function() {
   return diffDays > 7;
 });
 
-// Virtual for needsSubmissionReminder
+// Virtual for needsSubmissionReminder - Check if 23 hours have passed
 promotionSchema.virtual('needsSubmissionReminder').get(function() {
   if (this.status !== 'pending') return false;
   
@@ -176,8 +176,9 @@ promotionSchema.virtual('needsSubmissionReminder').get(function() {
   const assignmentTime = new Date(this.createdAt);
   const hoursSinceAssignment = (now - assignmentTime) / (1000 * 60 * 60);
   
-  // Send reminder if assigned for more than 12 hours and no reminder sent in last 24 hours
-  return hoursSinceAssignment > 12 && 
+  // Send reminder if assigned for exactly 23 hours (±1 hour tolerance)
+  // and no reminder sent in the last 24 hours
+  return hoursSinceAssignment >= 22 && hoursSinceAssignment <= 24 && 
          (!this.reminders.submission.lastSent || 
           (now - this.reminders.submission.lastSent) / (1000 * 60 * 60) > 24);
 });
@@ -355,23 +356,23 @@ promotionSchema.methods = {
     return this.save();
   },
 
-  // Check if submission reminder should be sent
-  shouldSendSubmissionReminder() {
-    if (this.status !== 'pending') return false;
-    
-    const now = new Date();
-    const assignmentTime = new Date(this.createdAt);
-    const hoursSinceAssignment = (now - assignmentTime) / (1000 * 60 * 60);
-    
-    // Send reminder if:
-    // - Assigned for more than 12 hours
-    // - No reminder sent in last 24 hours
-    // - Not already submitted
-    return hoursSinceAssignment > 12 && 
-           (!this.reminders.submission.lastSent || 
-            (now - this.reminders.submission.lastSent) / (1000 * 60 * 60) > 24) &&
-           this.status === 'pending';
-  },
+// Check if submission reminder should be sent - 23 hours after assignment
+shouldSendSubmissionReminder() {
+  if (this.status !== 'pending') return false;
+  
+  const now = new Date();
+  const assignmentTime = new Date(this.createdAt);
+  const hoursSinceAssignment = (now - assignmentTime) / (1000 * 60 * 60);
+  
+  // Send reminder if:
+  // - Assigned for 23 hours (±1 hour tolerance)
+  // - No reminder sent in last 24 hours
+  // - Status is still pending
+  return hoursSinceAssignment >= 22 && hoursSinceAssignment <= 24 && 
+         (!this.reminders.submission.lastSent || 
+          (now - this.reminders.submission.lastSent) / (1000 * 60 * 60) > 24) &&
+         this.status === 'pending';
+},
 
   // Record validation reminder sent (for campaign owners)
   async recordValidationReminder() {
@@ -397,14 +398,18 @@ promotionSchema.methods = {
 
 // Static methods for promotion notifications
 promotionSchema.statics = {
-  // Find promotions needing submission reminders
+  // Find promotions needing submission reminders (23 hours after assignment)
   async findPromotionsNeedingSubmissionReminders() {
-    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    const twentyTwoHoursAgo = new Date(Date.now() - 22 * 60 * 60 * 1000);
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const twentyFiveHoursAgo = new Date(Date.now() - 25 * 60 * 60 * 1000);
     
     return this.find({
       status: 'pending',
-      createdAt: { $lt: twelveHoursAgo },
+      createdAt: { 
+        $gte: twentyFiveHoursAgo, 
+        $lte: twentyTwoHoursAgo 
+      },
       $or: [
         { 'reminders.submission.lastSent': { $lt: twentyFourHoursAgo } },
         { 'reminders.submission.lastSent': { $exists: false } }

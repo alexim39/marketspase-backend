@@ -334,16 +334,23 @@ campaignSchema.methods = {
     return this.save();
   },
 
-  // Check if submission reminder should be sent
-  shouldSendSubmissionReminder() {
-    const now = new Date();
-    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    
-    // Don't send if no reminders sent in last 24 hours and campaign is active
-    return (!this.submissionReminders.lastSent || 
-            this.submissionReminders.lastSent < twentyFourHoursAgo) &&
-           this.status === 'active';
-  },
+// Check if submission reminder should be sent - 23 hours after assignment
+shouldSendSubmissionReminder() {
+  if (this.status !== 'pending') return false;
+  
+  const now = new Date();
+  const assignmentTime = new Date(this.createdAt);
+  const hoursSinceAssignment = (now - assignmentTime) / (1000 * 60 * 60);
+  
+  // Send reminder if:
+  // - Assigned for 23 hours (±1 hour tolerance)
+  // - No reminder sent in last 24 hours
+  // - Status is still pending
+  return hoursSinceAssignment >= 22 && hoursSinceAssignment <= 24 && 
+         (!this.reminders.submission.lastSent || 
+          (now - this.reminders.submission.lastSent) / (1000 * 60 * 60) > 24) &&
+         this.status === 'pending';
+},
 
   // Record submission reminder sent
   recordSubmissionReminder() {

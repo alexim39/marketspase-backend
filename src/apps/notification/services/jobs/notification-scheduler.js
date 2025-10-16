@@ -5,199 +5,89 @@ import { CampaignModel } from '../../../campaign/models/campaign.model.js';
 import { UserModel } from '../../../user/models/user.model.js';
 import { NotificationService } from '../notification.service.js';
 import { NotificationModel } from '../../models/notification.model.js';
+import { sendEmail } from './../../../../services/emailService.js';
+import { promotionExpiringTemplate } from '../../../promotion/services/email/promotionExpiringTemplate.js';
 
-// Daily reminder for pending submissions (9 AM and 6 PM)
-//cron.schedule('*/1 * * * *', async () => {
-cron.schedule('0 9,18 * * *', async () => {
+// 1. 23-HOUR SUBMISSION REMINDER - Every hour
+cron.schedule('0 * * * *', async () => {
   try {
-    console.log('Running submission reminder job...');
+    console.log('Running 23-hour submission reminder job...');
     
-    // Use the new static method to find promotions needing reminders
     const pendingPromotions = await PromotionModel.findPromotionsNeedingSubmissionReminders();
 
-    console.log(`Found ${pendingPromotions.length} promotions needing submission reminders`);
+    console.log(`Found ${pendingPromotions.length} promotions at ~23 hours mark`);
 
     let remindersSent = 0;
 
     for (const promotion of pendingPromotions) {
       try {
-        // Use the instance method to check if reminder should be sent
+        // Calculate exact hours since assignment
+        const now = new Date();
+        const assignmentTime = new Date(promotion.createdAt);
+        const hoursSinceAssignment = (now - assignmentTime) / (1000 * 60 * 60);
+        
+        console.log(`Promotion ${promotion._id} is ${hoursSinceAssignment.toFixed(2)} hours old`);
+        
         if (promotion.shouldSendSubmissionReminder()) {
           const campaign = await CampaignModel.findById(promotion.campaign);
-          const daysRemaining = campaign ? campaign.remainingDays : 7;
+          
+          // Calculate hours left until WhatsApp status expires (24 hours total)
+          const hoursLeft = Math.max(1, Math.ceil(24 - hoursSinceAssignment));
+          
+          console.log(`Sending reminder for promotion ${promotion._id} - ${hoursLeft} hour(s) left`);
           
           await NotificationService.createSubmissionReminder(
             promotion.promoter._id,
             campaign,
             promotion,
-            daysRemaining
+            hoursLeft
           );
           
-          // Use the new record method that handles all tracking
           await promotion.recordSubmissionReminder();
           remindersSent++;
+
+          const promoter = promotion.promoter;
+          const emailData = {
+            promoterName: promoter.displayName,
+            campaignTitle: campaign.title,
+            promotionId: promotion.upi || promotion._id.toString(),
+            payoutAmount: campaign.payoutPerPromotion,
+            expiresAt: new Date(assignmentTime.getTime() + (24 * 60 * 60 * 1000))
+          };
+
+          // Send email
+          const emailContent = promotionExpiringTemplate(emailData);
+          await sendEmail({
+            to: promoter.email,
+            subject: `⏰ 1 Hour Left: Upload Proof for "${campaign.title}"`,
+            html: emailContent
+          });
+  
+          // Update promotion activity log
+          promotion.activityLog.push({
+            action: 'Expiration Reminder Sent',
+            details: '1-hour expiration reminder email sent to promoter',
+            timestamp: new Date()
+          });
+
+          await promotion.save();
           
-          console.log(`Submission reminder sent for promotion ${promotion._id} to promoter ${promotion.promoter._id}`);
+          console.log(`✅23-hour reminder sent for promotion ${promotion._id} to ${promoter.email}`);
         }
       } catch (error) {
         console.error(`Error sending reminder for promotion ${promotion._id}:`, error);
       }
     }
 
-    console.log(`Submission reminder job completed: ${remindersSent} reminders sent`);
+    console.log(`23-hour reminder job completed: ${remindersSent} reminders sent`);
 
   } catch (error) {
-    console.error('Error in submission reminder job:', error);
+    console.error('Error in 23-hour reminder job:', error);
   }
 });
 
-// Budget monitoring job (runs every hour)
-/* cron.schedule('0 * * * *', async () => {
-  try {
-    console.log('Running budget monitoring job...');
-    
-    // Find campaigns with exhausted budget
-    const exhaustedCampaigns = await CampaignModel.find({
-      status: 'active',
-      $expr: { $gte: ['$spentAmount', '$budget'] }
-    }).populate('owner');
-
-    for (const campaign of exhaustedCampaigns) {
-      try {
-        await NotificationService.createBudgetExhaustedNotification(
-          campaign.owner._id,
-          campaign
-        );
-
-        // Pause the campaign
-        await CampaignModel.findByIdAndUpdate(campaign._id, {
-          status: 'paused',
-          pauseReason: 'budget_exhausted'
-        });
-
-      } catch (error) {
-        console.error(`Error processing budget exhaustion for campaign ${campaign._id}:`, error);
-      }
-    }
-  } catch (error) {
-    console.error('Error in budget monitoring job:', error);
-  }
-}); */
-
-// Weekly performance summary (Monday 9 AM)
-//cron.schedule('*/1 * * * *', async () => {
-cron.schedule('0 9 * * 1', async () => {
-  try {
-    console.log('Running weekly performance summary job...');
-    
-    // Get date range for last week
-    const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    // Send weekly earnings summary to promoters
-    const promoters = await UserModel.find({ role: 'promoter' });
-    
-    for (const promoter of promoters) {
-      try {
-        // Calculate weekly earnings
-        const weeklyPromotions = await PromotionModel.find({
-          promoter: promoter._id,
-          status: 'completed',
-          completedAt: { $gte: startDate, $lte: endDate }
-        });
-
-        const weeklyEarnings = weeklyPromotions.reduce((total, promotion) => {
-          return total + (promotion.payoutAmount || 0);
-        }, 0);
-
-        const completedCount = weeklyPromotions.length;
-
-        if (completedCount > 0) {
-          await NotificationService.createPayoutReadyNotification(
-            promoter._id,
-            weeklyEarnings,
-            completedCount
-          );
-        }
-
-      } catch (error) {
-        console.error(`Error sending weekly summary to promoter ${promoter._id}:`, error);
-      }
-    }
-
-    // Send campaign performance to marketers
-    const marketers = await UserModel.find({ role: 'marketer' });
-    
-    for (const marketer of marketers) {
-      try {
-        const weeklyCampaigns = await CampaignModel.find({
-          owner: marketer._id,
-          createdAt: { $gte: startDate, $lte: endDate }
-        });
-
-        if (weeklyCampaigns.length > 0) {
-          await NotificationService.createNotification({
-            recipient: marketer._id,
-            type: 'weekly_summary',
-            title: 'Weekly Campaign Summary',
-            message: `You had ${weeklyCampaigns.length} campaign(s) active this week. Check your dashboard for detailed analytics.`,
-            data: {
-              campaignsCount: weeklyCampaigns.length,
-              actionUrl: '/analytics'
-            },
-            priority: 'low'
-          });
-        }
-
-      } catch (error) {
-        console.error(`Error sending weekly summary to marketer ${marketer._id}:`, error);
-      }
-    }
-  } catch (error) {
-    console.error('Error in weekly performance summary job:', error);
-  }
-});
-
-// Low balance monitoring (runs every 6 hours)
-//cron.schedule('*/1 * * * *', async () => {
-cron.schedule('0 */6 * * *', async () => {
-  try {
-    console.log('Running low balance monitoring job...');
-    
-    const marketers = await UserModel.find({ 
-      role: 'marketer',
-      walletBalance: { $lt: 5000 } // Threshold: ₦5000
-    });
-
-    for (const marketer of marketers) {
-      try {
-        const activeCampaigns = await CampaignModel.find({
-          owner: marketer._id,
-          status: 'active'
-        });
-
-        if (activeCampaigns.length > 0) {
-          await NotificationService.createLowBalanceNotification(
-            marketer._id,
-            marketer.walletBalance,
-            activeCampaigns[0] // Send first active campaign as reference
-          );
-        }
-
-      } catch (error) {
-        console.error(`Error sending low balance notification to marketer ${marketer._id}:`, error);
-      }
-    }
-  } catch (error) {
-    console.error('Error in low balance monitoring job:', error);
-  }
-});
-
-
-// 1. Budget Alerts - Every hour
-//cron.schedule('*/1 * * * *', async () => {
+// 2. BUDGET ALERTS - Every hour
 cron.schedule('0 * * * *', async () => {
-  // Budget alert implementation above
   try {
     console.log('Running budget monitoring job...');
     
@@ -213,7 +103,7 @@ cron.schedule('0 * * * *', async () => {
         
         await NotificationService.createLowBalanceNotification(
           campaign.owner._id,
-          marketer.wallets.marketer.balance, // Use marketer wallet balance
+          marketer.wallets.marketer.balance,
           campaign
         );
         
@@ -234,79 +124,15 @@ cron.schedule('0 * * * *', async () => {
   }
 });
 
-// 2. Submission Reminders - 9 AM & 6 PM daily
-//cron.schedule('*/1 * * * *', async () => {
-cron.schedule('0 9,18 * * *', async () => {
-  // Submission reminder implementation above
-   try {
-    console.log('Running submission reminder job...');
-    
-    // Find campaigns that need submission reminders
-    const reminderCampaigns = await CampaignModel.findCampaignsWithPendingSubmissions();
-    
-    console.log(`Found ${reminderCampaigns.length} campaigns needing submission reminders`);
-
-    for (const campaign of reminderCampaigns) {
-      try {
-        // Check if this campaign should send submission reminders
-        if (campaign.shouldSendSubmissionReminder()) {
-          
-          // Find promotions that need reminders for this campaign
-          const pendingPromotions = await PromotionModel.find({
-            campaign: campaign._id,
-            //status: 'assigned',
-            status: 'pending',
-            createdAt: { $lt: new Date(Date.now() - 12 * 60 * 60 * 1000) },
-            submissionReminderSent: { $ne: true }
-          }).populate('promoter');
-
-          for (const promotion of pendingPromotions) {
-            const deadline = campaign.endDate;
-            const now = new Date();
-            const timeDiff = deadline ? deadline.getTime() - now.getTime() : 0;
-            const daysRemaining = deadline ? Math.ceil(timeDiff / (1000 * 60 * 60 * 24)) : 7;
-
-            await NotificationService.createSubmissionReminder(
-              promotion.promoter._id,
-              campaign,
-              promotion,
-              daysRemaining
-            );
-
-            // Mark promotion as reminder sent
-            await PromotionModel.findByIdAndUpdate(promotion._id, {
-              submissionReminderSent: true
-            });
-          }
-
-          await campaign.recordSubmissionReminder();
-          await campaign.logNotification('submission_reminder', campaign.owner._id, {
-            remindersSent: pendingPromotions.length
-          });
-
-          console.log(`Submission reminders sent for campaign: ${campaign.title}`);
-        }
-
-      } catch (error) {
-        console.error(`Error sending submission reminders for campaign ${campaign._id}:`, error);
-      }
-    }
-  } catch (error) {
-    console.error('Error in submission reminder job:', error);
-  }
-});
-
-// 3. Deadline Reminders - 8 AM daily
-//cron.schedule('*/1 * * * *', async () => {
+// 3. DEADLINE REMINDERS - 8 AM daily
 cron.schedule('0 8 * * *', async () => {
-  // Deadline reminder implementation above
   try {
     console.log('Running deadline reminder job...');
     
     // Find campaigns approaching deadline (within 3 days)
     const deadlineCampaigns = await CampaignModel.findCampaignsApproachingDeadline(3);
     
-    console.log(`Found ${deadlineCampaigns.length} campaigns approaching deadline`);
+    console.log(`Found ${deadgetlineCampaigns.length} campaigns approaching deadline`);
 
     for (const campaign of deadlineCampaigns) {
       try {
@@ -341,11 +167,9 @@ cron.schedule('0 8 * * *', async () => {
   }
 });
 
-// 4. Weekly Summary - Monday 9 AM
-//cron.schedule('*/1 * * * *', async () => {
+// 4. WEEKLY PERFORMANCE SUMMARY - Monday 9 AM
 cron.schedule('0 9 * * 1', async () => {
-  // Existing weekly summary code
-    try {
+  try {
     console.log('Running weekly performance summary job...');
     
     // Get date range for last week
@@ -381,7 +205,6 @@ cron.schedule('0 9 * * 1', async () => {
         const completedCount = weeklyPromotions.length;
 
         if (completedCount > 0) {
-          // Create custom weekly summary notification for promoters
           await NotificationService.createNotification({
             recipient: promoter._id,
             type: 'weekly_summary',
@@ -457,10 +280,8 @@ cron.schedule('0 9 * * 1', async () => {
   }
 });
 
-// 5. Low Balance Monitoring - Every 6 hours
-//cron.schedule('*/1 * * * *', async () => {
+// 5. LOW BALANCE MONITORING - Every 6 hours
 cron.schedule('0 */6 * * *', async () => {
-  // Existing low balance monitoring
   try {
     console.log('Running low balance monitoring job...');
     
@@ -469,7 +290,7 @@ cron.schedule('0 */6 * * *', async () => {
       role: 'marketer',
       isActive: true,
       isDeleted: false,
-      'wallets.marketer.balance': { $lt: 5000 } // Threshold: ₦5000
+      'wallets.marketer.balance': { $lt: 5000 }
     });
 
     let lowBalanceNotificationsSent = 0;
@@ -488,7 +309,7 @@ cron.schedule('0 */6 * * *', async () => {
             owner: marketer._id,
             'notificationLog.type': 'low_balance',
             'notificationLog.sentAt': { 
-              $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
+              $gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
             }
           });
 
@@ -496,7 +317,7 @@ cron.schedule('0 */6 * * *', async () => {
             await NotificationService.createLowBalanceNotification(
               marketer._id,
               marketer.wallets.marketer.balance,
-              activeCampaigns[0] // Use first active campaign as reference
+              activeCampaigns[0]
             );
             lowBalanceNotificationsSent++;
 
@@ -522,18 +343,15 @@ cron.schedule('0 */6 * * *', async () => {
   }
 });
 
-// Enhanced cleanup job with better logging and error handling
-//cron.schedule('*/1 * * * *', async () => {
+// 6. NOTIFICATION CLEANUP - 2 AM daily
 cron.schedule('0 2 * * *', async () => {
   const jobStartTime = new Date();
   console.log(`🔄 [${jobStartTime.toISOString()}] Starting notification cleanup job...`);
   
   try {
-    // Configuration
     const retentionDays = 7;
-    const batchSize = 1000; // Process in batches to avoid memory issues
+    const batchSize = 1000;
     
-    // Count notifications to be deleted
     const countBefore = await NotificationModel.countOldReadNotifications(retentionDays);
     console.log(`📊 Found ${countBefore} read/dismissed notifications older than ${retentionDays} days`);
     
@@ -542,7 +360,6 @@ cron.schedule('0 2 * * *', async () => {
       return;
     }
     
-    // Perform cleanup in batches if there are many notifications
     let totalDeleted = 0;
     
     if (countBefore > batchSize) {
@@ -572,13 +389,11 @@ cron.schedule('0 2 * * *', async () => {
         console.log(`📦 Batch ${batchNumber}: Deleted ${result.deletedCount} notifications (${remaining} remaining)`);
         batchNumber++;
         
-        // Small delay between batches to avoid overwhelming the database
         if (remaining > 0) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
     } else {
-      // Single deletion for smaller datasets
       const result = await NotificationModel.cleanupOldReadNotifications(retentionDays);
       totalDeleted = result.deletedCount;
     }
@@ -596,15 +411,117 @@ cron.schedule('0 2 * * *', async () => {
     const duration = (jobEndTime - jobStartTime) / 1000;
     
     console.error(`❌ Notification cleanup job failed after ${duration.toFixed(2)} seconds:`, error);
-    
-    // You might want to send an alert here for critical failures
-    // await sendAdminAlert('Notification cleanup job failed', error.message);
   }
 });
 
+// 7. AUTO-REJECT EXPIRED PROMOTIONS - Every 6 hours (Enhanced)
+cron.schedule('0 */6 * * *', async () => {
+  const jobStartTime = new Date();
+  console.log(`🕐 [${jobStartTime.toISOString()}] Starting auto-reject expired promotions job...`);
+  
+  try {
+    // Calculate time threshold: 24 hours ago
+    const twentyFourHoursAgo = new Date(Date.now() - (24 * 60 * 60 * 1000));
+    
+    // Find expired promotions
+    const expiredPromotions = await PromotionModel.find({
+      status: 'pending',
+      createdAt: { $lte: twentyFourHoursAgo }
+    })
+    .populate('promoter', 'displayName email')
+    .populate('campaign', 'title owner maxPromoters currentPromoters');
 
+    console.log(`📊 Found ${expiredPromotions.length} expired promotions to process`);
 
+    let rejectedCount = 0;
+    let failedCount = 0;
 
+    for (const promotion of expiredPromotions) {
+      try {
+        const session = await PromotionModel.startSession();
+        session.startTransaction();
+
+        try {
+          // Auto-reject the promotion
+          promotion.status = 'rejected';
+          promotion.rejectionReason = 'Promotion expired - Proof not submitted within 24 hours';
+          
+          promotion.activityLog.push({
+            action: 'Auto-Rejected',
+            details: 'Promotion automatically rejected due to expiration (24 hours elapsed)',
+            timestamp: new Date()
+          });
+
+          await promotion.save({ session });
+
+          // Update campaign stats - decrement current promoters
+          if (promotion.campaign) {
+            await CampaignModel.findByIdAndUpdate(
+              promotion.campaign._id,
+              { 
+                $inc: { currentPromoters: -1 },
+                $push: {
+                  activityLog: {
+                    action: 'Promotion Auto-Rejected',
+                    details: `Promotion ${promotion._id} auto-rejected due to expiration. Promoter: ${promotion.promoter?.displayName || 'Unknown'}`,
+                    timestamp: new Date()
+                  }
+                }
+              },
+              { session }
+            );
+          }
+
+          // Send notification to promoter
+          if (promotion.promoter) {
+            await NotificationService.createNotification({
+              recipient: promotion.promoter._id,
+              type: 'promotion_rejected',
+              title: 'Promotion Expired ⏰',
+              message: `Your promotion for "${promotion.campaign?.title || 'Campaign'}" has expired because proof wasn't submitted within 24 hours.`,
+              data: {
+                campaignId: promotion.campaign?._id,
+                promotionId: promotion._id,
+                rejectionReason: promotion.rejectionReason,
+                actionUrl: '/promotions'
+              },
+              priority: 'medium'
+            });
+          }
+
+          await session.commitTransaction();
+          rejectedCount++;
+          console.log(`✅ Auto-rejected promotion ${promotion._id}`);
+
+        } catch (transactionError) {
+          await session.abortTransaction();
+          throw transactionError;
+        } finally {
+          session.endSession();
+        }
+        
+      } catch (rejectError) {
+        failedCount++;
+        console.error(`❌ Failed to auto-reject promotion ${promotion._id}:`, rejectError);
+      }
+    }
+
+    const jobEndTime = new Date();
+    const duration = (jobEndTime - jobStartTime) / 1000;
+    
+    console.log(`🎉 Auto-rejection job completed:
+    - Successfully rejected: ${rejectedCount} promotions
+    - Failed: ${failedCount} promotions
+    - Duration: ${duration.toFixed(2)} seconds
+    - Finished at: ${jobEndTime.toISOString()}`);
+    
+  } catch (error) {
+    const jobEndTime = new Date();
+    const duration = (jobEndTime - jobStartTime) / 1000;
+    
+    console.error(`❌ Auto-rejection job failed after ${duration.toFixed(2)} seconds:`, error);
+  }
+});
 
 /* For Admin */
 

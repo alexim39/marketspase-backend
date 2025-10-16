@@ -22,20 +22,21 @@ export class NotificationService {
   }
 
   // WHERE TO USE: In campaign scheduling service - send reminders to promoters who haven't submitted proof before deadline
-  static async createSubmissionReminder(promoterId, campaign, promotion, daysRemaining) {
+  static async createSubmissionReminder(userId, campaign, promotion, hoursLeft) {
     return this.createNotification({
-      recipient: promoterId,
+      recipient: userId,
       type: 'submission_reminder',
-      title: 'Submission Reminder',
-      message: `Reminder: You have ${daysRemaining} day(s) left to submit proof for "${campaign.title}"`,
+      title: 'Status Expiring Soon! ⏰',
+      message: `URGENT: Your WhatsApp status for "${campaign.title}" expires in ${hoursLeft} hour(s)! Submit your proof now before it disappears.`,
       data: {
         campaignId: campaign._id,
         promotionId: promotion._id,
-        daysRemaining,
-        deadline: campaign.deadline,
+        hoursLeft,
+        expiresAt: new Date(Date.now() + hoursLeft * 60 * 60 * 1000), // Calculate expiration time
         actionUrl: `/promotions/${promotion._id}/submit`
       },
-      priority: daysRemaining <= 1 ? 'high' : 'medium'
+      priority: hoursLeft <= 3 ? 'high' : 'medium', // High priority if less than 3 hours left
+      urgency: 'time-sensitive'
     });
   }
 

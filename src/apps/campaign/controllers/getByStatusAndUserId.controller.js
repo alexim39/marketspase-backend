@@ -63,7 +63,11 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
 
     if (user.preferences) {
       const { categoryBasedAds, locationBasedAds, adCategories } = user.preferences;
-      const userLocation = user.personalInfo?.address?.state || user.personalInfo?.address?.city;
+      //const userLocation = user.personalInfo?.address?.state || user.personalInfo?.address?.city;
+      const userLocation = user.personalInfo?.address?.street || 
+                    user.personalInfo?.address?.city || 
+                    user.personalInfo?.address?.state || 
+                    user.personalInfo?.address?.country;
 
       console.log("User preferences:", {
         categoryBasedAds,
@@ -104,7 +108,11 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     let filteredCampaigns = [...campaigns];
     
     if (user.preferences && user.preferences.locationBasedAds) {
-      const userLocation = user.personalInfo?.address?.state || user.personalInfo?.address?.city;
+      //const userLocation = user.personalInfo?.address?.state || user.personalInfo?.address?.city;
+      const userLocation = user.personalInfo?.address?.street || 
+                    user.personalInfo?.address?.city || 
+                    user.personalInfo?.address?.state || 
+                    user.personalInfo?.address?.country;
       
       if (userLocation) {
         filteredCampaigns = campaigns.filter(campaign => {
