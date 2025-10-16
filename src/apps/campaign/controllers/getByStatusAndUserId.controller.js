@@ -1,17 +1,15 @@
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
 import mongoose from "mongoose";
-import fs from "fs";
-import path from "path";
 
 /**
- * Get campaigns by status (e.g., active, paused, completed, etc.).
+ * Get campaigns by status (e.g., active, paused, completed, etc.) with pagination.
  * If no status is provided, returns all campaigns.
  * Campaigns are filtered based on user preferences if available.
  */
 export const getCampaignsByStatusAndUserId = async (req, res) => {
   try {
-    const { status, userId } = req.query;
+    const { status, userId, page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
     console.log("Received query parameters:", req.query);
 
@@ -31,6 +29,18 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       });
     }
 
+    // Validate pagination parameters
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    if (pageNum < 1 || limitNum < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Page and limit must be positive integers.",
+      });
+    }
+
     // Find user and their preferences
     const user = await UserModel.findById(userId).select('preferences personalInfo');
     
@@ -41,36 +51,16 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       });
     }
 
-    let query = { status: "active", isDeleted: { $ne: true } }; // Default: active campaigns not deleted
+    let baseQuery = { status: "active", isDeleted: { $ne: true } }; // Default: active campaigns not deleted
     
     if (status) {
-      query.status = status;
+      baseQuery.status = status;
     }
 
-    // Get all campaigns matching the status
-    let campaigns = await CampaignModel.find(query).sort({ createdAt: -1 });
+    // Build enhanced query with preference filters at database level
+    let enhancedQuery = { ...baseQuery };
+    let userPreferencesUsed = false;
 
-    // // Get all campaigns matching the status and populate the promoter object
-    // let campaigns = await CampaignModel.find(query)
-    //   .sort({ createdAt: -1 })
-    //   .populate({
-    //     path: "promoter", // Assuming the `promoter` field exists in the Campaign model
-    //     model: "User", // Replace "User" with the correct model name for promoters
-    //     select: "name email profilePicture", // Select only the fields you need
-    //   });
-
-    if (!campaigns || campaigns.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: status
-          ? `No campaigns found with status "${status}".`
-          : "No campaigns found.",
-      });
-    }
-
-    // Filter campaigns based on user preferences
-    let filteredCampaigns = [];
-    
     if (user.preferences) {
       const { categoryBasedAds, locationBasedAds, adCategories } = user.preferences;
       const userLocation = user.personalInfo?.address?.state || user.personalInfo?.address?.city;
@@ -82,61 +72,68 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
         userLocation
       });
 
-      // If user has no preference settings or both are false, return random campaigns
-      if (!categoryBasedAds && !locationBasedAds) {
-        filteredCampaigns = getRandomCampaigns(campaigns, 50); // Get up to 50 random campaigns
-      } else {
-        // Filter campaigns based on preferences
-        filteredCampaigns = campaigns.filter(campaign => {
-          let matchesPreference = false;
-          let matchesCategory = false;
-          let matchesLocation = false;
-
-          // Category matching
-          if (categoryBasedAds && adCategories && adCategories.length > 0) {
-            matchesCategory = adCategories.some(category => 
-              campaign.category.toLowerCase().includes(category.toLowerCase()) ||
-              category.toLowerCase().includes(campaign.category.toLowerCase())
-            );
-          }
-
-          // Location matching
-          if (locationBasedAds && userLocation && campaign.targetLocations && campaign.targetLocations.length > 0) {
-            matchesLocation = campaign.targetLocations.some(location =>
-              location.toLowerCase().includes(userLocation.toLowerCase()) ||
-              userLocation.toLowerCase().includes(location.toLowerCase())
-            );
-          }
-
-          // Determine if campaign matches preferences
-          if (categoryBasedAds && locationBasedAds) {
-            // User wants both category AND location matching
-            matchesPreference = matchesCategory && matchesLocation;
-          } else if (categoryBasedAds) {
-            // User only wants category matching
-            matchesPreference = matchesCategory;
-          } else if (locationBasedAds) {
-            // User only wants location matching
-            matchesPreference = matchesLocation;
-          }
-
-          return matchesPreference;
-        });
-
-        // If no campaigns match preferences, fall back to random campaigns
-        if (filteredCampaigns.length === 0) {
-          console.log("No campaigns match user preferences, falling back to random selection");
-          filteredCampaigns = getRandomCampaigns(campaigns, 30); // Get fewer random campaigns
-        }
+      // Apply category filter at database level if enabled
+      if (categoryBasedAds && adCategories && adCategories.length > 0) {
+        enhancedQuery.category = { $in: adCategories.map(cat => new RegExp(cat, 'i')) };
+        userPreferencesUsed = true;
       }
-    } else {
-      // No preferences found, return random campaigns
-      filteredCampaigns = getRandomCampaigns(campaigns, 50);
+
+      // Note: Location filtering is complex and might need to be done in memory
+      // since it involves checking array fields and partial matches
     }
 
-    // If we still have no campaigns after filtering, return the original campaigns
-    if (filteredCampaigns.length === 0) {
-      filteredCampaigns = campaigns;
+    // Get total count for pagination metadata
+    const totalCampaignsCount = await CampaignModel.countDocuments(enhancedQuery);
+
+    // Get paginated campaigns from database with enhanced query
+    let campaigns = await CampaignModel.find(enhancedQuery)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    if (!campaigns || campaigns.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: status
+          ? `No campaigns found with status "${status}".`
+          : "No campaigns found.",
+      });
+    }
+
+    // Apply location-based filtering in memory (if needed)
+    let filteredCampaigns = [...campaigns];
+    
+    if (user.preferences && user.preferences.locationBasedAds) {
+      const userLocation = user.personalInfo?.address?.state || user.personalInfo?.address?.city;
+      
+      if (userLocation) {
+        filteredCampaigns = campaigns.filter(campaign => {
+          if (!campaign.targetLocations || campaign.targetLocations.length === 0) {
+            return true; // If campaign has no location restrictions, include it
+          }
+          
+          return campaign.targetLocations.some(location =>
+            location.toLowerCase().includes(userLocation.toLowerCase()) ||
+            userLocation.toLowerCase().includes(location.toLowerCase())
+          );
+        });
+        
+        if (filteredCampaigns.length === 0) {
+          console.log("No campaigns match user location preferences in this page");
+          // Fall back to original campaigns if location filtering removes all results
+          filteredCampaigns = campaigns;
+        } else {
+          userPreferencesUsed = true;
+        }
+      }
+    }
+
+    // If both category and location preferences are disabled, we might want random selection
+    if (user.preferences && !user.preferences.categoryBasedAds && !user.preferences.locationBasedAds) {
+      // User has preferences but both are disabled - return random selection from paginated results
+      if (filteredCampaigns.length > 10) { // Adjust this number as needed
+        filteredCampaigns = getRandomCampaigns(filteredCampaigns, 10);
+      }
     }
 
     // Sort by priority (high, medium, low) and then by creation date
@@ -149,7 +146,13 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       return new Date(b.createdAt) - new Date(a.createdAt);
     });
 
-    console.log(`Filtered ${filteredCampaigns.length} campaigns from ${campaigns.length} total campaigns`);
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalCampaignsCount / limitNum);
+    const hasNextPage = pageNum < totalPages;
+    const hasPrevPage = pageNum > 1;
+
+    console.log(`Pagination: Page ${pageNum}, Showing ${filteredCampaigns.length} of ${totalCampaignsCount} total campaigns`);
+    console.log(`Database query returned: ${campaigns.length} campaigns`);
 
     res.status(200).json({
       success: true,
@@ -158,9 +161,18 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
         ? `Campaigns with status "${status}" fetched successfully.`
         : "Campaigns fetched successfully based on your preferences.",
       metadata: {
-        totalCampaigns: campaigns.length,
-        filteredCampaigns: filteredCampaigns.length,
-        userPreferencesUsed: user.preferences ? true : false
+        pagination: {
+          currentPage: pageNum,
+          totalPages: totalPages,
+          totalFilteredCampaigns: filteredCampaigns.length,
+          totalAllCampaigns: totalCampaignsCount,
+          campaignsPerPage: limitNum,
+          hasNextPage,
+          hasPrevPage,
+          nextPage: hasNextPage ? pageNum + 1 : null,
+          prevPage: hasPrevPage ? pageNum - 1 : null
+        },
+        userPreferencesUsed
       }
     });
   } catch (error) {
@@ -181,7 +193,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
  */
 function getRandomCampaigns(campaigns, maxCount) {
   if (campaigns.length <= maxCount) {
-    return [...campaigns]; // Return all campaigns if we have less than maxCount
+    return [...campaigns];
   }
 
   // Shuffle array and take first maxCount elements

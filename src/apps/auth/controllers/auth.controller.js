@@ -62,7 +62,7 @@ export const Authenticate = async (req, res) => {
         newUser.email = email;
       }
 
-      user = await UserModel.create(newUser);
+      const user = await UserModel.create(newUser);
       
       // Save the user to the database
       // await user.save(); // `create` method already saves the document.
@@ -81,6 +81,9 @@ export const Authenticate = async (req, res) => {
       const userMessage = userWelcomeEmailTemplate(user);
       await sendEmail(user.email, userSubject, userMessage);
 
+      // user activity log
+      await user.logActivity('login', `New account creation and login`, {});
+
     } else {
       // 4. User Exists, Update Information
       // A user already exists, let's update their data if necessary.
@@ -98,10 +101,13 @@ export const Authenticate = async (req, res) => {
         updateFields.authenticationMethod = authProvider;
       }
       if (Object.keys(updateFields).length > 0) {
-        await UserModel.updateOne({ _id: user._id }, { $set: updateFields });
+      const user = await UserModel.updateOne({ _id: user._id }, { $set: updateFields });
         // Re-fetch the user to get the updated document, or update the `user` object in memory.
         Object.assign(user, updateFields);
       }
+
+      // user activity log
+      await user.logActivity('login', `You logged into account`, {});
       
       console.log(`User ${user.username} logged in via ${authProvider}.`);
     }
