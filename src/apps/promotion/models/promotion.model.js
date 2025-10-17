@@ -83,6 +83,7 @@ const promotionSchema = new mongoose.Schema({
         'submission_reminder',
         'payment_processed',
         'deadline_reminder',
+        'promotion_apending'
       ],
       required: true
     },
