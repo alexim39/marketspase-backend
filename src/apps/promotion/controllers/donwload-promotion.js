@@ -2,9 +2,6 @@ import { CampaignModel } from "../../campaign/models/campaign.model.js";
 import { PromotionModel } from "../../promotion/models/promotion.model.js";
 import { UserModel } from "../../user/models/user.model.js";;
 import mongoose from "mongoose";
-import path from "path";
-import fs from "fs";
-import { isPromotionExpired, calculateTimeRemaining, calculateViewsNeeded, calculateProgressPercentage } from './../services/utils.js'
 
 
 
@@ -155,6 +152,14 @@ export const downloadPromotion = async (req, res) => {
       relatedPromotion: promotion._id,
       status: "reserved",
     });
+
+    // Add user activity log INSIDE the transaction
+    promoter.activityLog.push({
+      action: 'campaign_update',
+      details: `You downloaded a new campaign promotion: "${campaign.title}"`,
+      timestamp: new Date(),
+      metadata: {}
+    });
     
     // Update campaign activity log
     campaign.activityLog.push({
@@ -171,9 +176,6 @@ export const downloadPromotion = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    // user activity log
-    await promoter.logActivity('campaign_update', `You downloaded a new campaign promotion`, {});
-
     res.status(200).json({
         message: "Campaign post downloaded successfully. You can now share it on your status.",
         success: true,
@@ -189,8 +191,12 @@ export const downloadPromotion = async (req, res) => {
         reservedAmount: payoutAmount
     });
   } catch (error) {
-    await session.abortTransaction();
+    // Handle transaction abort safely
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
     session.endSession();
+    
     console.error("Error downloading promotion:", error.message);
     res.status(500).json({
       message: "Error occurred while processing the download request.",
