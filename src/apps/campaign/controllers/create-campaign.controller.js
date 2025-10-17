@@ -2,17 +2,13 @@ import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
 import mongoose from "mongoose";
 import fs from "fs";
-// ADD THESE IMPORTS:
 import { sendEmail } from "../../../services/emailService.js";
 import { adminCampaignApprovalTemplate } from '../services/email/adminCampaignApprovalTemplate.js';
 
 /**
  * @description Creates a new campaign. This function handles the validation,
- * reserves the campaign budget from the user's wallet, and securely saves
- * the new campaign to the database using a transaction.
- * @param {object} req - The request object from Express.js.
- * @param {object} res - The response object from Express.js.
- * @returns {Promise<void>}
+ * checks fund availability, and saves the campaign without reserving funds.
+ * Funds will be reserved per promotion during campaign acceptance.
  */
 export const createCampaign = async (req, res) => {
   const session = await mongoose.startSession();
@@ -90,6 +86,17 @@ export const createCampaign = async (req, res) => {
       });
     }
 
+    // Validate budget amount
+    if (budget < 500) {
+      deleteUploadedFile(req.file?.path);
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: "Minimum campaign budget is 500 NGN.",
+        success: false,
+      });
+    }
+
     const user = await UserModel.findById(owner).session(session);
     if (!user) {
       deleteUploadedFile(req.file?.path);
@@ -101,14 +108,19 @@ export const createCampaign = async (req, res) => {
       });
     }
 
+    // ✅ ONLY VALIDATE FUNDS, DON'T RESERVE THEM
     const marketerWallet = user.wallets.marketer;
-    if (marketerWallet.balance < budget) {
+    const numericBudget = Number(budget);
+    
+    if (marketerWallet.balance < numericBudget) {
       deleteUploadedFile(req.file?.path);
       await session.abortTransaction();
       session.endSession();
       return res.status(402).json({
-        message: "Insufficient funds. Please fund your wallet to create this campaign.",
+        message: `Insufficient funds. Available: ${marketerWallet.balance} NGN, Required: ${numericBudget} NGN. Please fund your wallet to create this campaign.`,
         success: false,
+        availableBalance: marketerWallet.balance,
+        requiredAmount: numericBudget
       });
     }
 
@@ -122,13 +134,14 @@ export const createCampaign = async (req, res) => {
       ? targetLocations 
       : (typeof targetLocations === 'string' ? targetLocations.split(',').map(loc => loc.trim()) : []);
 
+    // Create campaign with available budget tracking
     const newCampaign = new CampaignModel({
       owner,
-      title,
-      caption: caption || "",
-      link: link || "",
-      category,
-      budget: Number(budget),
+      title: title.trim(),
+      caption: caption ? caption.trim() : "",
+      link: link ? link.trim() : "",
+      category: category.trim(),
+      budget: numericBudget,
       enableTarget: Boolean(enableTarget),
       targetLocations: targetLocationsArray,
       requirements: requirementsArray,
@@ -136,7 +149,7 @@ export const createCampaign = async (req, res) => {
       campaignType,
       priority,
       hasEndDate: Boolean(hasEndDate),
-      minViewsPerPromotion: Number(minViewsPerPromotion),
+      minViewsPerPromotion: Math.max(25, Number(minViewsPerPromotion)), // Ensure minimum 25 views
       payoutPerPromotion,
       maxPromoters,
       startDate: startDate ? new Date(startDate) : new Date(),
@@ -146,104 +159,125 @@ export const createCampaign = async (req, res) => {
       currency: currency || "NGN",
       status: "pending",
       createdBy: owner,
+      // Track available budget for promotions (initially equals total budget)
+      availableBudget: numericBudget,
       activityLog: [{ 
         action: 'Campaign Created', 
-        details: 'Initial campaign creation.',
-        performedBy: owner
+        details: `Campaign created with budget: ${numericBudget} NGN. Funds validated but not reserved.`,
+        performedBy: owner,
+        timestamp: new Date()
       }],
     });
 
-    // Reserve budget from marketer wallet
-    marketerWallet.balance = Number(marketerWallet.balance) - Number(budget);
-    marketerWallet.reserved = Number(marketerWallet.reserved) + Number(budget);
-    marketerWallet.transactions.push({
-      amount: budget,
-      type: "debit",
-      category: "campaign",
-      description: `Funds reserved for campaign: "${title}"`,
-      relatedCampaign: newCampaign._id,
-      status: "reserved",
-    });
-
+    // ✅ NO FUNDS RESERVED HERE - Only validation done above
     await newCampaign.save({ session });
-    await user.save({ session });
 
     await session.commitTransaction();
     session.endSession();
 
-    // user activity log
-    await user.logActivity('campaign_create', `You created a new campaign`, {});
+    // User activity log (outside transaction for performance)
+    try {
+      await user.logActivity('campaign_created', `Created campaign: "${title}" with budget ${numericBudget} NGN`, {
+        resourceType: 'campaign',
+        resourceId: newCampaign._id,
+        metadata: { 
+          budget: numericBudget, 
+          maxPromoters, 
+          payoutPerPromotion,
+          availableBudget: numericBudget
+        }
+      });
+    } catch (logError) {
+      console.error('Failed to log activity:', logError);
+      // Don't fail the main request due to log error
+    }
 
+    // Send success response
     res.status(201).json({
-      message: "Campaign created successfully. Funds have been reserved and it is now awaiting review.",
+      message: "Campaign created successfully and is awaiting admin approval. Funds will be reserved per promotion when accepted by promoters.",
       success: true,
       campaignId: newCampaign._id,
       mediaUrl: mediaUrl ? `${req.protocol}://${req.get('host')}${mediaUrl}` : null,
       mediaType: mediaType,
+      budget: numericBudget,
+      maxPromoters,
+      payoutPerPromotion,
+      availableBudget: numericBudget
     });
 
-
-  // Notify admins of new campaign for approval (AFTER sending response)
-  try {
+    // Notify admins of new campaign for approval (AFTER sending response)
+    try {
       const marketer = await UserModel.findById(owner);
       const adminEmails = ['schooltraz@gmail.com'];
       
       const emailContent = adminCampaignApprovalTemplate({
-          title: newCampaign.title,
-          campaignId: newCampaign._id,
-          marketerName: marketer?.displayName || 'Unknown Marketer',
-          budget: newCampaign.budget,
-          category: newCampaign.category,
-          maxPromoters: newCampaign.maxPromoters,
-          payoutPerPromotion: newCampaign.payoutPerPromotion,
-          mediaType: newCampaign.mediaType,
-          caption: newCampaign.caption,
-          requirements: newCampaign.requirements,
-          targetLocations: newCampaign.targetLocations
+        title: newCampaign.title,
+        campaignId: newCampaign._id,
+        marketerName: marketer?.displayName || 'Unknown Marketer',
+        budget: newCampaign.budget,
+        category: newCampaign.category,
+        maxPromoters: newCampaign.maxPromoters,
+        payoutPerPromotion: newCampaign.payoutPerPromotion,
+        mediaType: newCampaign.mediaType,
+        caption: newCampaign.caption,
+        requirements: newCampaign.requirements,
+        targetLocations: newCampaign.targetLocations,
+        availableBudget: newCampaign.availableBudget
       });
       
       // Send to all admin emails
-      // await Promise.all(
-      //     adminEmails.map(email => 
-      //         sendEmail({
-      //             to: email.trim(),
-      //             subject: `New Campaign Pending Approval: ${newCampaign.title}`,
-      //             html: emailContent
-      //         })
-      //     )
-      // );
-
-      await Promise.all(adminEmails.map(email => sendEmail(email, `New Campaign Pending Approval: ${newCampaign.title}`, emailContent)));
+      await Promise.all(
+        adminEmails.map(email => 
+          sendEmail({
+            to: email.trim(),
+            subject: `New Campaign Pending Approval: ${newCampaign.title}`,
+            html: emailContent
+          })
+        )
+      );
       
       console.log(`Admin notification sent for campaign: ${newCampaign._id}`);
-  } catch (emailError) {
+    } catch (emailError) {
       console.error('Failed to send admin notification email:', emailError);
       // Don't fail the main request if email fails
-  }
-
+    }
 
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
+    // Safe transaction cleanup
+    try {
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+    } catch (abortError) {
+      console.error("Error aborting transaction:", abortError.message);
+    } finally {
+      session.endSession();
+    }
     
     // Clean up the uploaded file on error
     deleteUploadedFile(req.file?.path);
 
     console.error("Error creating campaign:", error.message);
 
-    // Handle specific MongoDB connection errors
-    if (error.code === 'EAI_AGAIN') {
-      return res.status(503).json({
-        message: "Database connection error. Please try again later.",
-        success: false,
-        error: "Database unavailable"
-      });
+    // Enhanced error handling
+    let userMessage = "Error occurred while creating campaign.";
+    let statusCode = 500;
+
+    if (error.name === 'ValidationError') {
+      userMessage = "Data validation failed. Please check the provided information.";
+      statusCode = 400;
+    } else if (error.name === 'CastError') {
+      userMessage = "Invalid data format provided.";
+      statusCode = 400;
+    } else if (error.code === 'EAI_AGAIN') {
+      userMessage = "Database connection error. Please try again later.";
+      statusCode = 503;
     }
 
-    res.status(500).json({
-      message: "Error occurred while creating campaign.",
+    res.status(statusCode).json({
+      message: userMessage,
       success: false,
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

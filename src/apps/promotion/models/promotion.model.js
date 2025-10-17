@@ -189,6 +189,11 @@ promotionSchema.pre('save', async function(next) {
   if (this.isModified('status')) {
     const now = new Date();
     
+    // Track if we need to send notifications (but don't save here)
+    let shouldSendNotification = false;
+    let notificationType = '';
+    let notificationData = {};
+    
     if (this.status === 'pending') {
       this.activityLog.push({
         action: 'Promotion Assigned',
@@ -196,26 +201,11 @@ promotionSchema.pre('save', async function(next) {
         timestamp: now
       });
 
-      // Notify promoter about assignment
-      try {
-        const campaign = await mongoose.model('Campaign').findById(this.campaign).populate('owner');
-        if (campaign) {
-          await NotificationService.createPromotionAssignedNotification(
-            this.promoter,
-            campaign,
-            this
-          );
-          await this.logNotification('promotion_apending', {
-            campaignId: campaign._id,
-            campaignTitle: campaign.title
-          });
-        }
-      } catch (error) {
-        console.error('Error sending assignment notification:', error);
-      }
-    }
-    
-    if (this.status === 'submitted' && !this.submittedAt) {
+      // ✅ JUST SET FLAGS, DON'T SAVE OR SEND NOTIFICATIONS HERE
+      shouldSendNotification = true;
+      notificationType = 'promotion_assigned';
+      
+    } else if (this.status === 'submitted' && !this.submittedAt) {
       this.submittedAt = now;
       this.activityLog.push({
         action: 'Promotion Submitted',
@@ -223,26 +213,10 @@ promotionSchema.pre('save', async function(next) {
         timestamp: now
       });
 
-      // Notify campaign owner
-      try {
-        const campaign = await mongoose.model('Campaign').findById(this.campaign);
-        if (campaign) {
-          await NotificationService.createPromotionSubmittedNotification(
-            campaign.owner, 
-            this, 
-            campaign
-          );
-          await this.logNotification('promotion_submitted', {
-            campaignId: campaign._id,
-            proofViews: this.proofViews
-          });
-        }
-      } catch (error) {
-        console.error('Error sending submission notification:', error);
-      }
-    }
-    
-    if (this.status === 'validated' && !this.validatedAt) {
+      shouldSendNotification = true;
+      notificationType = 'promotion_submitted';
+      
+    } else if (this.status === 'validated' && !this.validatedAt) {
       this.validatedAt = now;
       this.activityLog.push({
         action: 'Promotion Validated',
@@ -250,26 +224,10 @@ promotionSchema.pre('save', async function(next) {
         timestamp: now
       });
 
-      // Notify promoter
-      try {
-        const campaign = await mongoose.model('Campaign').findById(this.campaign);
-        if (campaign) {
-          await NotificationService.createPromotionValidatedNotification(
-            this.promoter,
-            this,
-            campaign
-          );
-          await this.logNotification('promotion_validated', {
-            campaignId: campaign._id,
-            payoutAmount: this.payoutAmount
-          });
-        }
-      } catch (error) {
-        console.error('Error sending validation notification:', error);
-      }
-    }
-    
-    if (this.status === 'paid' && !this.paidAt) {
+      shouldSendNotification = true;
+      notificationType = 'promotion_validated';
+      
+    } else if (this.status === 'paid' && !this.paidAt) {
       this.paidAt = now;
       this.activityLog.push({
         action: 'Promotion Paid',
@@ -277,47 +235,26 @@ promotionSchema.pre('save', async function(next) {
         timestamp: now
       });
 
-      // Notify promoter about payment
-      try {
-        await NotificationService.createPaymentProcessedNotification(
-          this.promoter,
-          this.payoutAmount,
-          this,
-          'promoter'
-        );
-        await this.logNotification('payment_processed', {
-          amount: this.payoutAmount
-        });
-      } catch (error) {
-        console.error('Error sending payment notification:', error);
-      }
-    }
-    
-    if (this.status === 'rejected') {
+      shouldSendNotification = true;
+      notificationType = 'payment_processed';
+      
+    } else if (this.status === 'rejected') {
       this.activityLog.push({
         action: 'Promotion Rejected',
         details: this.rejectionReason ? `Rejected: ${this.rejectionReason}` : 'Promotion rejected',
         timestamp: now
       });
 
-      // Notify promoter about rejection
-      try {
-        const campaign = await mongoose.model('Campaign').findById(this.campaign);
-        if (campaign) {
-          await NotificationService.createPromotionRejectedNotification(
-            this.promoter,
-            this,
-            campaign,
-            this.rejectionReason
-          );
-          await this.logNotification('promotion_rejected', {
-            campaignId: campaign._id,
-            rejectionReason: this.rejectionReason
-          });
-        }
-      } catch (error) {
-        console.error('Error sending rejection notification:', error);
-      }
+      shouldSendNotification = true;
+      notificationType = 'promotion_rejected';
+    }
+    
+    // ✅ Store notification data for post-save handling
+    if (shouldSendNotification) {
+      this._pendingNotification = {
+        type: notificationType,
+        timestamp: now
+      };
     }
   }
   next();
@@ -495,246 +432,97 @@ promotionSchema.methods.markAsPaid = function(paidByUserId) {
   return this;
 };
 
-// Post-save middleware for additional notification handling
+// ✅ ADD POST-SAVE MIDDLEWARE FOR NOTIFICATIONS
 promotionSchema.post('save', async function(doc) {
-  // Additional notification logic that doesn't block the save operation
-  if (doc.status === 'validated') {
+  // Handle pending notifications outside the save operation
+  if (doc._pendingNotification) {
+    const { type, timestamp } = doc._pendingNotification;
+    
     try {
-      // Update campaign stats
-      const Campaign = mongoose.model('Campaign');
-      await Campaign.findByIdAndUpdate(doc.campaign, {
-        $inc: { validatedPromotions: 1 }
-      });
+      const campaign = await mongoose.model('Campaign').findById(doc.campaign);
+      if (campaign) {
+        let notificationSent = false;
+        
+        switch (type) {
+          case 'promotion_assigned':
+            await NotificationService.createPromotionAssignedNotification(
+              doc.promoter,
+              campaign,
+              doc
+            );
+            notificationSent = true;
+            break;
+            
+          case 'promotion_submitted':
+            await NotificationService.createPromotionSubmittedNotification(
+              campaign.owner,
+              doc,
+              campaign
+            );
+            notificationSent = true;
+            break;
+            
+          case 'promotion_validated':
+            await NotificationService.createPromotionValidatedNotification(
+              doc.promoter,
+              doc,
+              campaign
+            );
+            notificationSent = true;
+            break;
+            
+          case 'payment_processed':
+            await NotificationService.createPaymentProcessedNotification(
+              doc.promoter,
+              doc.payoutAmount,
+              doc,
+              'promoter'
+            );
+            notificationSent = true;
+            break;
+            
+          case 'promotion_rejected':
+            await NotificationService.createPromotionRejectedNotification(
+              doc.promoter,
+              doc,
+              campaign,
+              doc.rejectionReason
+            );
+            notificationSent = true;
+            break;
+        }
+        
+        // Log notification if sent successfully
+        if (notificationSent) {
+          // Use updateOne to avoid version conflicts
+          await PromotionModel.updateOne(
+            { _id: doc._id },
+            { 
+              $push: { 
+                notificationLog: {
+                  type: type,
+                  sentAt: timestamp,
+                  metadata: {
+                    campaignId: campaign._id,
+                    ...(type === 'promotion_submitted' && { proofViews: doc.proofViews }),
+                    ...(type === 'promotion_validated' && { payoutAmount: doc.payoutAmount }),
+                    ...(type === 'payment_processed' && { amount: doc.payoutAmount }),
+                    ...(type === 'promotion_rejected' && { rejectionReason: doc.rejectionReason })
+                  }
+                }
+              } 
+            }
+          );
+        }
+      }
     } catch (error) {
-      console.error('Error updating campaign stats:', error);
+      console.error(`Error sending ${type} notification:`, error.message);
+      // Don't fail the main operation if notification fails
     }
+    
+    // Clear the pending notification
+    delete doc._pendingNotification;
   }
 });
 
 export const PromotionModel = mongoose.model("Promotion", promotionSchema);
-
-
-
-/* import mongoose from "mongoose";
-import { NotificationService } from '../../notification/services/notification.service.js';
-
-// Function to generate a unique 6-digit number
-const generateUniqueUpi = () => {
-  const min = 100000;
-  const max = 999999;
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-};
-
-const promotionSchema = new mongoose.Schema({
-  campaign: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Campaign",
-    required: true,
-  },
-  promoter: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: true,
-  },
-  status: {
-    type: String,
-    enum: ["pending", "submitted", "validated", "rejected", "paid"],
-    default: "pending",
-  },
-  submittedAt: Date,
-  validatedAt: Date,
-  paidAt: Date,
-  proofMedia: [String], // URLs to proof screenshots
-  proofViews: {
-    type: Number,
-    min: 0,
-    validate: {
-      validator: function(value) {
-        // Only require proofViews when status is submitted or beyond
-        return this.status === "pending" || value !== undefined;
-      },
-      message: "Proof views are required when promotion is submitted"
-    }
-  },
-  payoutAmount: {
-    type: Number,
-    min: 0
-  },
-  rejectionReason: String,
-  notes: String,
-  isDownloaded: {
-    type: Boolean,
-    default: false,
-  },
-  upi: {
-    type: String,
-    unique: true,
-    default: function() {
-      // Ensure we're generating a new UPI only for new documents
-      if (this.isNew) {
-        return generateUniqueUpi().toString();
-      }
-      return this.upi;
-    }
-  },
-  // Additional fields for better tracking
-  validatedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User"
-  },
-  paidBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User"
-  },
-  // Activity log for tracking changes
-  activityLog: [{
-    action: String,
-    timestamp: {
-      type: Date,
-      default: Date.now
-    },
-    details: String,
-    performedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User"
-    }
-  }],
-  submissionReminderSent: {
-    type: Boolean,
-    default: false
-  }
-}, { 
-  timestamps: true,
-  // Virtuals for toJSON and toObject
-  toJSON: { virtuals: true },
-  toObject: { virtuals: true }
-});
-
-// Index to prevent duplicate applications
-promotionSchema.index({ campaign: 1, promoter: 1 }, { unique: true });
-
-// Index for better query performance
-promotionSchema.index({ status: 1 });
-promotionSchema.index({ promoter: 1, status: 1 });
-promotionSchema.index({ campaign: 1, status: 1 });
-promotionSchema.index({ upi: 1 });
-
-// Virtual for days since submission
-promotionSchema.virtual('daysSinceSubmission').get(function() {
-  if (!this.submittedAt) return null;
-  const now = new Date();
-  const diffTime = Math.abs(now - this.submittedAt);
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-});
-
-// Virtual for isOverdue (if not validated within 7 days)
-promotionSchema.virtual('isOverdue').get(function() {
-  if (!this.submittedAt || this.status === 'validated' || this.status === 'rejected') {
-    return false;
-  }
-  const now = new Date();
-  const diffTime = Math.abs(now - this.submittedAt);
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  return diffDays > 7;
-});
-
-// Pre-save middleware to update timestamps based on status changes
-promotionSchema.pre('save', async function(next) {
-  if (this.isModified('status')) {
-    const now = new Date();
-    
-    if (this.status === 'submitted' && !this.submittedAt) {
-      this.submittedAt = now;
-      this.activityLog.push({
-        action: 'Promotion Submitted',
-        details: 'Promoter submitted proof for validation',
-        timestamp: now
-      });
-
-       // Notify campaign owner
-      const campaign = await mongoose.model('Campaign').findById(this.campaign);
-      if (campaign) {
-        await NotificationService.createPromotionSubmittedNotification(
-          campaign.owner, 
-          this, 
-          campaign
-        );
-      }
-
-    }
-    
-    if (this.status === 'validated' && !this.validatedAt) {
-      this.validatedAt = now;
-      this.activityLog.push({
-        action: 'Promotion Validated',
-        details: 'Promotion validated and approved for payment',
-        timestamp: now
-      });
-
-      // Notify promoter
-      const campaign = await mongoose.model('Campaign').findById(this.campaign);
-      if (campaign) {
-        await NotificationService.createPromotionValidatedNotification(
-          this.promoter,
-          this,
-          campaign
-        );
-      }
-    }
-    
-    if (this.status === 'paid' && !this.paidAt) {
-      this.paidAt = now;
-      this.activityLog.push({
-        action: 'Promotion Paid',
-        details: 'Payment processed successfully',
-        timestamp: now
-      });
-    }
-    
-    if (this.status === 'rejected') {
-      this.activityLog.push({
-        action: 'Promotion Rejected',
-        details: this.rejectionReason ? `Rejected: ${this.rejectionReason}` : 'Promotion rejected',
-        timestamp: now
-      });
-    }
-  }
-  next();
-});
-
-// Static method to find promotions by status
-promotionSchema.statics.findByStatus = function(status) {
-  return this.find({ status });
-};
-
-// Instance method to validate promotion
-promotionSchema.methods.validatePromotion = function(validatedByUserId) {
-  this.status = 'validated';
-  this.validatedAt = new Date();
-  this.validatedBy = validatedByUserId;
-  return this;
-};
-
-// Instance method to reject promotion
-promotionSchema.methods.rejectPromotion = function(reason, rejectedByUserId) {
-  this.status = 'rejected';
-  this.rejectionReason = reason;
-  this.activityLog.push({
-    action: 'Promotion Rejected',
-    details: reason,
-    performedBy: rejectedByUserId,
-    timestamp: new Date()
-  });
-  return this;
-};
-
-// Instance method to mark as paid
-promotionSchema.methods.markAsPaid = function(paidByUserId) {
-  this.status = 'paid';
-  this.paidAt = new Date();
-  this.paidBy = paidByUserId;
-  return this;
-};
-
-export const PromotionModel = mongoose.model("Promotion", promotionSchema);
- */
