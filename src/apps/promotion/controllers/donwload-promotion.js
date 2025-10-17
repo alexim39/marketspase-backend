@@ -153,10 +153,13 @@ export const downloadPromotion = async (req, res) => {
       status: "reserved",
     });
 
-    // Add user activity log INSIDE the transaction
+    // Add user activity log INSIDE the transaction with proper required fields
+    const activityDescription = `You downloaded a new campaign promotion: "${campaign.title}"`;
+    
     promoter.activityLog.push({
       action: 'campaign_update',
-      details: `You downloaded a new campaign promotion: "${campaign.title}"`,
+      description: activityDescription, // Make sure this field is included
+      details: activityDescription, // Include both if your schema requires it
       timestamp: new Date(),
       metadata: {}
     });
@@ -164,14 +167,15 @@ export const downloadPromotion = async (req, res) => {
     // Update campaign activity log
     campaign.activityLog.push({
       action: "Promoter Registered",
+      description: `Promoter ${promoter.displayName} downloaded campaign`, // Add description field
       details: `Promoter ${promoter.displayName} downloaded campaign. Total promoters: ${campaign.currentPromoters}`,
       timestamp: new Date()
     });
 
-    // Save all documents
-    await campaign.save({ session });
-    await marketer.save({ session });
-    await promoter.save({ session });
+    // Save all documents with validation
+    await campaign.save({ session, validateBeforeSave: true });
+    await marketer.save({ session, validateBeforeSave: true });
+    await promoter.save({ session, validateBeforeSave: true });
 
     await session.commitTransaction();
     session.endSession();
@@ -198,6 +202,16 @@ export const downloadPromotion = async (req, res) => {
     session.endSession();
     
     console.error("Error downloading promotion:", error.message);
+    
+    // More specific error handling for validation errors
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        message: "Data validation failed. Please check the provided information.",
+        success: false,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+    
     res.status(500).json({
       message: "Error occurred while processing the download request.",
       success: false,

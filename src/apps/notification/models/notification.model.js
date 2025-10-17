@@ -12,7 +12,7 @@ const notificationSchema = new mongoose.Schema({
     type: String,
     enum: [
       'promotion_pending',     // Promoter pending to campaign
-      //'promotion_assigned',     // Promoter assigned to campaign
+      'promotion_assigned',     // Promoter assigned to campaign
       'promotion_submitted',    // Promoter submitted proof
       'promotion_validated',    // Promotion validated
       'promotion_rejected',     // Promotion rejected
