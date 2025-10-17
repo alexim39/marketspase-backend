@@ -26,8 +26,7 @@ const notificationSchema = new mongoose.Schema({
       'reminder',               // Reminder notifications
       'weekly_summary',       // Weekly performance summary
       'submission_reminder', // Reminder to submit promotion
-      'deadline_reminder',    // Reminder of upcoming campaign deadline
-      'promotion_apending'
+      'deadline_reminder'    // Reminder of upcoming campaign deadline
     ],
     required: true
   },
