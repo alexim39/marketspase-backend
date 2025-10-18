@@ -197,7 +197,7 @@ export const downloadPromotion = async (req, res) => {
     // Construct media URL safely
     let mediaUrl = campaign.mediaUrl;
     if (mediaUrl && !mediaUrl.startsWith('http')) {
-      const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+      const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'https';
       mediaUrl = `${protocol}://${req.get("host")}${campaign.mediaUrl}`;
     }
 
