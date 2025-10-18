@@ -54,6 +54,8 @@ export const handlePromotionStatusUpdate = async ({
   return { promotion: updatedPromotion };
 };
 
+
+
 const handleValidation = async ({ promotion, campaign, promoter, performedBy, payoutAmount, session }) => {
   if (promotion.status !== "submitted") {
     throw new Error("Cannot validate a promotion that is not in 'submitted' status.");
@@ -109,11 +111,11 @@ const handleValidation = async ({ promotion, campaign, promoter, performedBy, pa
     { session }
   );
 
-  // Atomic updates for promoter wallet
+  // ✅ FIXED: Proper atomic update for promoter wallet
   await UserModel.findByIdAndUpdate(
-    promoter._id,
+    promoter._id, // Use the promoter user ID from the populated promotion
     {
-      $inc: {
+      $inc: { 
         'wallets.promoter.reserved': -payoutAmount,
         'wallets.promoter.balance': payoutAmount
       },
@@ -127,12 +129,30 @@ const handleValidation = async ({ promotion, campaign, promoter, performedBy, pa
           relatedPromotion: promotion._id,
           status: 'successful',
           timestamp: new Date()
+        },
+        activityLog: {
+          $each: [{
+            action: 'promotion_validated',
+            description: `Your promotion for "${campaign.title}" was validated and earnings moved to available balance`,
+            details: {
+              campaignTitle: campaign.title,
+              campaignId: campaign._id,
+              promotionId: promotion._id,
+              amount: payoutAmount,
+              validationTime: new Date()
+            },
+            timestamp: new Date()
+          }],
+          $position: 0,
+          $slice: 1000
         }
       }
     },
     { session }
   );
 };
+
+
 
 const handleRejection = async ({ promotion, campaign, promoter, marketer, performedBy, rejectionReason, payoutAmount, session }) => {
   if (promotion.status !== "submitted") {
@@ -190,12 +210,24 @@ const handleRejection = async ({ promotion, campaign, promoter, marketer, perfor
     { session }
   );
 
-  // Atomic updates for wallets
+  // ✅ FIXED: Proper atomic updates for both wallets
   await UserModel.findByIdAndUpdate(
     promoter._id,
     {
       $inc: {
         'wallets.promoter.reserved': -payoutAmount
+      },
+      $push: {
+        'wallets.promoter.transactions': {
+          amount: payoutAmount,
+          type: 'debit',
+          category: 'refund',
+          description: `Funds released for rejected promotion: ${campaign.title}`,
+          relatedCampaign: campaign._id,
+          relatedPromotion: promotion._id,
+          status: 'reversed',
+          timestamp: new Date()
+        }
       }
     },
     { session }
@@ -223,6 +255,8 @@ const handleRejection = async ({ promotion, campaign, promoter, marketer, perfor
     { session }
   );
 };
+
+
 
 const handlePayment = async ({ promotion, campaign, performedBy, payoutAmount, session }) => {
   if (promotion.status !== "validated") {

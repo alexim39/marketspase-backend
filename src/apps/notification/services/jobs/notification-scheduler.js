@@ -132,7 +132,7 @@ cron.schedule('0 8 * * *', async () => {
     // Find campaigns approaching deadline (within 3 days)
     const deadlineCampaigns = await CampaignModel.findCampaignsApproachingDeadline(3);
     
-    console.log(`Found ${deadgetlineCampaigns.length} campaigns approaching deadline`);
+    console.log(`Found ${deadlineCampaigns.length} campaigns approaching deadline`);
 
     for (const campaign of deadlineCampaigns) {
       try {
@@ -414,7 +414,7 @@ cron.schedule('0 2 * * *', async () => {
   }
 });
 
-// 7. AUTO-REJECT EXPIRED PROMOTIONS - Every 6 hours (Enhanced)
+// 7. AUTO-REJECT EXPIRED PROMOTIONS WITH FINANCIAL CLEANUP - Every 6 hours
 cron.schedule('0 */6 * * *', async () => {
   const jobStartTime = new Date();
   console.log(`🕐 [${jobStartTime.toISOString()}] Starting auto-reject expired promotions job...`);
@@ -423,86 +423,208 @@ cron.schedule('0 */6 * * *', async () => {
     // Calculate time threshold: 24 hours ago
     const twentyFourHoursAgo = new Date(Date.now() - (24 * 60 * 60 * 1000));
     
-    // Find expired promotions
+    // Find expired promotions in BOTH scenarios:
+    // 1. Accepted but not downloaded (pending + !isDownloaded)
+    // 2. Downloaded but not submitted (pending + isDownloaded)
     const expiredPromotions = await PromotionModel.find({
       status: 'pending',
       createdAt: { $lte: twentyFourHoursAgo }
     })
-    .populate('promoter', 'displayName email')
-    .populate('campaign', 'title owner maxPromoters currentPromoters');
+    .populate('promoter', 'displayName email wallets')
+    .populate({
+      path: 'campaign',
+      populate: { path: 'owner', model: 'User', select: 'displayName email wallets' }
+    });
 
     console.log(`📊 Found ${expiredPromotions.length} expired promotions to process`);
 
     let rejectedCount = 0;
     let failedCount = 0;
+    let refundedAmount = 0;
 
     for (const promotion of expiredPromotions) {
+      const session = await mongoose.startSession();
+      
       try {
-        const session = await PromotionModel.startSession();
-        session.startTransaction();
+        await session.startTransaction();
 
-        try {
-          // Auto-reject the promotion
-          promotion.status = 'rejected';
-          promotion.rejectionReason = 'Promotion expired - Proof not submitted within 24 hours';
-          
-          promotion.activityLog.push({
-            action: 'Auto-Rejected',
-            details: 'Promotion automatically rejected due to expiration (24 hours elapsed)',
-            timestamp: new Date()
-          });
+        const campaign = promotion.campaign;
+        const promoter = promotion.promoter;
+        const marketer = campaign.owner;
+        const payoutAmount = promotion.payoutAmount || campaign.payoutPerPromotion;
 
-          await promotion.save({ session });
-
-          // Update campaign stats - decrement current promoters
-          if (promotion.campaign) {
-            await CampaignModel.findByIdAndUpdate(
-              promotion.campaign._id,
-              { 
-                $inc: { currentPromoters: -1 },
-                $push: {
-                  activityLog: {
-                    action: 'Promotion Auto-Rejected',
-                    details: `Promotion ${promotion._id} auto-rejected due to expiration. Promoter: ${promotion.promoter?.displayName || 'Unknown'}`,
-                    timestamp: new Date()
-                  }
-                }
-              },
-              { session }
-            );
-          }
-
-          // Send notification to promoter
-          if (promotion.promoter) {
-            await NotificationService.createNotification({
-              recipient: promotion.promoter._id,
-              type: 'promotion_rejected',
-              title: 'Promotion Expired ⏰',
-              message: `Your promotion for "${promotion.campaign?.title || 'Campaign'}" has expired because proof wasn't submitted within 24 hours.`,
-              data: {
-                campaignId: promotion.campaign?._id,
-                promotionId: promotion._id,
-                rejectionReason: promotion.rejectionReason,
-                actionUrl: '/promotions'
-              },
-              priority: 'medium'
-            });
-          }
-
-          await session.commitTransaction();
-          rejectedCount++;
-          console.log(`✅ Auto-rejected promotion ${promotion._id}`);
-
-        } catch (transactionError) {
-          await session.abortTransaction();
-          throw transactionError;
-        } finally {
-          session.endSession();
-        }
+        // Determine scenario and refund logic
+        const scenario = promotion.isDownloaded ? 
+          "Downloaded but not submitted" : 
+          "Accepted but not downloaded";
         
-      } catch (rejectError) {
+        console.log(`Processing promotion ${promotion._id}: ${scenario}`);
+
+        // 1. Update promotion status
+        promotion.status = 'rejected';
+        promotion.rejectionReason = `Promotion expired - ${scenario} within 24 hours`;
+        
+        promotion.activityLog.push({
+          action: 'Auto-Rejected',
+          details: `Promotion automatically rejected due to expiration. ${scenario}`,
+          timestamp: new Date()
+        });
+
+        await promotion.save({ session });
+
+        // 2. Handle financial refunds based on scenario
+        if (promotion.isDownloaded) {
+          // Scenario 2: Downloaded but not submitted - refund from promoter reserved to marketer reserved
+          await UserModel.findByIdAndUpdate(
+            promoter._id,
+            {
+              $inc: { 
+                'wallets.promoter.reserved': -payoutAmount
+              },
+              $push: {
+                'wallets.promoter.transactions': {
+                  amount: payoutAmount,
+                  type: 'debit',
+                  category: 'refund',
+                  description: `Funds released for expired promotion: ${campaign.title}`,
+                  relatedCampaign: campaign._id,
+                  relatedPromotion: promotion._id,
+                  status: 'reversed',
+                  timestamp: new Date()
+                }
+              }
+            },
+            { session }
+          );
+
+          await UserModel.findByIdAndUpdate(
+            marketer._id,
+            {
+              $inc: { 
+                'wallets.marketer.reserved': payoutAmount
+              },
+              $push: {
+                'wallets.marketer.transactions': {
+                  amount: payoutAmount,
+                  type: 'credit',
+                  category: 'refund',
+                  description: `Refund for expired promotion: ${promotion.upi || promotion._id}`,
+                  relatedCampaign: campaign._id,
+                  relatedPromotion: promotion._id,
+                  status: 'successful',
+                  timestamp: new Date()
+                }
+              }
+            },
+            { session }
+          );
+
+          console.log(`💰 Refunded ${payoutAmount} from promoter reserved to marketer reserved for promotion ${promotion._id}`);
+
+        } else {
+          // Scenario 1: Accepted but not downloaded - refund from marketer reserved to marketer balance
+          await UserModel.findByIdAndUpdate(
+            marketer._id,
+            {
+              $inc: { 
+                'wallets.marketer.reserved': -payoutAmount,
+                'wallets.marketer.balance': payoutAmount
+              },
+              $push: {
+                'wallets.marketer.transactions': {
+                  amount: payoutAmount,
+                  type: 'credit',
+                  category: 'refund',
+                  description: `Refund for unclaimed promotion: ${campaign.title}`,
+                  relatedCampaign: campaign._id,
+                  relatedPromotion: promotion._id,
+                  status: 'successful',
+                  timestamp: new Date()
+                }
+              }
+            },
+            { session }
+          );
+
+          console.log(`💰 Refunded ${payoutAmount} from marketer reserved to marketer balance for promotion ${promotion._id}`);
+        }
+
+        refundedAmount += payoutAmount;
+
+        // 3. Update campaign stats
+        const campaignUpdate = {
+          $inc: { 
+            currentPromoters: -1,
+            totalPromotions: -1
+          },
+          $push: {
+            activityLog: {
+              action: 'Promotion Auto-Rejected',
+              details: `Promotion ${promotion.upi || promotion._id} auto-rejected. ${scenario}. Refund processed.`,
+              timestamp: new Date()
+            }
+          }
+        };
+
+        // If campaign was exhausted, check if it should be reactivated
+        if (campaign.status === "exhausted") {
+          const potentialSpend = (campaign.spentBudget) + campaign.payoutPerPromotion;
+          if (potentialSpend <= campaign.budget) {
+            campaignUpdate.$set = { status: 'active' };
+            campaignUpdate.$push.activityLog.details += " Campaign reactivated.";
+          }
+        }
+
+        await CampaignModel.findByIdAndUpdate(
+          campaign._id,
+          campaignUpdate,
+          { session }
+        );
+
+        // 4. Send notification to promoter
+        if (promoter) {
+          await NotificationService.createNotification({
+            recipient: promoter._id,
+            type: 'promotion_rejected',
+            title: 'Promotion Expired ⏰',
+            message: `Your promotion for "${campaign.title}" has expired because it wasn't ${promotion.isDownloaded ? 'submitted' : 'started'} within 24 hours.`,
+            data: {
+              campaignId: campaign._id,
+              promotionId: promotion._id,
+              rejectionReason: promotion.rejectionReason,
+              scenario: scenario,
+              actionUrl: '/promotions'
+            },
+            priority: 'medium'
+          });
+        }
+
+        // 5. Send notification to marketer about refund
+        await NotificationService.createNotification({
+          recipient: marketer._id,
+          type: 'refund_processed',
+          title: 'Funds Refunded ✅',
+          message: `₦${payoutAmount} refunded for expired promotion: "${campaign.title}"`,
+          data: {
+            campaignId: campaign._id,
+            promotionId: promotion._id,
+            refundAmount: payoutAmount,
+            scenario: scenario,
+            actionUrl: `/campaigns/${campaign._id}`
+          },
+          priority: 'medium'
+        });
+
+        await session.commitTransaction();
+        rejectedCount++;
+        console.log(`✅ Auto-rejected and refunded promotion ${promotion._id} (${scenario})`);
+
+      } catch (transactionError) {
+        await session.abortTransaction();
         failedCount++;
-        console.error(`❌ Failed to auto-reject promotion ${promotion._id}:`, rejectError);
+        console.error(`❌ Failed to auto-reject promotion ${promotion._id}:`, transactionError);
+      } finally {
+        session.endSession();
       }
     }
 
@@ -512,6 +634,7 @@ cron.schedule('0 */6 * * *', async () => {
     console.log(`🎉 Auto-rejection job completed:
     - Successfully rejected: ${rejectedCount} promotions
     - Failed: ${failedCount} promotions
+    - Total refunded: ₦${refundedAmount}
     - Duration: ${duration.toFixed(2)} seconds
     - Finished at: ${jobEndTime.toISOString()}`);
     
@@ -528,7 +651,7 @@ cron.schedule('0 */6 * * *', async () => {
 // Validation reminder for submitted promotions (Daily at 10 AM)
 /* cron.schedule('0 10 * * *', async () => {
   try {
-    console.log('Running validation reminder job...');
+    console.log('Running admin validation reminder job...');
     
     // Find submitted promotions that haven't been validated for 3+ days
     const pendingValidations = await PromotionModel.findPromotionsNeedingValidationReminders(3);

@@ -20,7 +20,7 @@ cron.schedule('*/15 * * * *', async () => {   // every 15 min
     if (!campaigns.length) return;
 
     const promoters = await UserModel.find({
-      role: 'promoter',
+      role: 'promoter', // Users need to have their role set as Promoter to recieve new campaign notification email
       isActive: true,
       'preferences.notification': { $ne: false }
     })
