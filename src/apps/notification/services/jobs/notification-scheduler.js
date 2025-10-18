@@ -57,11 +57,8 @@ cron.schedule('0 * * * *', async () => {
 
           // Send email
           const emailContent = promotionExpiringTemplate(emailData);
-          await sendEmail({
-            to: promoter.email,
-            subject: `⏰ 1 Hour Left: Upload Proof for "${campaign.title}"`,
-            html: emailContent
-          });
+          //Send welcome email to the user
+          await sendEmail(promoter.email, `⏰ 1 Hour Left: Upload Proof for ${campaign.title}`, emailContent);
   
           // Update promotion activity log
           promotion.activityLog.push({

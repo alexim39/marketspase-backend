@@ -228,11 +228,11 @@ export const createCampaign = async (req, res) => {
       // Send to all admin emails
       await Promise.all(
         adminEmails.map(email => 
-          sendEmail({
-            to: email.trim(),
-            subject: `New Campaign Pending Approval: ${newCampaign.title}`,
-            html: emailContent
-          })
+          sendEmail(
+            email.trim(),
+            `New Campaign Pending Approval: ${newCampaign.title}`,
+            emailContent
+          )
         )
       );
       

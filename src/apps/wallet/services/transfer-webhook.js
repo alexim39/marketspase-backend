@@ -50,11 +50,11 @@ export const handleTransferWebhook = async (event) => {
             newBalance: user.wallets.promoter.balance
           });
           
-          await sendEmail({
-            to: user.email,
-            subject: 'Withdrawal Successful - MarketSpase',
-            html: emailContent
-          });
+          await sendEmail(
+            user.email,
+            'Withdrawal Successful - MarketSpase',
+            emailContent
+          );
         } catch (emailError) {
           console.error('Failed to send success email notification:', emailError);
         }
@@ -83,11 +83,11 @@ export const handleTransferWebhook = async (event) => {
             newBalance: user.wallets.promoter.balance
           });
           
-          await sendEmail({
-            to: user.email,
-            subject: 'Withdrawal Failed - MarketSpase',
-            html: emailContent
-          });
+          await sendEmail(
+            user.email,
+            'Withdrawal Failed - MarketSpase',
+            emailContent
+          );
         } catch (emailError) {
           console.error('Failed to send failure email notification:', emailError);
         }

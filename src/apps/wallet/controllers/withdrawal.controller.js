@@ -496,11 +496,11 @@ if (paymentResponse.success && paymentResponse.status === "success") {
             newBalance: promoterWallet.balance
         });
         
-        await sendEmail({
-            to: user.email,
-            subject: 'Withdrawal Successful - MarketSpase',
-            html: emailContent
-        });
+        await sendEmail(
+            user.email,
+            'Withdrawal Successful - MarketSpase',
+            emailContent
+        );
     } catch (emailError) {
         console.error('Failed to send success email notification:', emailError);
     }
@@ -577,11 +577,11 @@ if (paymentResponse.success) {
 
         await user.logActivity('withdrawal_request', `Failed withdrawal request attempt`, {});
         
-        await sendEmail({
-            to: user.email,
-            subject: 'Withdrawal Failed - MarketSpase',
-            html: emailContent
-        });
+        await sendEmail(
+            user.email,
+            'Withdrawal Failed - MarketSpase',
+            emailContent
+        );
     } catch (emailError) {
         console.error('Failed to send failure email notification:', emailError);
     }
@@ -798,11 +798,11 @@ export const verifyBankAccount = async (req, res) => {
                     accountName: accountName
                 });
                 
-                await sendEmail({
-                    to: user.email,
-                    subject: 'Bank Account Verified - MarketSpase',
-                    html: emailContent
-                });
+                await sendEmail(
+                    user.email,
+                    'Bank Account Verified - MarketSpase',
+                    emailContent
+                );
             } catch (emailError) {
                 console.error('Failed to send verification email:', emailError);
                 // Don't fail the verification if email fails
