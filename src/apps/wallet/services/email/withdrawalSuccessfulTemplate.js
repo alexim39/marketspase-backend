@@ -16,7 +16,7 @@ export const withdrawalSuccessfulTemplate = (userData) => {
   <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #eee;">
     
     <div style="background:#673ab7;padding:30px 20px;text-align:center;">
-      <img src="https://marketspase.com/img/logo.JPG" alt="MarketSpase Logo" style="height:36px;">
+       <img src="https://marketspase.com/img/email_logo.jpg" alt="MarketSpase Logo" style="height:60px;">
     </div>
     
     <div style="padding:30px 20px;">
