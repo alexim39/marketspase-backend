@@ -4,12 +4,13 @@ import { createCampaign } from '../controllers/create-campaign.controller.js'
 import { saveCampaign } from '../controllers/save-campaign.controller.js'
 import { UpdateCampaignStatus } from '../controllers/update-campaign.controller.js'
 import { EditCampaign } from '../controllers/edit-campaign.controller.js'
-import { getCampaignById, getAUserCampaigns, getAllCampaigns } from '../controllers/get.controller.js'
+import { getAllCampaigns } from '../controllers/get-all-campaign.controller.js'
+import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
 import { campaignUpload } from '../services/upload.js';
 import { updatePromotionStatus } from '../controllers/update-promotion-status.controller.js'
 import { getProofDetails, } from '../controllers/get-proof-details.controller.js'
-import { getCampaignsByStatusAndUserId } from '../controllers/getByStatusAndUserId.controller.js'
-
+import { getCampaignsByStatusAndUserId } from '../controllers/get-bystatus-and-userid.controller.js'
+import { GetAMarketerCampaigns } from '../controllers/get-marketer-campaign.controller.js'
 
 
 
@@ -25,8 +26,16 @@ CampaignRouter.post('/save', campaignUpload.single('media'), saveCampaign);
 CampaignRouter.put('/edit/:campaignId/:performedBy', campaignUpload.single('media'), EditCampaign);
 // promoter accept campaign
 CampaignRouter.post('/:campaignId/accept', acceptCampaign);
-// get all campaigns for an marketer
-CampaignRouter.get('/user/:userId', getAUserCampaigns);
+
+
+/**
+ * Get all campaigns for a marketer with pagination
+ * @param {string} userId - User ID from URL params
+ * @query {number} [page=1] - Page number (optional, default: 1)
+ * @query {number} [limit=10] - Items per page (optional, default: 10, max: 100)
+ */
+// get all campaigns for a marketer
+CampaignRouter.get('/user/:userId', GetAMarketerCampaigns);
 
 
 // admin - get all campaigns

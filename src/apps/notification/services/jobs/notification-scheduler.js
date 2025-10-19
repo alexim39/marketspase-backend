@@ -7,6 +7,7 @@ import { NotificationService } from '../notification.service.js';
 import { NotificationModel } from '../../models/notification.model.js';
 import { sendEmail } from './../../../../services/emailService.js';
 import { promotionExpiringTemplate } from '../../../promotion/services/email/promotionExpiringTemplate.js';
+import mongoose from "mongoose";
 
 // 1. 23-HOUR SUBMISSION REMINDER - Every hour
 cron.schedule('0 * * * *', async () => {
