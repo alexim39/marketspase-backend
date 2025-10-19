@@ -120,10 +120,16 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
             return true; // If campaign has no location restrictions, include it
           }
           
-          return campaign.targetLocations.some(location =>
-            location.toLowerCase().includes(userLocation.toLowerCase()) ||
-            userLocation.toLowerCase().includes(location.toLowerCase())
-          );
+          // return campaign.targetLocations.some(location =>
+          //   location.toLowerCase().includes(userLocation.toLowerCase()) ||
+          //   userLocation.toLowerCase().includes(location.toLowerCase())
+          // );
+
+          return campaign.targetLocations.some(location => {
+            const targetStr = (location.name || location.city || '').toString().toLowerCase(); // Adjust property name as needed
+            const userStr = userLocation.toLowerCase();
+            return targetStr.includes(userStr) || userStr.includes(targetStr);
+          });
         });
         
         if (filteredCampaigns.length === 0) {

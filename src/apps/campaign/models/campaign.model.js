@@ -32,7 +32,18 @@ const campaignSchema = new mongoose.Schema(
     
     // Targeting & Requirements
     enableTarget: { type: Boolean, default: false },
-    targetLocations: [{ type: String }],
+    //targetLocations: [{ type: String }],
+    targetLocations: [{
+      id: { type: String, required: true },
+      name: { type: String, required: true },
+      type: { type: String, required: true },
+      place_id: { type: String, required: true },
+      coordinates: {
+        lat: { type: Number, default: 0 },
+        lng: { type: Number, default: 0 }
+      },
+      precision: { type: String, default: "medium" }
+    }],
     requirements: [{ type: String }],
     minRating: { type: Number, default: 0, min: 0, max: 5 },
     

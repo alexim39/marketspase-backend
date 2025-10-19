@@ -1,8 +1,7 @@
 import {ContactModel} from '../models/contact.model.js';
 import { UserModel} from '../../user/models/user.model.js';
 import { sendEmail } from "../../../services/emailService.js";
-import { ownerContactEmailTemplate } from '../services/email/ownerTemplate.js';
-import { userContactEmailTemplate } from '../services/email/userTemplate.js';
+
 
 
 //generate a numerical id.

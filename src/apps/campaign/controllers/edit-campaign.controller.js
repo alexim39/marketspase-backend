@@ -1,7 +1,5 @@
 import { CampaignModel } from "../models/campaign.model.js";
 import mongoose from "mongoose";
-import fs from "fs";
-import path from "path";
 
 /**
  * @description Update an existing campaign
@@ -72,12 +70,30 @@ export const EditCampaign = async (req, res) => {
       ? requirements.split(",").map((req) => req.trim()).filter(Boolean)
       : campaign.requirements;
 
-    // Process target locations
-    const targetLocationsArray = Array.isArray(targetLocations)
-      ? targetLocations
-      : typeof targetLocations === "string"
-      ? targetLocations.split(",").map((loc) => loc.trim())
-      : campaign.targetLocations || [];
+    // Process target locations - store the entire object
+    let targetLocationsArray = [];
+    
+    if (Array.isArray(targetLocations)) {
+      targetLocationsArray = targetLocations.map(location => {
+        // If it's already an object with the expected structure, use it as-is
+        if (typeof location === 'object' && location !== null) {
+          return {
+            id: location.id || '',
+            name: location.name || '',
+            type: location.type || 'place',
+            place_id: location.place_id || '',
+            coordinates: {
+              lat: location.coordinates?.lat || 0,
+              lng: location.coordinates?.lng || 0
+            },
+            precision: location.precision || 'medium'
+          };
+        }
+        return null;
+      }).filter(Boolean); // Remove any null values
+    } else {
+      targetLocationsArray = campaign.targetLocations || [];
+    }
 
     // Update campaign fields
     campaign.title = title;
@@ -132,6 +148,7 @@ export const EditCampaign = async (req, res) => {
         remainingBudget: campaign.remainingBudget,
         maxPromoters: campaign.maxPromoters,
         currentPromoters: campaign.currentPromoters,
+        targetLocations: campaign.targetLocations, // Include full objects in response
       },
     });
   } catch (error) {
