@@ -54,7 +54,6 @@ export const GetUserPromotions = async (req, res) => {
     const promotions = await PromotionModel.find(query)
       .populate({
         path: 'campaign',
-        select: 'title category mediaType payoutPerPromotion minViewsPerPromotion'
       })
       .populate({
         path: "promoter",
