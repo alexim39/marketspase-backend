@@ -1,13 +1,9 @@
 import express from 'express';
-import { 
-    getPromotionById,
-    getUserPromotions,
-} from '../controllers/promotion.controller.js'
+import { GetPromotionById } from '../controllers/get-promotion-byid.controller.js'
+import { GetUserPromotions } from '../controllers/get-a-user-promotion.controller.js'
 import { submitProof } from '../controllers/submit-proof.controler.js'
 import { downloadPromotion } from '../controllers/donwload-promotion.js'
-
 import multer from 'multer';
-
 
 const upload = multer({
   storage: multer.memoryStorage(), // Store files in memory for cloud upload
@@ -24,13 +20,13 @@ const upload = multer({
   }
 });
 
-
 const PromoterRouter = express.Router();
 
-// get a user promotions
-PromoterRouter.get('/user/:userId', getUserPromotions);
+// Get a user promotions with filtering and pagination
+PromoterRouter.get('/user/:userId', GetUserPromotions);
+
 // get promotion
-PromoterRouter.get('/:id/:userId', getPromotionById);
+PromoterRouter.get('/:id/:userId', GetPromotionById);
 /**
  * @route POST /api/promotions/download
  * @description Allows a promoter to register for a campaign and download the media.
