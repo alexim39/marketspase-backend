@@ -62,4 +62,4 @@ export const activitySchema = new mongoose.Schema({
 });
 
 // Optional: Create and export the Activity model as well
-export const Activity = mongoose.model('Activity', activitySchema);
+//export const Activity = mongoose.model('Activity', activitySchema);

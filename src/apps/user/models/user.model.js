@@ -363,7 +363,7 @@ userSchema.methods = {
       timestamp: new Date()
     };
     
-    console.log('Activity to be saved:', activity);
+    //console.log('Activity to be saved:', activity);
     
     this.activityLog.unshift(activity);
     
