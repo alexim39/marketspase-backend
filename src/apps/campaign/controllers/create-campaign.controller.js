@@ -1,29 +1,17 @@
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
 import mongoose from "mongoose";
-import fs from "fs";
 import { sendEmail } from "../../../services/emailService.js";
 import { adminCampaignApprovalTemplate } from '../services/email/adminCampaignApprovalTemplate.js';
 
 /**
- * @description Creates a new campaign. This function handles the validation,
- * checks fund availability, and saves the campaign without reserving funds.
- * Funds will be reserved per promotion during campaign acceptance.
+ * @description Creates a new campaign with media uploaded to Cloudinary.
+ * Checks fund availability and saves the campaign without reserving funds.
+ * Funds are reserved per promotion during campaign acceptance.
  */
 export const createCampaign = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
-
-  // Helper function to safely delete files
-  const deleteUploadedFile = (filePath) => {
-    if (filePath && fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath);
-      } catch (error) {
-        console.error("Error deleting file:", error.message);
-      }
-    }
-  };
 
   try {
     const {
@@ -46,14 +34,15 @@ export const createCampaign = async (req, res) => {
       minViewsPerPromotion = 25
     } = req.body;
 
-    // Handle uploaded file and determine media type
+    // ✅ Handle uploaded file from Cloudinary
     let mediaUrl = '';
     let mediaType = '';
-    if (req.file) {
-      // Build a public URL for the uploaded file
-      mediaUrl = `/uploads/campaigns/${req.file.filename}`;
+    let cloudinaryPublicId = '';
 
-      // Determine media type from file mimetype
+    if (req.file) {
+      mediaUrl = req.file.path; // Cloudinary URL
+      cloudinaryPublicId = req.file.filename; // Cloudinary public ID
+
       if (req.file.mimetype.startsWith('image/')) {
         mediaType = 'image';
       } else if (req.file.mimetype.startsWith('video/')) {
@@ -62,11 +51,11 @@ export const createCampaign = async (req, res) => {
     }
 
     const payoutPerPromotion = 200;
-    const maxPromoters = Math.floor(budget / payoutPerPromotion);
+    const numericBudget = Number(budget);
+    const maxPromoters = Math.floor(numericBudget / payoutPerPromotion);
 
-    // Validate required fields
+    // ✅ Validate required fields
     if (!owner || !title || !budget || !category) {
-      deleteUploadedFile(req.file?.path);
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
@@ -75,9 +64,7 @@ export const createCampaign = async (req, res) => {
       });
     }
 
-    // Validate media is provided
     if (!mediaUrl) {
-      deleteUploadedFile(req.file?.path);
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
@@ -86,9 +73,7 @@ export const createCampaign = async (req, res) => {
       });
     }
 
-    // Validate budget amount
-    if (budget < 500) {
-      deleteUploadedFile(req.file?.path);
+    if (numericBudget < 500) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
@@ -99,7 +84,6 @@ export const createCampaign = async (req, res) => {
 
     const user = await UserModel.findById(owner).session(session);
     if (!user) {
-      deleteUploadedFile(req.file?.path);
       await session.abortTransaction();
       session.endSession();
       return res.status(404).json({
@@ -108,12 +92,9 @@ export const createCampaign = async (req, res) => {
       });
     }
 
-    // ✅ ONLY VALIDATE FUNDS, DON'T RESERVE THEM
+    // ✅ Validate wallet balance
     const marketerWallet = user.wallets.marketer;
-    const numericBudget = Number(budget);
-    
     if (marketerWallet.balance < numericBudget) {
-      deleteUploadedFile(req.file?.path);
       await session.abortTransaction();
       session.endSession();
       return res.status(402).json({
@@ -124,17 +105,19 @@ export const createCampaign = async (req, res) => {
       });
     }
 
-    // Process requirements array if provided as string
-    const requirementsArray = requirements 
+    // ✅ Process requirements
+    const requirementsArray = requirements
       ? requirements.split(',').map(req => req.trim()).filter(req => req.length > 0)
       : [];
 
-    // Process target locations
-    const targetLocationsArray = Array.isArray(targetLocations) 
-      ? targetLocations 
-      : (typeof targetLocations === 'string' ? targetLocations.split(',').map(loc => loc.trim()) : []);
+    // ✅ Process target locations
+    const targetLocationsArray = Array.isArray(targetLocations)
+      ? targetLocations
+      : (typeof targetLocations === 'string'
+        ? targetLocations.split(',').map(loc => loc.trim())
+        : []);
 
-    // Create campaign with available budget tracking
+    // ✅ Create campaign
     const newCampaign = new CampaignModel({
       owner,
       title: title.trim(),
@@ -149,67 +132,68 @@ export const createCampaign = async (req, res) => {
       campaignType,
       priority,
       hasEndDate: Boolean(hasEndDate),
-      minViewsPerPromotion: Math.max(25, Number(minViewsPerPromotion)), // Ensure minimum 25 views
+      minViewsPerPromotion: Math.max(25, Number(minViewsPerPromotion)),
       payoutPerPromotion,
       maxPromoters,
       startDate: startDate ? new Date(startDate) : new Date(),
       endDate: endDate ? new Date(endDate) : undefined,
-      mediaUrl,
+      mediaUrl, // Cloudinary URL
       mediaType,
       currency: currency || "NGN",
       status: "pending",
       createdBy: owner,
-      // Track available budget for promotions (initially equals total budget)
       availableBudget: numericBudget,
-      activityLog: [{ 
-        action: 'Campaign Created', 
+      cloudinaryPublicId, // store for potential deletion later
+      activityLog: [{
+        action: 'Campaign Created',
         details: `Campaign created with budget: ${numericBudget} NGN. Funds validated but not reserved.`,
         performedBy: owner,
         timestamp: new Date()
       }],
     });
 
-    // ✅ NO FUNDS RESERVED HERE - Only validation done above
     await newCampaign.save({ session });
-
     await session.commitTransaction();
     session.endSession();
 
-    // User activity log (outside transaction for performance)
+    // ✅ Log user activity
     try {
-      await user.logActivity('campaign_created', `Created campaign: "${title}" with budget ${numericBudget} NGN`, {
-        resourceType: 'campaign',
-        resourceId: newCampaign._id,
-        metadata: { 
-          budget: numericBudget, 
-          maxPromoters, 
-          payoutPerPromotion,
-          availableBudget: numericBudget
+      await user.logActivity(
+        'campaign_created',
+        `Created campaign: "${title}" with budget ${numericBudget} NGN`,
+        {
+          resourceType: 'campaign',
+          resourceId: newCampaign._id,
+          metadata: {
+            budget: numericBudget,
+            maxPromoters,
+            payoutPerPromotion,
+            availableBudget: numericBudget
+          }
         }
-      });
+      );
     } catch (logError) {
       console.error('Failed to log activity:', logError);
-      // Don't fail the main request due to log error
     }
 
-    // Send success response
+    // ✅ Send success response
     res.status(201).json({
       message: "Campaign created successfully and is awaiting admin approval. Funds will be reserved per promotion when accepted by promoters.",
       success: true,
       campaignId: newCampaign._id,
-      mediaUrl: mediaUrl ? `${req.protocol}://${req.get('host')}${mediaUrl}` : null,
-      mediaType: mediaType,
+      mediaUrl,
+      mediaType,
       budget: numericBudget,
       maxPromoters,
       payoutPerPromotion,
       availableBudget: numericBudget
     });
 
-    // Notify admins of new campaign for approval (AFTER sending response)
+    // ✅ Notify admin (after response)
     try {
       const marketer = await UserModel.findById(owner);
       const adminEmails = ['schooltraz@gmail.com'];
-      
+
       const emailContent = adminCampaignApprovalTemplate({
         title: newCampaign.title,
         campaignId: newCampaign._id,
@@ -224,10 +208,9 @@ export const createCampaign = async (req, res) => {
         targetLocations: newCampaign.targetLocations,
         availableBudget: newCampaign.availableBudget
       });
-      
-      // Send to all admin emails
+
       await Promise.all(
-        adminEmails.map(email => 
+        adminEmails.map(email =>
           sendEmail(
             email.trim(),
             `New Campaign Pending Approval: ${newCampaign.title}`,
@@ -235,15 +218,13 @@ export const createCampaign = async (req, res) => {
           )
         )
       );
-      
+
       console.log(`Admin notification sent for campaign: ${newCampaign._id}`);
     } catch (emailError) {
       console.error('Failed to send admin notification email:', emailError);
-      // Don't fail the main request if email fails
     }
 
   } catch (error) {
-    // Safe transaction cleanup
     try {
       if (session.inTransaction()) {
         await session.abortTransaction();
@@ -253,13 +234,9 @@ export const createCampaign = async (req, res) => {
     } finally {
       session.endSession();
     }
-    
-    // Clean up the uploaded file on error
-    deleteUploadedFile(req.file?.path);
 
     console.error("Error creating campaign:", error.message);
 
-    // Enhanced error handling
     let userMessage = "Error occurred while creating campaign.";
     let statusCode = 500;
 

@@ -6,8 +6,8 @@ import { UpdateCampaignStatus } from '../controllers/update-campaign.controller.
 import { EditCampaign } from '../controllers/edit-campaign.controller.js'
 import { getAllCampaigns } from '../controllers/get-all-campaign.controller.js'
 import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
-import { campaignUpload } from '../services/upload.js';
-import { updatePromotionStatus } from '../controllers/update-promotion-status.controller.js'
+import { campaignUpload } from '../../../services/upload.js';
+import { UpdatePromotionStatus } from '../controllers/update-promotion-status.controller.js'
 import { getProofDetails, } from '../controllers/get-proof-details.controller.js'
 import { getCampaignsByStatusAndUserId } from '../controllers/get-bystatus-and-userid.controller.js'
 import { GetAMarketerCampaigns } from '../controllers/get-marketer-campaign.controller.js'
@@ -55,7 +55,7 @@ CampaignRouter.get('/:id', getCampaignById);
 // Admin - update campaign status: approve, reject, pause,
 CampaignRouter.patch('/:id/status', UpdateCampaignStatus);
 // Admin - update promotion status: approve, reject, pause,
-CampaignRouter.patch('/promotion/:id/status/:performedBy', updatePromotionStatus);
+CampaignRouter.patch('/promotion/:id/status/:performedBy', UpdatePromotionStatus);
 
 // GET /api/promotions/proof/:promotionId
 CampaignRouter.get('/promotions/proof/:promotionId', getProofDetails);
