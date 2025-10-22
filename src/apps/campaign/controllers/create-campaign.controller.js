@@ -1,7 +1,7 @@
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
 import mongoose from "mongoose";
-import { sendEmail } from "../../../services/emailService.js";
+import { sendEmail } from "../../../services/email.service.js";
 import { adminCampaignApprovalTemplate } from '../services/email/adminCampaignApprovalTemplate.js';
 
 /**

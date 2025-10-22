@@ -1,6 +1,6 @@
 import {ContactModel} from '../models/contact.model.js';
 import { UserModel} from '../../user/models/user.model.js';
-import { sendEmail } from "../../../services/emailService.js";
+import { sendEmail } from "../../../services/email.service.js";
 
 
 

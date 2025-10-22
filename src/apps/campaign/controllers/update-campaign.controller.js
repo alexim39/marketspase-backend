@@ -2,7 +2,7 @@ import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
 import mongoose from "mongoose";
 // ADD THESE IMPORTS:
-import { sendEmail } from "../../../services/emailService.js";
+import { sendEmail } from "../../../services/email.service.js";
 import { campaignApprovedTemplate } from '../services/email/campaignApprovedTemplate.js';
 import { campaignRejectedTemplate } from '../services/email/campaignRejectedTemplate.js';
 import { NotificationService } from "../../notification/services/notification.service.js";

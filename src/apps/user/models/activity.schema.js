@@ -11,7 +11,7 @@ export const activitySchema = new mongoose.Schema({
       'login', 'logout', 'profile_update', 'password_change', 'email_verify',
       
       // Wallet & Financial
-      'wallet_fund', 'withdrawal_request', 'withdrawal_complete', 'transfer',
+      'wallet_fund', 'withdrawal_request', 'withdrawal_complete', 'transfer', 'promo_credit_claimed',
       
       // Campaign & Promotion
       'campaign_create', 'campaign_update', 'campaign_delete', 'campaign_pause',
@@ -37,7 +37,7 @@ export const activitySchema = new mongoose.Schema({
   // Resource that was affected (optional)
   resourceType: {
     type: String,
-    enum: ['user', 'campaign', 'promotion', 'wallet', 'transaction', 'notification', 'device', 'payout_account']
+    enum: ['user', 'campaign', 'promotion', 'wallet', 'transaction', 'notification', 'device', 'payout_account', 'bonus']
   },
   
   resourceId: {

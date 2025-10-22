@@ -9,8 +9,12 @@ import {
 import { UpdateProfile } from '../controllers/profile-update.controller.js'
 import { SwitchUser } from '../controllers/switch-user.controller.js'
 import { getRevenueStats, getEngagementStats } from '../controllers/admin/admin-dashobard-stats.controller.js'
+import PromoRouter from './promo/promo.routes.js';
 
 const UserRouter = express.Router();
+
+// Mount PromoRouter under UserRouter
+UserRouter.use('/promo', PromoRouter);
 
 // admin - get all users
 UserRouter.get('/users', getAppUsers);
