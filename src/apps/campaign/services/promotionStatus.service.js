@@ -32,6 +32,17 @@ export const handlePromotionStatusUpdate = async ({
   switch (status) {
     case "validated":
       await handleValidation({ promotion, campaign, promoter, performedBy, payoutAmount, session });
+
+      // Auto-mark as paid - use the same function but with updated promotion
+      const validatedPromotion = await PromotionModel.findById(promotionId).session(session);
+      await handlePayment({ 
+        promotion: validatedPromotion, 
+        campaign, 
+        performedBy, 
+        payoutAmount, 
+        session
+      });
+
       break;
       
     case "rejected":
