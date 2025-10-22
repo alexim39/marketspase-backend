@@ -2,39 +2,31 @@
 import { PromotionModel } from "../../promotion/models/promotion.model.js";
 import mongoose from "mongoose";
 import { validateProofSubmission } from "../../promotion/services/validator.js";
-import path from "path";
-import fs from "fs";
-import {isPromotionExpired, isNearingExpiration} from './../services/utils.js'
+import { isPromotionExpired, isNearingExpiration } from './../services/utils.js';
+import { v2 as cloudinary } from "cloudinary";
 
-
+// ✅ Configure Cloudinary (ensure env variables are set)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 /**
- * @description Submit a promoter proofs. 
- * It allows promoters to submit screenshot of their promotion 30min before expiration
- * @param {object} req - The request object.
- * @param {object} res - The response object.
- * @returns {Promise<void>}
+ * @description Submit promoter proof with media uploaded to Cloudinary.
+ * Allows promoters to submit screenshot proof 30min before expiration.
  */
 export const submitProof = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const {
-      promotionId,
-      viewsCount,
-      notes
-    } = req.body;
+    const { promotionId, viewsCount, notes } = req.body;
     const proofImages = req.files;
-    const {promoterId} = req.params; 
+    const { promoterId } = req.params;
 
-    // Validate required fields
-    if (
-      !promotionId ||
-      !viewsCount ||
-      !proofImages ||
-      proofImages.length === 0
-    ) {
+    // ✅ Validate required fields
+    if (!promotionId || !viewsCount || !proofImages || proofImages.length === 0) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
@@ -46,11 +38,11 @@ export const submitProof = async (req, res) => {
     if (viewsCount < 25) {
       return res.status(400).json({
         success: false,
-        message: 'Minimum 25 views required for submission'
+        message: "Minimum 25 views required for submission",
       });
     }
 
-    // Validate promotion exists within transaction
+    // ✅ Validate promotion exists
     const promotion = await PromotionModel.findById(promotionId)
       .populate("campaign")
       .populate("promoter")
@@ -65,7 +57,7 @@ export const submitProof = async (req, res) => {
       });
     }
 
-    // Verify the authenticated user owns this promotion
+    // ✅ Ensure only the correct promoter submits
     if (promotion.promoter._id.toString() !== promoterId) {
       await session.abortTransaction();
       session.endSession();
@@ -75,7 +67,6 @@ export const submitProof = async (req, res) => {
       });
     }
 
-    // Check if promotion is in pending status
     if (promotion.status !== "pending") {
       await session.abortTransaction();
       session.endSession();
@@ -85,24 +76,14 @@ export const submitProof = async (req, res) => {
       });
     }
 
-      // Check if promotion is expired
     if (isPromotionExpired(promotion)) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot submit proof for expired promotion'
+        message: "Cannot submit proof for expired promotion",
       });
     }
 
-     // Check if it's too early to submit (30 minutes before expiration)
-    // if (!isNearingExpiration(promotion)) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: 'Proof submission is only allowed within 30 minutes of expiration'
-    //   });
-    // }
-
-
-    // Check campaign end date and status
+    // ✅ Check campaign validity
     const campaign = promotion.campaign;
     if (campaign && campaign.endDate && new Date() > campaign.endDate) {
       await session.abortTransaction();
@@ -113,7 +94,7 @@ export const submitProof = async (req, res) => {
       });
     }
 
-    if (campaign.status !== 'active') {
+    if (campaign.status !== "active") {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
@@ -122,7 +103,7 @@ export const submitProof = async (req, res) => {
       });
     }
 
-    // Validate minimum views requirement
+    // ✅ Validate minimum views requirement
     const minViews = campaign.minViewsPerPromotion || 25;
     if (parseInt(viewsCount) < minViews) {
       await session.abortTransaction();
@@ -133,45 +114,60 @@ export const submitProof = async (req, res) => {
       });
     }
 
-    // Create proofs directory
-    //const uploadDir = path.join(process.cwd(), "uploads", "proofs", promotionId);
-    const uploadDir = path.join(process.cwd(), "src", "uploads", "proofs");
-    fs.mkdirSync(uploadDir, { recursive: true });
+  // ✅ Upload all proof images to Cloudinary properly
+  const proofMediaUrls = [];
+  const proofPublicIds = [];
 
-    // Save proof images locally and build URLs
-    const proofMediaUrls = [];
-    for (const image of proofImages) {
-      const ext = path.extname(image.originalname);
-      const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-      const filePath = path.join(uploadDir, filename);
+  for (const image of proofImages) {
+    try {
+      const uploadResult = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: "proofs",
+            resource_type: "image",
+            public_id: `${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+          },
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result);
+          }
+        );
 
-      fs.writeFileSync(filePath, image.buffer);
-      const publicUrl = `/uploads/proofs/${filename}`;
-      proofMediaUrls.push(publicUrl);
+        // Pipe the file buffer into the upload stream
+        uploadStream.end(image.buffer);
+      });
+
+      proofMediaUrls.push(uploadResult.secure_url);
+      proofPublicIds.push(uploadResult.public_id);
+    } catch (err) {
+      console.error("Cloudinary upload failed:", err);
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(500).json({
+        success: false,
+        message: "Error uploading proof image to Cloudinary",
+        error: err.message,
+      });
     }
+  }
 
-    // Optional: AI validation of proof images
+
+    // ✅ Optional: AI validation of proof images
     let aiValidationResult = null;
     try {
-      aiValidationResult = await validateProofSubmission(
-        proofMediaUrls,
-        promotion
-      );
+      aiValidationResult = await validateProofSubmission(proofMediaUrls, promotion);
     } catch (validationError) {
-      console.warn(
-        "AI validation failed, proceeding with manual review:",
-        validationError
-      );
+      console.warn("AI validation failed, proceeding with manual review:", validationError);
     }
 
-    // Update promotion with proof data using model methods
+    // ✅ Update promotion with proof data
     promotion.status = "submitted";
     promotion.submittedAt = new Date();
     promotion.proofMedia = proofMediaUrls;
+    promotion.proofPublicIds = proofPublicIds; // Store for possible deletion later
     promotion.proofViews = parseInt(viewsCount);
     promotion.notes = notes || "";
-    
-    // Add AI validation results if available
+
     if (aiValidationResult) {
       promotion.aiValidation = {
         isValid: aiValidationResult.isValid,
@@ -180,48 +176,45 @@ export const submitProof = async (req, res) => {
         validatedAt: new Date(),
       };
     }
-    
-    // Add to promotion activity log
+
+    // ✅ Activity logs
     promotion.activityLog.push({
       action: "Proof Submitted",
-      details: `Submitted proof with ${viewsCount} views${aiValidationResult ? ` (AI confidence: ${aiValidationResult.confidence}%)` : ''}`,
+      details: `Submitted proof with ${viewsCount} views${aiValidationResult ? ` (AI confidence: ${aiValidationResult.confidence}%)` : ""}`,
       timestamp: new Date(),
-      performedBy: promoterId
+      performedBy: promoterId,
     });
 
-    // Add to campaign activity log
     campaign.activityLog.push({
       action: "Proof Submitted",
       details: `Promoter ${promotion.promoter.displayName} submitted proof with ${viewsCount} views for promotion UPI: ${promotion.upi}`,
       timestamp: new Date(),
-      performedBy: promoterId
+      performedBy: promoterId,
     });
 
-    // Save all documents within transaction
+    // ✅ Save both within transaction
     await promotion.save({ session });
     await campaign.save({ session });
 
-    // Commit transaction
     await session.commitTransaction();
     session.endSession();
 
     res.status(200).json({
       success: true,
       data: promotion,
-      message: aiValidationResult?.isValid 
-        ? "Proof submitted successfully and AI validation passed" 
+      message: aiValidationResult?.isValid
+        ? "Proof submitted successfully and AI validation passed"
         : "Proof submitted successfully and awaiting review",
     });
   } catch (error) {
-    // Rollback transaction on error
     await session.abortTransaction();
     session.endSession();
-    
+
     console.error("Error submitting proof:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };

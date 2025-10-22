@@ -3,22 +3,7 @@ import { GetPromotionById } from '../controllers/get-promotion-byid.controller.j
 import { GetUserPromotions } from '../controllers/get-a-user-promotion.controller.js'
 import { submitProof } from '../controllers/submit-proof.controler.js'
 import { downloadPromotion } from '../controllers/donwload-promotion.js'
-import multer from 'multer';
-
-const upload = multer({
-  storage: multer.memoryStorage(), // Store files in memory for cloud upload
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-    files: 3 // Max 3 files
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed'));
-    }
-  }
-});
+import { proofUpload } from '../../../services/uploadProof.js';
 
 const PromoterRouter = express.Router();
 
@@ -34,7 +19,7 @@ PromoterRouter.get('/:id/:userId', GetPromotionById);
  */
 PromoterRouter.post('/download', downloadPromotion);
 // POST /api/promotions/submit-proof
-PromoterRouter.post('/submit-proof/:promoterId', upload.array('proofImages', 3), submitProof);
+PromoterRouter.post('/submit-proof/:promoterId', proofUpload.array("proofImages", 3), submitProof);
 
 
 export default PromoterRouter;
