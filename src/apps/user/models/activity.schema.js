@@ -16,7 +16,7 @@ export const activitySchema = new mongoose.Schema({
       // Campaign & Promotion
       'campaign_create', 'campaign_update', 'campaign_delete', 'campaign_pause',
       'promotion_submit', 'promotion_approve', 'promotion_reject', 'campaign_accepted',
-      'campaign_download', 'campaign_created',
+      'campaign_download', 'campaign_created', 'promotion_validated',
       
       // Notification & Settings
       'notification_settings_update', 'preferences_update',
