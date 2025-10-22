@@ -3,7 +3,7 @@ import { GetPromotionById } from '../controllers/get-promotion-byid.controller.j
 import { GetUserPromotions } from '../controllers/get-a-user-promotion.controller.js'
 import { submitProof } from '../controllers/submit-proof.controler.js'
 import { downloadPromotion } from '../controllers/donwload-promotion.js'
-import { proofUpload } from '../../../services/uploadProof.js';
+import { proofUpload } from '../../../services/proof-upload.service.js';
 
 const PromoterRouter = express.Router();
 

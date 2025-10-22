@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { handlePromotionStatusUpdate } from '../services/promotionStatus.service.js';
+import { handlePromotionStatusUpdate } from '../services/promotion-status.service.js';
 
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 100;

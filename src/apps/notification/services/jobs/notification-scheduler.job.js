@@ -5,7 +5,7 @@ import { CampaignModel } from '../../../campaign/models/campaign.model.js';
 import { UserModel } from '../../../user/models/user.model.js';
 import { NotificationService } from '../notification.service.js';
 import { NotificationModel } from '../../models/notification.model.js';
-import { sendEmail } from './../../../../services/emailService.js';
+import { sendEmail } from '../../../../services/email.service.js';
 import { promotionExpiringTemplate } from '../../../promotion/services/email/promotionExpiringTemplate.js';
 import mongoose from "mongoose";
 

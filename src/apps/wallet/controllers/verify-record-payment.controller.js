@@ -1,5 +1,5 @@
 import { UserModel} from '../../user/models/user.model.js';
-import { sendEmail } from "../../../services/emailService.js";
+import { sendEmail } from "../../../services/email.service.js";
 import { paymentDeclinedEmailTemplate } from '../services/email/paymentDeclinedTemplate.js';
 import { paymentApprovedEmailTemplate } from '../services/email/paymentApprovedTemplate.js';
 import mongoose from 'mongoose';
