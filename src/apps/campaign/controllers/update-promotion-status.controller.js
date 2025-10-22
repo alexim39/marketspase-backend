@@ -11,7 +11,7 @@ const RETRY_DELAY_MS = 100;
  * 1. Funds are moved to the promoter's reserved wallet upon promotion acceptance.
  * 2. Funds are moved from reserved to balance upon validation, or refunded to the marketer upon rejection.
  */
-export const updatePromotionStatus = async (req, res) => {
+export const UpdatePromotionStatus = async (req, res) => {
   let retryCount = 0;
   
   while (retryCount < MAX_RETRY_ATTEMPTS) {
