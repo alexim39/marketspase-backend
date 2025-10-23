@@ -3,7 +3,7 @@ export const userContactEmailTemplate = (userData) => `
 
     <header style="text-align: center; padding: 10px; background-color: #f4f4f4;">
        <span style="font-family: sans-serif; font-size: 20px; font-weight: bold; color: #8f0045;">
-          <img src="https://davidotv.com/img/logo.png" alt="DavidoTV Logo" style="height: 50px;" />
+          <img src="https://marketspase.com/img/email_logo.jpg" alt="MarketSpase Logo" style="height:60px; border-radius: 50%;">
         </span>
     </header>
 

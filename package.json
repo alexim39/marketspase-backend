@@ -1,7 +1,7 @@
 {
-  "name": "async-davidotb-api",
+  "name": "async-marketspase-api",
   "version": "1.0.0",
-  "description": "API for client side of async davidotv web application",
+  "description": "API serving the client side of Async Marketspase web application",
   "main": "server.js",
   "type": "module",
   "scripts": {
