@@ -16,16 +16,8 @@ const PromoterRouter = express.Router();
  */
 PromoterRouter.post('/download', downloadPromotion);
 
-
-
-
 /* Get Promotions for Admin view */
 PromoterRouter.get('/admin/promotions', GetAdminPromotions);
-
-
-
-
-
 
 // Get a user promotions with filtering and pagination
 PromoterRouter.get('/user/:userId', GetUserPromotions);
