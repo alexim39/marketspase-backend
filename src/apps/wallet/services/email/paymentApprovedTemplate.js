@@ -2,7 +2,10 @@
 export const paymentApprovedEmailTemplate = (userData) => {
   const year = new Date().getFullYear();
   const formattedName = userData.userName
-    ? userData.userName.charAt(0).toUpperCase() + userData.userName.slice(1).toLowerCase()
+    ? userData.userName
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ')
     : '';
 
   return `
