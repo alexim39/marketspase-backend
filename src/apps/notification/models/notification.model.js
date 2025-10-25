@@ -26,7 +26,8 @@ const notificationSchema = new mongoose.Schema({
       'reminder',               // Reminder notifications
       'weekly_summary',       // Weekly performance summary
       'submission_reminder', // Reminder to submit promotion
-      'deadline_reminder'    // Reminder of upcoming campaign deadline
+      'deadline_reminder',    // Reminder of upcoming campaign deadline
+      'refund_processed'  // Refunding marketer wallet from promoter wallet
     ],
     required: true
   },

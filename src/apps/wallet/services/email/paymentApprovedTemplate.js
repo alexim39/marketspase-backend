@@ -2,7 +2,10 @@
 export const paymentApprovedEmailTemplate = (userData) => {
   const year = new Date().getFullYear();
   const formattedName = userData.userName
-    ? userData.userName.charAt(0).toUpperCase() + userData.userName.slice(1).toLowerCase()
+    ? userData.userName
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ')
     : '';
 
   return `
@@ -16,7 +19,7 @@ export const paymentApprovedEmailTemplate = (userData) => {
   <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #eee;">
     
     <div style="background:#673ab7;padding:30px 20px;text-align:center;">
-       <img src="https://marketspase.com/img/email_logo.jpg" alt="MarketSpase Logo" style="height:60px;">
+       <img src="https://marketspase.com/img/email_logo.jpg" alt="MarketSpase Logo" style="height:60px; border-radius: 50%;">
     </div>
     
     <div style="padding:30px 20px;">

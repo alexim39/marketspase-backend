@@ -1,7 +1,7 @@
 // promotion.controller.js
 import { PromotionModel } from "../../promotion/models/promotion.model.js";
-import { UserModel } from "../../user/models/user.model.js";;
-import { isPromotionExpired, calculateTimeRemaining, calculateProgressPercentage } from './../services/utils.js'
+import { UserModel } from "../../user/models/user.model.js";
+import { isPromotionExpired, calculateTimeRemaining, calculateProgressPercentage } from './../services/utils.js';
 
 
 
