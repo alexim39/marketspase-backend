@@ -157,7 +157,10 @@ export const getAppUsers = async (req, res) => {
   try {
     // Find all users in the database
     // The .select('-password') is crucial for security, it excludes the password field from the result.
-    const users = await UserModel.find({}).select('-password').exec();
+    const users = await UserModel.find({})
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .exec();
 
     // Send a success response with the users data
     res.status(200).json({
