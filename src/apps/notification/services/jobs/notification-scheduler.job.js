@@ -9,8 +9,90 @@ import { sendEmail } from '../../../../services/email.service.js';
 import { promotionExpiringTemplate } from '../../../promotion/services/email/promotionExpiringTemplate.js';
 import mongoose from "mongoose";
 
-// 1. 23-HOUR SUBMISSION REMINDER - Every hour
+// 1. 20-HOUR SUBMISSION REMINDER - Every hour
 cron.schedule('0 * * * *', async () => {
+//cron.schedule('*/2 * * * *', async () => {
+  try {
+    console.log('Running 20-hour submission reminder job...');
+    
+    // NOTE: The implementation of this model method must be updated
+    // to specifically look for promotions assigned between ~19 and ~21 hours ago.
+    const pendingPromotions = await PromotionModel.findPromotionsNeedingSubmissionReminders();
+
+    console.log(`Found ${pendingPromotions.length} promotions at ~20 hours mark`);
+
+    let remindersSent = 0;
+
+    for (const promotion of pendingPromotions) {
+      try {
+        // Calculate exact hours since assignment
+        const now = new Date();
+        const assignmentTime = new Date(promotion.createdAt);
+        const hoursSinceAssignment = (now - assignmentTime) / (1000 * 60 * 60);
+        
+        console.log(`Promotion ${promotion._id} is ${hoursSinceAssignment.toFixed(2)} hours old`);
+        
+        // The internal logic of shouldSendSubmissionReminder() must be updated to check for
+        // the 20-hour window (e.g., if (hoursSinceAssignment >= 19.5 && hoursSinceAssignment < 20.5))
+        if (promotion.shouldSendSubmissionReminder()) {
+          const campaign = await CampaignModel.findById(promotion.campaign);
+          
+          // Calculate hours left until WhatsApp status expires (24 hours total)
+          // The reminder is now sent when ~4 hours are left.
+          const hoursLeft = Math.max(1, Math.ceil(24 - hoursSinceAssignment));
+          
+          console.log(`Sending reminder for promotion ${promotion._id} - ${hoursLeft} hour(s) left`);
+          
+          await NotificationService.createSubmissionReminder(
+            promotion.promoter._id,
+            campaign,
+            promotion,
+            hoursLeft
+          );
+          
+          await promotion.recordSubmissionReminder();
+          remindersSent++;
+
+          const promoter = promotion.promoter;
+          const hoursLeftText = hoursLeft > 1 ? `${hoursLeft} Hours` : '1 Hour';
+          const emailData = {
+            promoterName: promoter.displayName,
+            campaignTitle: campaign.title,
+            promotionId: promotion.upi || promotion._id.toString(),
+            payoutAmount: campaign.payoutPerPromotion,
+            expiresAt: new Date(assignmentTime.getTime() + (24 * 60 * 60 * 1000))
+          };
+
+          // Send email
+          const emailContent = promotionExpiringTemplate(emailData);
+          // Updated email subject to reflect the remaining time (~4 hours)
+          await sendEmail(promoter.email, `⏳ ${hoursLeftText} Left: You Can Now Upload Proof for ${campaign.title}`, emailContent);
+  
+          // Update promotion activity log
+          promotion.activityLog.push({
+            action: 'Expiration Reminder Sent',
+            details: `${hoursLeftText} expiration reminder email sent to promoter`,
+            timestamp: new Date()
+          });
+
+          await promotion.save();
+          
+          console.log(`✅20-hour reminder sent for promotion ${promotion._id} to ${promoter.email} with ${hoursLeft} hours left`);
+        }
+      } catch (error) {
+        console.error(`Error sending reminder for promotion ${promotion._id}:`, error);
+      }
+    }
+
+    console.log(`20-hour reminder job completed: ${remindersSent} reminders sent`);
+
+  } catch (error) {
+    console.error('Error in 20-hour reminder job:', error);
+  }
+});
+
+// 1. 23-HOUR SUBMISSION REMINDER - Every hour
+/* cron.schedule('0 * * * *', async () => {
   try {
     console.log('Running 23-hour submission reminder job...');
     
@@ -82,7 +164,7 @@ cron.schedule('0 * * * *', async () => {
   } catch (error) {
     console.error('Error in 23-hour reminder job:', error);
   }
-});
+}); */
 
 // 2. BUDGET ALERTS - Every hour
 cron.schedule('0 * * * *', async () => {
@@ -524,7 +606,7 @@ cron.schedule('0 */5 * * *', async () => {
                         const marketerUpdateScenario2 = {
                             $inc: { 
                                 'wallets.marketer.reserved': -payoutAmount, 
-                                'wallets.marketer.balance': payoutAmount    
+                                'wallets.marketer.balance': payoutAmount
                             },
                             // Push transaction log ONLY on the first attempt
                             ...(attempt === 1 && { 

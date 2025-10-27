@@ -295,7 +295,7 @@ promotionSchema.methods = {
   },
 
 // Check if submission reminder should be sent - 23 hours after assignment
-shouldSendSubmissionReminder() {
+/* shouldSendSubmissionReminder() {
   if (this.status !== 'pending') return false;
   
   const now = new Date();
@@ -310,6 +310,25 @@ shouldSendSubmissionReminder() {
          (!this.reminders.submission.lastSent || 
           (now - this.reminders.submission.lastSent) / (1000 * 60 * 60) > 24) &&
          this.status === 'pending';
+}, */
+
+
+// Check if submission reminder should be sent - ~20 hours after assignment
+shouldSendSubmissionReminder() {
+  if (this.status !== 'pending') return false;
+  
+  const now = new Date();
+  const assignmentTime = new Date(this.createdAt);
+  const hoursSinceAssignment = (now - assignmentTime) / (1000 * 60 * 60);
+  
+  // Send reminder if:
+  // - Assigned for ~20 hours (e.g., between 19 and 21 hours)
+  // - No reminder sent in the last 24 hours (or ever)
+  // - Status is still pending
+  return hoursSinceAssignment >= 19 && hoursSinceAssignment <= 21 && 
+         (!this.reminders.submission.lastSent || 
+          (now - this.reminders.submission.lastSent) / (1000 * 60 * 60) > 24) &&
+         this.status === 'pending';
 },
 
   // Record validation reminder sent (for campaign owners)
@@ -337,7 +356,7 @@ shouldSendSubmissionReminder() {
 // Static methods for promotion notifications
 promotionSchema.statics = {
   // Find promotions needing submission reminders (23 hours after assignment)
-  async findPromotionsNeedingSubmissionReminders() {
+  /* async findPromotionsNeedingSubmissionReminders() {
     const twentyTwoHoursAgo = new Date(Date.now() - 22 * 60 * 60 * 1000);
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const twentyFiveHoursAgo = new Date(Date.now() - 25 * 60 * 60 * 1000);
@@ -353,7 +372,37 @@ promotionSchema.statics = {
         { 'reminders.submission.lastSent': { $exists: false } }
       ]
     }).populate('promoter campaign');
-  },
+  }, */
+
+  // Find promotions needing submission reminders (~20 hours after assignment)
+  async findPromotionsNeedingSubmissionReminders() {
+    // Target: Promotions assigned between 19 and 21 hours ago (a 2-hour window centered at 20 hours)
+    const twentyOneHoursAgo = new Date(Date.now() - 21 * 60 * 60 * 1000);
+    const nineteenHoursAgo = new Date(Date.now() - 19 * 60 * 60 * 1000);
+    
+    // This value is used to check if a reminder was already sent 
+    // (We can use a very old date or a value slightly less than 24 hours ago)
+    const oldReminderCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    
+    return this.find({
+      status: 'pending',
+      createdAt: { 
+        // Assigned no earlier than 21 hours ago
+        $gte: twentyOneHoursAgo, 
+        // Assigned no later than 19 hours ago
+        $lte: nineteenHoursAgo 
+      },
+      // Check if a submission reminder was sent, and if it was, ensure it was before 
+      // the 24-hour mark (or a suitable period before the *next* reminder, 
+      // though typically you just want to send the first one here).
+      // For simplicity, we keep the original logic, assuming 'lastSent' should be checked 
+      // against a point that ensures no *recent* reminder has gone out. 
+      $or: [
+        { 'reminders.submission.lastSent': { $lt: oldReminderCutoff } },
+        { 'reminders.submission.lastSent': { $exists: false } }
+      ]
+    }).populate('promoter campaign');
+  },
 
   // Find submitted promotions needing validation reminders
   async findPromotionsNeedingValidationReminders(daysThreshold = 3) {
