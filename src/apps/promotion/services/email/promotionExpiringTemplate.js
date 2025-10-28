@@ -32,7 +32,7 @@ export const promotionExpiringTemplate = (promotionData) => {
       
       <p style="font-size:16px;line-height:1.6;margin:0 0 24px;">Hello ${formattedName},</p>
       
-      <p style="font-size:16px;line-height:1.6;margin:0 0 24px;">Your promotion for <strong>"${promotionData.campaignTitle}"</strong> will expire in <strong style="color:#c53030;">1 hour</strong>. Don't miss out on your earnings - upload your proof screenshots now!</p>
+      <p style="font-size:16px;line-height:1.6;margin:0 0 24px;">Your promotion for <strong>"${promotionData.campaignTitle}"</strong> will expire in <strong style="color:#c53030;">4 hours</strong>. Don't miss out on your earnings - upload your proof screenshots now!</p>
 
       <div style="background:#fffaf0;padding:20px;border-radius:8px;margin-bottom:24px;">
         <h3 style="font-size:16px;font-weight:600;color:#dd6b20;margin:0 0 12px;">📋 Promotion Details</h3>
@@ -58,7 +58,7 @@ export const promotionExpiringTemplate = (promotionData) => {
 
       <div style="background:#fed7d7;padding:16px;border-radius:8px;margin:24px 0;">
         <p style="font-size:14px;line-height:1.5;margin:0;color:#c53030;">
-          <strong>🚨 Important:</strong> If you don't upload your proof within 1 hour, this promotion will be automatically rejected and made available to other promoters.
+          <strong>🚨 Important:</strong> If you don't upload your proof within 4 hours, this promotion will be automatically rejected and made available to other promoters.
         </p>
       </div>
 
