@@ -574,19 +574,19 @@ cron.schedule('0 */5 * * *', async () => {
 
                     // 2. Handle financial refunds based on scenario
                     if (promotion.isDownloaded) {
-                        // Scenario 2: Downloaded but not submitted - refund from promoter reserved to marketer balance
-
+                        // Scenario 2: Downloaded but not submitted
+                        // Move funds from promoter.reserved -> marketer.reserved (marketer keeps funds reserved)
+    
                         // Promoter Update (Reserved Wallet Debit)
                         const promoterUpdate = {
                             $inc: { 'wallets.promoter.reserved': -payoutAmount },
-                            // Push transaction log ONLY on the first attempt
-                            ...(attempt === 1 && { 
+                            ...(attempt === 1 && {
                                 $push: {
                                     'wallets.promoter.transactions': {
                                         amount: payoutAmount,
                                         type: 'debit',
                                         category: 'refund',
-                                        description: `Funds released for expired promotion: ${campaign.title}`,
+                                        description: `Reserved funds released due to expired promotion: ${campaign.title}`,
                                         relatedCampaign: campaign._id,
                                         relatedPromotion: promotion._id,
                                         status: 'reversed',
@@ -595,27 +595,25 @@ cron.schedule('0 */5 * * *', async () => {
                                 }
                             })
                         };
-
+    
                         await UserModel.findByIdAndUpdate(
                             promoter._id,
                             promoterUpdate,
                             { session }
                         );
-
-                        // Marketer Update (Reserved Wallet Debit & Balance Credit)
+    
+                        // Marketer Update: CREDIT marketer.reserved (increase reserved) — funds moved to marketer's reserved account
                         const marketerUpdateScenario2 = {
-                            $inc: { 
-                                'wallets.marketer.reserved': -payoutAmount, 
-                                'wallets.marketer.balance': payoutAmount
+                            $inc: {
+                                'wallets.marketer.reserved': payoutAmount
                             },
-                            // Push transaction log ONLY on the first attempt
-                            ...(attempt === 1 && { 
+                            ...(attempt === 1 && {
                                 $push: {
                                     'wallets.marketer.transactions': {
                                         amount: payoutAmount,
                                         type: 'credit',
-                                        category: 'refund',
-                                        description: `Refund for expired promotion: ${promotion.upi || promotion._id}`,
+                                        category: 'reserved_credit',
+                                        description: `Reserved funds received for expired promotion: ${promotion.upi || promotion._id}`,
                                         relatedCampaign: campaign._id,
                                         relatedPromotion: promotion._id,
                                         status: 'successful',
@@ -624,25 +622,24 @@ cron.schedule('0 */5 * * *', async () => {
                                 }
                             })
                         };
-
+    
                         await UserModel.findByIdAndUpdate(
                             marketer._id,
                             marketerUpdateScenario2,
                             { session }
                         );
-
-                        console.log(`💰 Refunded ${payoutAmount} from promoter reserved to marketer balance for promotion ${promotion._id}`);
-
+    
+                        console.log(`💰 Moved ${payoutAmount} from promoter reserved to marketer reserved for promotion ${promotion._id}`);
+    
                     } else {
-                        // Scenario 1: Accepted but not downloaded - refund from marketer reserved to marketer balance
-
+                        // Scenario 1: Accepted but not downloaded - refund from marketer reserved back to marketer balance
+    
                         // Marketer Update (Reserved Wallet Debit & Balance Credit)
                         const marketerUpdateScenario1 = {
                             $inc: { 
                                 'wallets.marketer.reserved': -payoutAmount,
                                 'wallets.marketer.balance': payoutAmount
                             },
-                            // Push transaction log ONLY on the first attempt
                             ...(attempt === 1 && { 
                                 $push: {
                                     'wallets.marketer.transactions': {
@@ -664,7 +661,7 @@ cron.schedule('0 */5 * * *', async () => {
                             marketerUpdateScenario1,
                             { session }
                         );
-
+    
                         console.log(`💰 Refunded ${payoutAmount} from marketer reserved to marketer balance for promotion ${promotion._id}`);
                     }
 
