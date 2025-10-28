@@ -612,7 +612,7 @@ cron.schedule('0 */5 * * *', async () => {
                                     'wallets.marketer.transactions': {
                                         amount: payoutAmount,
                                         type: 'credit',
-                                        category: 'reserved_credit',
+                                        category: 'refund',
                                         description: `Reserved funds received for expired promotion: ${promotion.upi || promotion._id}`,
                                         relatedCampaign: campaign._id,
                                         relatedPromotion: promotion._id,
