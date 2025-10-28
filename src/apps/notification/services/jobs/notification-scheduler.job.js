@@ -573,10 +573,12 @@ cron.schedule('0 */5 * * *', async () => {
                     );
 
                     // 2. Handle financial refunds based on scenario
+
+                    // ...existing code...
                     if (promotion.isDownloaded) {
                         // Scenario 2: Downloaded but not submitted
                         // Move funds from promoter.reserved -> marketer.reserved (marketer keeps funds reserved)
-    
+
                         // Promoter Update (Reserved Wallet Debit)
                         const promoterUpdate = {
                             $inc: { 'wallets.promoter.reserved': -payoutAmount },
@@ -585,7 +587,8 @@ cron.schedule('0 */5 * * *', async () => {
                                     'wallets.promoter.transactions': {
                                         amount: payoutAmount,
                                         type: 'debit',
-                                        category: 'refund',
+                                        category: 'refund', // keep within allowed enum
+                                        meta: { subCategory: 'reserved_release' }, // preserve semantics
                                         description: `Reserved funds released due to expired promotion: ${campaign.title}`,
                                         relatedCampaign: campaign._id,
                                         relatedPromotion: promotion._id,
@@ -595,13 +598,13 @@ cron.schedule('0 */5 * * *', async () => {
                                 }
                             })
                         };
-    
+
                         await UserModel.findByIdAndUpdate(
                             promoter._id,
                             promoterUpdate,
                             { session }
                         );
-    
+
                         // Marketer Update: CREDIT marketer.reserved (increase reserved) — funds moved to marketer's reserved account
                         const marketerUpdateScenario2 = {
                             $inc: {
@@ -612,7 +615,8 @@ cron.schedule('0 */5 * * *', async () => {
                                     'wallets.marketer.transactions': {
                                         amount: payoutAmount,
                                         type: 'credit',
-                                        category: 'refund',
+                                        category: 'credit', // use allowed enum
+                                        meta: { subCategory: 'credit' }, // keep original meaning
                                         description: `Reserved funds received for expired promotion: ${promotion.upi || promotion._id}`,
                                         relatedCampaign: campaign._id,
                                         relatedPromotion: promotion._id,
@@ -622,18 +626,18 @@ cron.schedule('0 */5 * * *', async () => {
                                 }
                             })
                         };
-    
+
                         await UserModel.findByIdAndUpdate(
                             marketer._id,
                             marketerUpdateScenario2,
                             { session }
                         );
-    
+
                         console.log(`💰 Moved ${payoutAmount} from promoter reserved to marketer reserved for promotion ${promotion._id}`);
-    
+
                     } else {
                         // Scenario 1: Accepted but not downloaded - refund from marketer reserved back to marketer balance
-    
+
                         // Marketer Update (Reserved Wallet Debit & Balance Credit)
                         const marketerUpdateScenario1 = {
                             $inc: { 
@@ -645,7 +649,8 @@ cron.schedule('0 */5 * * *', async () => {
                                     'wallets.marketer.transactions': {
                                         amount: payoutAmount,
                                         type: 'credit',
-                                        category: 'refund',
+                                        category: 'credit', // use allowed enum
+                                        meta: { subCategory: 'refund' }, // preserve semantics
                                         description: `Refund for unclaimed promotion: ${campaign.title}`,
                                         relatedCampaign: campaign._id,
                                         relatedPromotion: promotion._id,
@@ -661,7 +666,7 @@ cron.schedule('0 */5 * * *', async () => {
                             marketerUpdateScenario1,
                             { session }
                         );
-    
+
                         console.log(`💰 Refunded ${payoutAmount} from marketer reserved to marketer balance for promotion ${promotion._id}`);
                     }
 

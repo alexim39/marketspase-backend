@@ -17,7 +17,8 @@ const transactionSchema = new mongoose.Schema({
       'fee',           // platform/admin fees
       'refund',         // marketer refund
       'transfer',
-      'commission'
+      'commission',
+      'reserved_credit'
     ],
     required: true
   },
