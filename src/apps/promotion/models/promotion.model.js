@@ -83,7 +83,8 @@ const promotionSchema = new mongoose.Schema({
         'submission_reminder',
         'payment_processed',
         'deadline_reminder',
-        'promotion_apending'
+        'promotion_apending',
+        'promotion_assigned'
       ],
       required: true
     },
@@ -131,7 +132,11 @@ const promotionSchema = new mongoose.Schema({
 });
 
 // Index to prevent duplicate applications
-promotionSchema.index({ campaign: 1, promoter: 1 }, { unique: true });
+promotionSchema.index(
+  { campaign: 1, promoter: 1 },
+  { unique: true, partialFilterExpression: { status: 'pending' }, name: 'unique_campaign_promoter_pending' }
+);
+
 
 // Index for better query performance
 promotionSchema.index({ status: 1 });

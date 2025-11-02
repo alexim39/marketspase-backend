@@ -574,7 +574,6 @@ cron.schedule('0 */5 * * *', async () => {
 
                     // 2. Handle financial refunds based on scenario
 
-                    // ...existing code...
                     if (promotion.isDownloaded) {
                         // Scenario 2: Downloaded but not submitted
                         // Move funds from promoter.reserved -> marketer.reserved (marketer keeps funds reserved)
@@ -605,10 +604,10 @@ cron.schedule('0 */5 * * *', async () => {
                             { session }
                         );
 
-                        // Marketer Update: CREDIT marketer.reserved (increase reserved) — funds moved to marketer's reserved account
+                        // Marketer Update: CREDIT marketer.balance (increase balance) — funds moved to marketer's balance account
                         const marketerUpdateScenario2 = {
                             $inc: {
-                                'wallets.marketer.reserved': payoutAmount
+                                'wallets.marketer.balance': payoutAmount
                             },
                             ...(attempt === 1 && {
                                 $push: {
@@ -690,17 +689,28 @@ cron.schedule('0 */5 * * *', async () => {
                     }
 
                     // If campaign was exhausted, check if it should be reactivated
-                    if (campaign.status === "exhausted") {
-                        const potentialSpend = (campaign.spentBudget || 0);
-                        if (potentialSpend <= campaign.budget) {
-                            campaignUpdate.$set = { status: 'active' };
-                            
-                            // If we have an activity log to push (i.e., attempt === 1), append reactivation detail
-                            if (campaignUpdate.$push?.activityLog) {
-                                campaignUpdate.$push.activityLog.details += " Campaign reactivated.";
-                            }
+                    const freshCampaign = await CampaignModel.findById(campaign._id).lean();
+                    if (freshCampaign.status === "exhausted") {
+                      const potentialSpend = freshCampaign.spentBudget || 0;
+                      if (potentialSpend <= freshCampaign.budget) {
+                        campaignUpdate.$set = { status: 'active' };
+                        if (campaignUpdate.$push?.activityLog) {
+                          campaignUpdate.$push.activityLog.details += " Campaign reactivated.";
                         }
+                      }
                     }
+
+                    // if (campaign.status === "exhausted") {
+                    //     const potentialSpend = (campaign.spentBudget || 0);
+                    //     if (potentialSpend <= campaign.budget) {
+                    //         campaignUpdate.$set = { status: 'active' };
+                            
+                    //         // If we have an activity log to push (i.e., attempt === 1), append reactivation detail
+                    //         if (campaignUpdate.$push?.activityLog) {
+                    //             campaignUpdate.$push.activityLog.details += " Campaign reactivated.";
+                    //         }
+                    //     }
+                    // }
 
                     await CampaignModel.findByIdAndUpdate(
                         campaign._id,
