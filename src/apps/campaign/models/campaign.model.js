@@ -10,11 +10,14 @@ const campaignSchema = new mongoose.Schema(
     title: { type: String, required: true },
 
     // WhatsApp status content
-    mediaUrl: { type: String }, // Media is required for a campaign
+    //mediaUrl: { type: String }, // Media is required for a campaign
+    mediaUrl: { type: String, required: true }, // Media is required for a campaign
     caption: { type: String },
     link: { type: String }, // optional CTA link
     category: { type: String, required: true },
-    mediaType: { type: String, required: true, default: "image" },
+    // mediaType: { type: String, required: true, default: "image" },
+    mediaType: { type: String, enum: ['image', 'video'], required: true },
+    thumbnailUrl: { type: String },
 
     // Budgeting
     budget: { type: Number, required: true, min: 500 }, // Updated min to 500 NGN
@@ -164,7 +167,7 @@ const campaignSchema = new mongoose.Schema(
 );
 
 // Index for better query performance
-campaignSchema.index({ owner: 1, status: 1 });
+//campaignSchema.index({ owner: 1, status: 1 });
 campaignSchema.index({ category: 1, status: 1 });
 campaignSchema.index({ startDate: 1, endDate: 1 });
 campaignSchema.index({ status: 1, priority: -1 });

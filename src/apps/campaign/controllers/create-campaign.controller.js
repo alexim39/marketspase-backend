@@ -1,13 +1,15 @@
+// create-campaign.controller.js
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
 import mongoose from "mongoose";
 import { sendEmail } from "../../../services/email.service.js";
 import { adminCampaignApprovalTemplate } from '../services/email/adminCampaignApprovalTemplate.js';
+import { GenerateVideoThumbnail } from '../services/thumbnail-generator.service.js';
+
 
 /**
  * @description Creates a new campaign with media uploaded to Cloudinary.
- * Checks fund availability and saves the campaign without reserving funds.
- * Funds are reserved per promotion during campaign acceptance.
+ * Generates thumbnails for videos and stores them in Cloudinary.
  */
 export const createCampaign = async (req, res) => {
   const session = await mongoose.startSession();
@@ -38,6 +40,7 @@ export const createCampaign = async (req, res) => {
     let mediaUrl = '';
     let mediaType = '';
     let cloudinaryPublicId = '';
+    let thumbnailUrl = ''; // New: Store thumbnail URL
 
     if (req.file) {
       mediaUrl = req.file.path; // Cloudinary URL
@@ -45,8 +48,12 @@ export const createCampaign = async (req, res) => {
 
       if (req.file.mimetype.startsWith('image/')) {
         mediaType = 'image';
+        // For images, use the same URL as thumbnail
+        thumbnailUrl = mediaUrl;
       } else if (req.file.mimetype.startsWith('video/')) {
         mediaType = 'video';
+        // Generate thumbnail for video
+        thumbnailUrl = await GenerateVideoThumbnail(cloudinaryPublicId);
       }
     }
 
@@ -139,6 +146,7 @@ export const createCampaign = async (req, res) => {
       endDate: endDate ? new Date(endDate) : undefined,
       mediaUrl, // Cloudinary URL
       mediaType,
+      thumbnailUrl, // New: Store thumbnail URL
       currency: currency || "NGN",
       status: "pending",
       createdBy: owner,
@@ -168,7 +176,8 @@ export const createCampaign = async (req, res) => {
             budget: numericBudget,
             maxPromoters,
             payoutPerPromotion,
-            availableBudget: numericBudget
+            availableBudget: numericBudget,
+            hasThumbnail: !!thumbnailUrl
           }
         }
       );
@@ -182,6 +191,7 @@ export const createCampaign = async (req, res) => {
       success: true,
       campaignId: newCampaign._id,
       mediaUrl,
+      thumbnailUrl, // Include thumbnail in response
       mediaType,
       budget: numericBudget,
       maxPromoters,

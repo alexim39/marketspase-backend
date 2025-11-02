@@ -11,8 +11,6 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
   try {
     const { status, userId, page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
-    console.log("Received query parameters:", req.query);
-
     // Validate userId
     if (!userId) {
       return res.status(400).json({
@@ -93,7 +91,12 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     let campaigns = await CampaignModel.find(enhancedQuery)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limitNum);
+      .limit(limitNum)
+      .populate({
+        path: "owner",
+        select: "displayName username email",
+      })
+      .exec();
 
     if (!campaigns || campaigns.length === 0) {
       return res.status(404).json({
