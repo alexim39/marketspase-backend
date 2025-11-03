@@ -1,20 +1,28 @@
 import express from 'express';
+const app = express();
+app.use(express.json()); // Use json middleware
+app.use(express.urlencoded({extended: false})); // Use formdata middleware
 import {  
-    UpdateProfessionalInfo, 
-    UpdateUsername, 
     getAppUsers,
     getAppUserById,
     toggleUserActiveStatus
 } from '../controllers/user.controller.js';
-import { UpdateProfile } from '../controllers/profile-update.controller.js'
 import { SwitchUser } from '../controllers/switch-user.controller.js'
-import { getRevenueStats, getEngagementStats } from '../controllers/admin/admin-dashobard-stats.controller.js'
+
 import PromoRouter from './promo/promo.routes.js';
+import StatsRouter from './stats/stats.routes.js';
+import ProfileRouter from './profile/profile.routes.js';
+
 
 const UserRouter = express.Router();
 
 // Mount PromoRouter under UserRouter
 UserRouter.use('/promo', PromoRouter);
+// Mount StatsRouter under UserRouter
+UserRouter.use('/stats', StatsRouter);
+// Mount ProfileRouter under UserRouter
+UserRouter.use('/profile', ProfileRouter);
+
 
 // admin - get all users
 UserRouter.get('/users', getAppUsers);
@@ -27,34 +35,8 @@ UserRouter.get('/users', getAppUsers);
  */
 UserRouter.post('/switch-user', SwitchUser);
 
-/**
- * Submits the user data to the controller.
- * Method: put
- * /api/users/profile/personal:
- */
-UserRouter.put('/profile/personal', UpdateProfile);
-
-/**
- * Submits the user data to the controller.
- * Method: put
- * /api/users/profile/profession:
- */
-UserRouter.put('/profile/profession', UpdateProfessionalInfo);
-
-/**
- * Submits the user data to the controller.
- * Method: put
- * /api/users/profile/profession:
- */
-UserRouter.put('/profile/username', UpdateUsername);
-
-UserRouter.get('/stats/revenue', getRevenueStats);
-
-UserRouter.get('/stats/engagement', getEngagementStats);
-
 
 /* Dynamic Routes */
-
 
 // admin - get a user
 UserRouter.get('/:id', getAppUserById);

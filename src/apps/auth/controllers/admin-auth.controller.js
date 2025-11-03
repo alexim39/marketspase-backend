@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 //import crypto from 'crypto';
 import jwt from "jsonwebtoken";
 import dotenv  from "dotenv"
-import { AdminModel } from './../../user/models/admin.model.js'
+import { AdminModel } from '../models/admin.model.js'
 dotenv.config()
 
 

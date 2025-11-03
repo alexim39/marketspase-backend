@@ -67,12 +67,12 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
                     user.personalInfo?.address?.state || 
                     user.personalInfo?.address?.country;
 
-      console.log("User preferences:", {
-        categoryBasedAds,
-        locationBasedAds,
-        adCategories,
-        userLocation
-      });
+      // console.log("User preferences:", {
+      //   categoryBasedAds,
+      //   locationBasedAds,
+      //   adCategories,
+      //   userLocation
+      // });
 
       // Apply category filter at database level if enabled
       if (categoryBasedAds && adCategories && adCategories.length > 0) {
