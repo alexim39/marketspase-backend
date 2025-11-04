@@ -12,36 +12,48 @@ export const getWithdrawalRequests = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
 
-    // Build match query
-    const matchQuery = {};
-    
-    if (status !== 'all') {
-      matchQuery['wallets.promoter.transactions.status'] = status;
-    }
+    // 🔍 Match only promoter users (since only promoters can withdraw)
+    const matchConditions = [{ role: 'promoter' }];
 
     if (search) {
-      matchQuery['$or'] = [
-        { displayName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { 'savedAccounts.accountNumber': { $regex: search, $options: 'i' } },
-        { 'savedAccounts.bankName': { $regex: search, $options: 'i' } }
-      ];
+      matchConditions.push({
+        $or: [
+          { displayName: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { 'wallets.promoter.transactions.bankDetails.bank': { $regex: search, $options: 'i' } },
+          { 'wallets.promoter.transactions.bankDetails.accountNumber': { $regex: search, $options: 'i' } },
+          { 'wallets.promoter.transactions.bankDetails.accountName': { $regex: search, $options: 'i' } }
+        ]
+      });
     }
 
-    // First, get total count
-    const totalUsers = await UserModel.countDocuments(matchQuery);
-
-    // Get users with withdrawal transactions
-    const users = await UserModel.aggregate([
-      { $match: matchQuery },
-      { $unwind: { path: '$wallets.promoter.transactions', preserveNullAndEmptyArrays: true } },
+    const pipeline = [
+      { $match: { $and: matchConditions } },
+      { $unwind: '$wallets.promoter.transactions' },
       {
         $match: {
-          $or: [
-            { 'wallets.promoter.transactions.category': 'withdrawal' },
-          ]
+          'wallets.promoter.transactions.category': 'withdrawal',
+          'wallets.promoter.transactions.type': 'debit'
         }
-      },
+      }
+    ];
+
+    if (status !== 'all') {
+      pipeline.push({
+        $match: { 'wallets.promoter.transactions.status': status }
+      });
+    }
+
+    // Count total before pagination
+    const totalCount = await UserModel.aggregate([
+      ...pipeline,
+      { $count: 'total' }
+    ]);
+    const total = totalCount[0]?.total || 0;
+
+    // 🔽 Add sorting, pagination, and projection
+    pipeline.push(
+      { $sort: { 'wallets.promoter.transactions.createdAt': -1 } },
       { $skip: skip },
       { $limit: limitNum },
       {
@@ -49,58 +61,49 @@ export const getWithdrawalRequests = async (req, res) => {
           _id: 1,
           displayName: 1,
           email: 1,
-          role: 1,
-          promoterTransactions: '$wallets.promoter.transactions',
-          savedAccounts: 1,
-          createdAt: 1
+          transaction: '$wallets.promoter.transactions',
+          withdrawalId: '$wallets.promoter.transactions._id'
         }
       }
-    ]);
+    );
 
-    // Transform data into withdrawal requests format
-    const withdrawalRequests = [];
-    
-    users.forEach(user => {
-      // Process promoter wallet withdrawals
-      if (user.promoterTransactions && user.promoterTransactions.category === 'withdrawal') {
-        const transaction = user.promoterTransactions;
-        const bankAccount = user.savedAccounts?.find(acc => acc.isDefault) || user.savedAccounts?.[0];
-        
-        if (bankAccount) {
-          withdrawalRequests.push({
-            id: transaction._id?.toString() || `WD-${Date.now()}`,
-            userId: user._id.toString(),
-            userName: user.displayName,
-            userEmail: user.email,
-            userRole: 'promoter',
-            amount: transaction.amount,
-            bankName: bankAccount.bank,
-            bankCode: bankAccount.bankCode,
-            accountNumber: bankAccount.accountNumber,
-            accountName: bankAccount.accountName,
-            status: transaction.status,
-            createdAt: transaction.createdAt,
-            processedAt: transaction.processedAt,
-            walletType: 'promoter',
-            reference: transaction.reference
-          });
-        }
-      }
+    const results = await UserModel.aggregate(pipeline);
 
+    // 🧾 Format clean response
+    const withdrawalRequests = results.map(user => {
+      const t = user.transaction;
+      const bank = t.bankDetails || {};
+      return {
+        withdrawalId: t._id?.toString(),  // ✅ now explicitly included
+        userId: user._id.toString(),
+        userName: user.displayName,
+        userEmail: user.email,
+        userRole: 'promoter',
+        amount: t.amount,
+        fee: t.fee || 0,
+        bankName: bank.bank || 'N/A',
+        bankCode: bank.bankCode || '',
+        accountNumber: bank.accountNumber || '',
+        accountName: bank.accountName || '',
+        status: t.status,
+        createdAt: t.createdAt,
+        processedAt: t.processedAt || null,
+        walletType: 'promoter',
+        reference: t.reference || '',
+        failureReason: t.failureReason || null
+      };
     });
-
-    // Sort by creation date, most recent first
-    withdrawalRequests.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     res.json({
       success: true,
       data: {
         requests: withdrawalRequests,
-        total: totalUsers,
+        total,
         page: parseInt(page),
         limit: limitNum
       }
     });
+
   } catch (error) {
     console.error('Error getting withdrawal requests:', error);
     res.status(500).json({

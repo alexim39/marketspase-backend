@@ -3,14 +3,14 @@ import express from 'express';
 import {
   getFinancialOverview,
   getFinancialStats,
-  getTransactions,
-  approveWithdrawal,
-  rejectWithdrawal,
-  processWithdrawal,
   exportTransactions,
   exportWithdrawals
 } from '../controllers/financial.controller.js';
 import { getWithdrawalRequests } from '../controllers/get-withdrawal-request.controller.js';
+import { approveWithdrawal } from '../controllers/approve-withdrawal.controller.js';
+import { getTransactions } from '../controllers/get-transansactions.controller.js';
+import { rejectWithdrawal } from '../controllers/reject-withdrawal.controller.js';
+import { processWithdrawal } from '../controllers/process-withdrawal.controller.js';
 
 const router = express.Router();
 
