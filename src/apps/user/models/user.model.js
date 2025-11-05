@@ -2,7 +2,18 @@ import mongoose from 'mongoose';
 import { activitySchema } from './activity.schema.js';
 
 
+const bankDetailsSchema = new mongoose.Schema({
+  bank: { type: String, trim: true },
+  bankCode: { type: String, trim: true },
+  accountNumber: { type: String, trim: true },
+  accountName: { type: String, trim: true }
+});
+
 const transactionSchema = new mongoose.Schema({
+  _id: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: () => new mongoose.Types.ObjectId(),
+  },
   amount: { type: Number, required: true },
   type: { type: String, enum: ['credit', 'debit'], required: true }, // credit = money in, debit = money out
 
@@ -19,7 +30,7 @@ const transactionSchema = new mongoose.Schema({
       'transfer',
       'commission',
       'reserved_credit',
-      'credit'
+      'credit',
     ],
     required: true
   },
@@ -29,6 +40,8 @@ const transactionSchema = new mongoose.Schema({
   // Context references (only used if relevant)
   relatedCampaign: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' },
   relatedPromotion: { type: mongoose.Schema.Types.ObjectId, ref: 'Promotion' },
+
+  bankDetails: { type: bankDetailsSchema, default: null },
 
   // Transaction state tracking
   status: { 
@@ -43,19 +56,30 @@ const transactionSchema = new mongoose.Schema({
       'cancelled', 
       'completed', 
       'approved', 
-      'declined'
+      'declined',
+      'rejected'
     ], 
     default: 'pending' 
   },
 
   createdAt: { type: Date, default: Date.now }
-}, { _id: false });
+});
+
+transactionSchema.pre('validate', function (next) {
+  if (!mongoose.isValidObjectId(this._id)) {
+    this._id = new mongoose.Types.ObjectId();
+  }
+  next();
+});
+
+
+
 
 const walletSchema = new mongoose.Schema({
   balance: { type: Number, default: 0 },  // Available balance
   reserved: { type: Number, default: 0 }, // Funds locked in escrow
   transactions: [transactionSchema]
-}, { _id: false });
+});
 
 const payoutAccountSchema = new mongoose.Schema({
   bank: String,
@@ -63,7 +87,7 @@ const payoutAccountSchema = new mongoose.Schema({
   accountNumber: String,
   accountName: String,
   isDefault: { type: Boolean, default: false }
-}, { _id: false });
+});
 
 // Notification preferences schema
 const notificationPreferenceSchema = new mongoose.Schema({
@@ -552,6 +576,17 @@ userSchema.pre('save', function(next) {
       }).catch(console.error);
     }
   }
+
+  const wallets = [this.wallets?.promoter, this.wallets?.marketer];
+  wallets.forEach(wallet => {
+    if (wallet && Array.isArray(wallet.transactions)) {
+      wallet.transactions.forEach(tx => {
+        if (!mongoose.isValidObjectId(tx._id)) {
+          tx._id = new mongoose.Types.ObjectId();
+        }
+      });
+    }
+  });
   next();
 });
 

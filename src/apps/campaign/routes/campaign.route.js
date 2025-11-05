@@ -2,19 +2,20 @@ import express from 'express';
 import { acceptCampaign } from '../controllers/accept-campaign.controller.js'
 import { createCampaign } from '../controllers/create-campaign.controller.js'
 import { saveCampaign } from '../controllers/save-campaign.controller.js'
-import { UpdateCampaignStatus } from '../controllers/update-campaign.controller.js'
 import { EditCampaign } from '../controllers/edit-campaign.controller.js'
-import { getAllCampaigns } from '../controllers/get-all-campaign.controller.js'
-import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
 import { campaignUpload } from '../services/campaign-upload.service.js';
-import { UpdatePromotionStatus } from '../controllers/update-promotion-status.controller.js'
 import { getProofDetails, } from '../controllers/get-proof-details.controller.js'
 import { getCampaignsByStatusAndUserId } from '../controllers/get-bystatus-and-userid.controller.js'
 import { GetAMarketerCampaigns } from '../controllers/get-marketer-campaign.controller.js'
-
-
+import AdminRouter from './admin/admin.routes.js';
+import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
 
 const CampaignRouter = express.Router();
+
+
+// Mount AdminRouter under CampaignRouter
+CampaignRouter.use('/admin', AdminRouter);
+
 
 // get campaigns by status (e.g., /campaign?status=active?userId=userId)
 CampaignRouter.get('/', getCampaignsByStatusAndUserId);
@@ -38,24 +39,12 @@ CampaignRouter.post('/:campaignId/accept', acceptCampaign);
 CampaignRouter.get('/user/:userId', GetAMarketerCampaigns);
 
 
-// admin - get all campaigns
-CampaignRouter.get('/campaigns', getAllCampaigns);
-
-
-
-
-
 /* Dynamic Routes */
-
 // get a campaign by id - used by admin and owner of campaign
 CampaignRouter.get('/:id', getCampaignById);
 
 
 
-// Admin - update campaign status: approve, reject, pause,
-CampaignRouter.patch('/:id/status', UpdateCampaignStatus);
-// Admin - update promotion status: approve, reject, pause,
-CampaignRouter.patch('/promotion/:id/status/:performedBy', UpdatePromotionStatus);
 
 // GET /api/promotions/proof/:promotionId
 CampaignRouter.get('/promotions/proof/:promotionId', getProofDetails);
