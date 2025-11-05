@@ -31,6 +31,7 @@ const transactionSchema = new mongoose.Schema({
       'commission',
       'reserved_credit',
       'credit',
+      'completed'
     ],
     required: true
   },
