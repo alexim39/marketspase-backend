@@ -17,7 +17,7 @@ export const GetAdminPromotions = async (req, res) => {
       startDate,
       endDate,
       page = 1,
-      limit = 300,
+      limit = 1000,
       sortBy = 'createdAt',
       sortOrder = 'desc'
     } = req.query;
