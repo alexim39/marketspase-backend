@@ -576,7 +576,7 @@ cron.schedule('0 */5 * * *', async () => {
 
                     if (promotion.isDownloaded) {
                         // Scenario 2: Downloaded but not submitted
-                        // Move funds from promoter.reserved -> marketer.reserved (marketer keeps funds reserved)
+                        // Move funds from promoter.reserved -> marketer.balance (marketer keeps funds for another promoter to claim)
 
                         // Promoter Update (Reserved Wallet Debit)
                         const promoterUpdate = {

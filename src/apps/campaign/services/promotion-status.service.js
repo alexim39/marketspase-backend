@@ -248,7 +248,7 @@ const handleRejection = async ({ promotion, campaign, promoter, marketer, perfor
     marketer._id,
     {
       $inc: {
-        'wallets.marketer.reserved': payoutAmount
+        'wallets.marketer.balance': payoutAmount
       },
       $push: {
         'wallets.marketer.transactions': {

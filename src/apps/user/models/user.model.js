@@ -15,7 +15,12 @@ const transactionSchema = new mongoose.Schema({
     default: () => new mongoose.Types.ObjectId(),
   },
   amount: { type: Number, required: true },
-  type: { type: String, enum: ['credit', 'debit'], required: true }, // credit = money in, debit = money out
+
+  type: { 
+    type: String, 
+    enum: ['credit', 'debit'], 
+    required: true 
+  }, // credit = money in, debit = money out
 
   category: { 
     type: String, 
