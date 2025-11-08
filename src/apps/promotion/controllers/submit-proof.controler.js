@@ -85,23 +85,23 @@ export const submitProof = async (req, res) => {
 
     // ✅ Check campaign validity
     const campaign = promotion.campaign;
-    if (campaign && campaign.endDate && new Date() > campaign.endDate) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({
-        success: false,
-        message: "Campaign has ended. Proof submission is closed.",
-      });
-    }
+    // if (campaign && campaign.endDate && new Date() > campaign.endDate) {
+    //   await session.abortTransaction();
+    //   session.endSession();
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "Campaign has ended. Proof submission is closed.",
+    //   });
+    // }
 
-    if (campaign.status !== "active") {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({
-        success: false,
-        message: `Campaign is ${campaign.status}. Proof submission is closed.`,
-      });
-    }
+    // if (campaign.status !== "active") {
+    //   await session.abortTransaction();
+    //   session.endSession();
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: `Campaign is ${campaign.status}. Proof submission is closed.`,
+    //   });
+    // }
 
     // ✅ Validate minimum views requirement
     const minViews = campaign.minViewsPerPromotion || 25;
