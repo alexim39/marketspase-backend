@@ -632,7 +632,7 @@ cron.schedule('0 */5 * * *', async () => {
                             { session }
                         );
 
-                        console.log(`💰 Moved ${payoutAmount} from promoter reserved to marketer reserved for promotion ${promotion._id}`);
+                        console.log(`💰 Moved ${payoutAmount} from promoter reserved to marketer balance for promotion ${promotion._id}`);
 
                     } else {
                         // Scenario 1: Accepted but not downloaded - refund from marketer reserved back to marketer balance

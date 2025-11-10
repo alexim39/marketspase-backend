@@ -8,6 +8,29 @@ import { accountVerifiedTemplate } from '../../services/email/accountVerifiedTem
 import { handleTransferWebhook } from '../../services/transfer-webhook.js';
 import { getVerificationLevel } from '../../services/get-verify-level.service.js';
 
+/**
+ * --- Helper: Account ownership verification ---
+ */
+export const validateAccountOwnership = (user, accountNumber, accountName) => {
+  const savedAccount = user.savedAccounts.find(
+    (account) => account.accountNumber === accountNumber
+  );
+
+  if (savedAccount) {
+    if (savedAccount.verified) {
+      console.log(`Using pre-verified account: ${accountNumber}`);
+      return true;
+    }
+
+    const isNameMatch = validateNameWithProfile(user, accountName);
+    console.log(`Saved account name match result: ${isNameMatch}`);
+    return isNameMatch;
+  }
+
+  const isNameMatch = validateNameWithProfile(user, accountName);
+  console.log(`New account name match result: ${isNameMatch}`);
+  return isNameMatch;
+};
 
 // Additional endpoint for account verification
 export const verifyBankAccount = async (req, res) => {

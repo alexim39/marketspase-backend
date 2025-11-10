@@ -1,6 +1,20 @@
 import { isNameComponentMatch } from './name-matching.service.js';
 
 
+/**
+ * --- Helper: Relaxed single-name matching ---
+ */
+export const relaxedSingleNameMatching = (userParts, accountParts) => {
+  if (userParts.length === 0 || accountParts.length === 0) return false;
+  if (userParts.length === 1 && accountParts.length === 1) {
+    return isNameComponentMatch(userParts[0], accountParts[0]);
+  }
+  const singlePart = userParts.length === 1 ? userParts[0] : accountParts[0];
+  const multiParts = userParts.length === 1 ? accountParts : userParts;
+  return multiParts.some((part) => isNameComponentMatch(singlePart, part));
+};
+
+
 // Enhanced Name Matching Functions
 export const validateNameWithProfile = (user, accountName) => {
   /**
