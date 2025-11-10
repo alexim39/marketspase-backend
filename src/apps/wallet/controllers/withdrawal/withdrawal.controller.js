@@ -31,42 +31,9 @@ const cleanInvalidTransactionIds = (wallet) => {
   });
 };
 
-/**
- * --- Helper: Relaxed single-name matching ---
- */
-const relaxedSingleNameMatching = (userParts, accountParts) => {
-  if (userParts.length === 0 || accountParts.length === 0) return false;
-  if (userParts.length === 1 && accountParts.length === 1) {
-    return isNameComponentMatch(userParts[0], accountParts[0]);
-  }
-  const singlePart = userParts.length === 1 ? userParts[0] : accountParts[0];
-  const multiParts = userParts.length === 1 ? accountParts : userParts;
-  return multiParts.some((part) => isNameComponentMatch(singlePart, part));
-};
 
-/**
- * --- Helper: Account ownership verification ---
- */
-const validateAccountOwnership = (user, accountNumber, accountName) => {
-  const savedAccount = user.savedAccounts.find(
-    (account) => account.accountNumber === accountNumber
-  );
 
-  if (savedAccount) {
-    if (savedAccount.verified) {
-      console.log(`Using pre-verified account: ${accountNumber}`);
-      return true;
-    }
 
-    const isNameMatch = validateNameWithProfile(user, accountName);
-    console.log(`Saved account name match result: ${isNameMatch}`);
-    return isNameMatch;
-  }
-
-  const isNameMatch = validateNameWithProfile(user, accountName);
-  console.log(`New account name match result: ${isNameMatch}`);
-  return isNameMatch;
-};
 
 /**
  * --- Helper: Additional verification requirement ---

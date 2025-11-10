@@ -11,7 +11,7 @@ export const GetUserPromotions = async (req, res) => {
     const { userId } = req.params;
     const { status, page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
-    console.log('req.query ',req.query)
+    //console.log('User viewing accepted promtions')
 
     if (!userId) {
       return res.status(400).json({
@@ -55,6 +55,10 @@ export const GetUserPromotions = async (req, res) => {
       .populate({
         path: 'campaign',
         //select: 'title category mediaUrl mediaType payoutPerPromotion minViewsPerPromotion'
+        populate: {
+          path: 'owner',
+          select: 'displayName email personalInfo' // or select specific fields you need
+        }
       })
       .populate({
         path: "promoter",
