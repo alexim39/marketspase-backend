@@ -1,7 +1,4 @@
 import { UserModel } from '../../user/models/user.model.js';
-import { CampaignModel } from '../../campaign/models/campaign.model.js';
-import { PromotionModel } from '../../promotion/models/promotion.model.js';
-import mongoose from 'mongoose';
 
 export const approveWithdrawal = async (req, res) => {
   try {
@@ -9,12 +6,11 @@ export const approveWithdrawal = async (req, res) => {
     const { notes } = req.body;
     const adminUser = req.user?.displayName || 'System Admin';
 
-    // Find user with this withdrawal transaction
+    //console.log(`Approving withdrawal ID: ${withdrawalId} by admin: ${adminUser}`);
+
+    // Find user with this withdrawal transaction (promoter only)
     const user = await UserModel.findOne({
-      $or: [
-        { 'wallets.promoter.transactions._id': withdrawalId },
-        { 'wallets.marketer.transactions._id': withdrawalId }
-      ]
+      'wallets.promoter.transactions._id': withdrawalId
     });
 
     if (!user) {
@@ -24,54 +20,93 @@ export const approveWithdrawal = async (req, res) => {
       });
     }
 
-    // Update transaction status
-    let walletType = '';
+    // Find the transaction in promoter wallet
     let transactionIndex = -1;
+    let transaction = null;
 
-    // Check promoter wallet
     if (user.wallets.promoter.transactions) {
       transactionIndex = user.wallets.promoter.transactions.findIndex(
         t => t._id.toString() === withdrawalId
       );
+      
       if (transactionIndex !== -1) {
-        walletType = 'promoter';
+        transaction = user.wallets.promoter.transactions[transactionIndex];
       }
     }
 
-    // Check marketer wallet if not found in promoter
-    if (transactionIndex === -1 && user.wallets.marketer.transactions) {
-      transactionIndex = user.wallets.marketer.transactions.findIndex(
-        t => t._id.toString() === withdrawalId
-      );
-      if (transactionIndex !== -1) {
-        walletType = 'marketer';
-      }
-    }
-
-    if (transactionIndex === -1) {
+    if (!transaction) {
       return res.status(404).json({
         success: false,
         message: 'Withdrawal transaction not found'
       });
     }
 
-    // Update the transaction
-    user.wallets[walletType].transactions[transactionIndex].status = 'approved';
-    // user.wallets[walletType].transactions[transactionIndex].status = 'approved';
-    user.wallets[walletType].transactions[transactionIndex].processedAt = new Date();
+    // VALIDATION: Ensure this is actually a withdrawal request
+    if (transaction.category !== 'withdrawal') {
+      return res.status(400).json({
+        success: false,
+        message: `This transaction is not a withdrawal request. Category: ${transaction.category}`
+      });
+    }
+
+    // VALIDATION: Check if transaction is already processed
+    if (transaction.status === 'approved' || transaction.status === 'successful') {
+      return res.status(400).json({
+        success: false,
+        message: 'This withdrawal has already been approved'
+      });
+    }
+
+    // VALIDATION: Ensure withdrawal is in pending status
+    if (transaction.status !== 'processing') {
+    // if (transaction.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot approve withdrawal with status: ${transaction.status}`
+      });
+    }
+
+    // CRITICAL: Validate promoter has sufficient AVAILABLE balance (not reserved)
+    const transactionAmount = transaction.amount;
+    const availableBalance = user.wallets.promoter.balance;
+
+    if (availableBalance < transactionAmount) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient available balance. Available: ₦${availableBalance}, Requested: ₦${transactionAmount}`
+      });
+    }
+
+    // VALIDATION: Check bank details exist for the withdrawal
+    if (!transaction.bankDetails || !transaction.bankDetails.accountNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bank details are missing for this withdrawal'
+      });
+    }
+
+    // PROCESS THE WITHDRAWAL
+    // 1. Update transaction status
+    user.wallets.promoter.transactions[transactionIndex].status = 'approved';
+    user.wallets.promoter.transactions[transactionIndex].processedAt = new Date();
     
-    // Deduct from wallet balance
-    const transactionAmount = user.wallets[walletType].transactions[transactionIndex].amount;
-    user.wallets[walletType].balance -= transactionAmount;
+    // 2. Deduct from promoter's AVAILABLE balance (this is earned money they're withdrawing)
+    const previousBalance = user.wallets.promoter.balance;
+    //user.wallets.promoter.balance -= transactionAmount; // duplicate deduction as funds have duducted at request time
 
     await user.save();
 
     // Log activity
-    await user.logActivity('withdrawal_approved', `Withdrawal of ₦${transactionAmount} approved by admin`, {
+    await user.logActivity('withdrawal_approved', `Withdrawal of ₦${transactionAmount} to ${transaction.bankDetails.bank} approved by admin`, {
       resourceType: 'transaction',
       resourceId: withdrawalId,
       metadata: {
         amount: transactionAmount,
+        previousBalance: previousBalance,
+        newBalance: user.wallets.promoter.balance,
+        bank: transaction.bankDetails.bank,
+        accountNumber: transaction.bankDetails.accountNumber,
+        accountName: transaction.bankDetails.accountName,
         approvedBy: adminUser,
         notes
       }
@@ -82,7 +117,15 @@ export const approveWithdrawal = async (req, res) => {
       message: 'Withdrawal approved successfully',
       data: {
         id: withdrawalId,
+        amount: transactionAmount,
         status: 'approved',
+        previousBalance: previousBalance,
+        newBalance: user.wallets.promoter.balance,
+        bankDetails: {
+          bank: transaction.bankDetails.bank,
+          accountName: transaction.bankDetails.accountName,
+          accountNumber: transaction.bankDetails.accountNumber
+        },
         processedAt: new Date(),
         processedBy: adminUser
       }

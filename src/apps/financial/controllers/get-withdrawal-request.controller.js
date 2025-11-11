@@ -80,6 +80,7 @@ export const getWithdrawalRequests = async (req, res) => {
         userEmail: user.email,
         userRole: 'promoter',
         amount: t.amount,
+        amountPayable: t.amountPayable || 0,
         fee: t.fee || 0,
         bankName: bank.bank || 'N/A',
         bankCode: bank.bankCode || '',

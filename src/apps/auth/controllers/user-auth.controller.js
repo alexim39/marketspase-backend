@@ -62,7 +62,8 @@ export const Authenticate = async (req, res) => {
         newUser.email = email;
       }
 
-      const user = await UserModel.create(newUser);
+      //const user = await UserModel.create(newUser);
+      user = await UserModel.create(newUser);
       
       // Save the user to the database
       // await user.save(); // `create` method already saves the document.
@@ -101,7 +102,7 @@ export const Authenticate = async (req, res) => {
         updateFields.authenticationMethod = authProvider;
       }
       if (Object.keys(updateFields).length > 0) {
-      const user = await UserModel.updateOne({ _id: user._id }, { $set: updateFields });
+      await UserModel.updateOne({ _id: user._id }, { $set: updateFields });
         // Re-fetch the user to get the updated document, or update the `user` object in memory.
         Object.assign(user, updateFields);
       }

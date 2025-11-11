@@ -15,6 +15,7 @@ const transactionSchema = new mongoose.Schema({
     default: () => new mongoose.Types.ObjectId(),
   },
   amount: { type: Number, required: true },
+  amountPayable: { type: Number, default: 0 }, // Net amount after fees (for withdrawals)
 
   type: { 
     type: String, 
