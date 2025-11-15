@@ -95,14 +95,14 @@ export const downloadPromotion = async (req, res) => {
     }
 
     // Check if marketer has sufficient reserved funds
-    // if (marketer.wallets.marketer.reserved < payoutAmount) {
-    //   await session.abortTransaction();
-    //   session.endSession();
-    //   return res.status(402).json({
-    //     message: "Insufficient reserved funds in marketer's wallet.",
-    //     success: false,
-    //   });
-    // }
+    if (marketer.wallets.marketer.reserved < payoutAmount) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(402).json({
+        message: "Insufficient reserved funds in marketer's wallet.",
+        success: false,
+      });
+    }
 
     // 1. Transfer funds from marketer's reserved to promoter's reserved
     // ✅ Use atomic update for marketer wallet

@@ -178,7 +178,7 @@ const userSchema = new mongoose.Schema(
     role: {
       type: String,
       enum: ['marketer', 'promoter', 'admin'],
-      default: 'promoter',
+      default: 'marketer',
     },
 
     avatar: { type: String, default: '/img/avatar.png' },
