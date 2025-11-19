@@ -2,6 +2,7 @@ import { NewsletterModel } from '../models/newsletter.model.js';
 import { UserModel } from '../../user/models/user.model.js';
 import { sendEmail } from '../../../services/email.service.js';
 import { newsletterEmailTemplate, newsletterPlainTextTemplate } from './email/newsletter.template.js';
+import mongoose from 'mongoose';
 
 export class NewsletterService {
   constructor() {
@@ -125,21 +126,38 @@ export class NewsletterService {
     }
   }
 
-  // Duplicate newsletter
+  // Duplicate newsletter - ALTERNATIVE EXPLICIT VERSION
   async duplicateNewsletter(id) {
     try {
+      // Validate the ID
+      if (!id || id === 'undefined' || id === 'null') {
+        throw new Error('Invalid newsletter ID');
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        throw new Error('Invalid newsletter ID format');
+      }
+
       const originalNewsletter = await NewsletterModel.findById(id);
       
       if (!originalNewsletter) {
         return null;
       }
 
+      // Manually create the duplicated data without the _id
       const duplicatedData = {
-        ...originalNewsletter.toObject(),
-        _id: undefined,
         title: `${originalNewsletter.title} (Copy)`,
         subject: `${originalNewsletter.subject} (Copy)`,
+        previewText: originalNewsletter.previewText,
+        content: originalNewsletter.content,
+        htmlContent: originalNewsletter.htmlContent,
+        plainTextContent: originalNewsletter.plainTextContent,
+        recipientType: originalNewsletter.recipientType,
+        externalEmails: originalNewsletter.externalEmails ? [...originalNewsletter.externalEmails] : [],
+        estimatedRecipients: originalNewsletter.estimatedRecipients,
         status: 'draft',
+        sendOption: 'draft',
+        scheduledDate: null,
         sentDate: null,
         openRate: 0,
         clickRate: 0,
@@ -147,8 +165,21 @@ export class NewsletterService {
         totalClicks: 0,
         uniqueOpens: 0,
         uniqueClicks: 0,
+        bounceRate: 0,
+        complaintRate: 0,
+        unsubscribes: 0,
         engagement: [],
         deliveryStatus: [],
+        contentVersions: originalNewsletter.contentVersions ? [...originalNewsletter.contentVersions] : [],
+        currentVersion: originalNewsletter.currentVersion,
+        campaignId: originalNewsletter.campaignId,
+        tags: originalNewsletter.tags ? [...originalNewsletter.tags] : [],
+        createdBy: originalNewsletter.createdBy,
+        updatedBy: originalNewsletter.updatedBy,
+        isActive: true,
+        isDeleted: false,
+        serviceProvider: originalNewsletter.serviceProvider,
+        templateId: originalNewsletter.templateId,
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -156,7 +187,11 @@ export class NewsletterService {
       const duplicatedNewsletter = new NewsletterModel(duplicatedData);
       await duplicatedNewsletter.save();
       
-      return duplicatedNewsletter;
+      // Populate the createdBy field for response
+      const populatedNewsletter = await NewsletterModel.findById(duplicatedNewsletter._id)
+        .populate('createdBy', 'displayName email');
+      
+      return populatedNewsletter;
     } catch (error) {
       console.error('Error in duplicateNewsletter service:', error);
       throw error;
@@ -443,14 +478,13 @@ export class NewsletterService {
       const unsubscribeUrl = `${process.env.FRONTEND_URL}/unsubscribe?email=${recipient.email}&newsletter=${newsletter._id}`;
 
       const htmlContent = newsletterEmailTemplate(newsletter, recipient, trackingPixelUrl, unsubscribeUrl);
-      const plainTextContent = newsletterPlainTextTemplate(newsletter, recipient);
+      //const plainTextContent = newsletterPlainTextTemplate(newsletter, recipient);
 
-      await sendEmail({
-        to: recipient.email,
-        subject: newsletter.subject,
-        html: htmlContent,
-        text: plainTextContent
-      });
+      await sendEmail(
+        recipient.email,
+        newsletter.subject,
+        htmlContent
+      );
 
       // Update delivery status
       await NewsletterModel.findByIdAndUpdate(newsletter._id, {

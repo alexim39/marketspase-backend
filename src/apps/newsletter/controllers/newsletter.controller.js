@@ -71,41 +71,7 @@ export class NewsletterController {
     }
   };
 
-  // Create new newsletter
-  createNewsletter = async (req, res) => {
-    try {
-      const newsletterData = req.body;
-      
-      // Validate required fields
-      if (!newsletterData.subject || !newsletterData.content) {
-        const response = {
-          success: false,
-          data: null,
-          message: 'Subject and content are required'
-        };
-        res.status(400).json(response);
-        return;
-      }
 
-      const newsletter = await this.newsletterService.createNewsletter(newsletterData);
-      
-      const response = {
-        success: true,
-        data: newsletter,
-        message: 'Newsletter created successfully'
-      };
-
-      res.status(201).json(response);
-    } catch (error) {
-      console.error('Error creating newsletter:', error);
-      const response = {
-        success: false,
-        data: null,
-        message: 'Failed to create newsletter'
-      };
-      res.status(500).json(response);
-    }
-  };
 
   // Update newsletter
   updateNewsletter = async (req, res) => {
@@ -178,40 +144,6 @@ export class NewsletterController {
     }
   };
 
-  // Duplicate newsletter
-  duplicateNewsletter = async (req, res) => {
-    try {
-      const { id } = req.params;
-      
-      const duplicatedNewsletter = await this.newsletterService.duplicateNewsletter(id);
-      
-      if (!duplicatedNewsletter) {
-        const response = {
-          success: false,
-          data: null,
-          message: 'Newsletter not found'
-        };
-        res.status(404).json(response);
-        return;
-      }
-
-      const response = {
-        success: true,
-        data: duplicatedNewsletter,
-        message: 'Newsletter duplicated successfully'
-      };
-
-      res.status(200).json(response);
-    } catch (error) {
-      console.error('Error duplicating newsletter:', error);
-      const response = {
-        success: false,
-        data: null,
-        message: 'Failed to duplicate newsletter'
-      };
-      res.status(500).json(response);
-    }
-  };
 
   // Send newsletter
   sendNewsletter = async (req, res) => {
