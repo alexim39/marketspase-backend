@@ -104,7 +104,7 @@ export const submitProof = async (req, res) => {
     // }
 
     // ✅ Validate minimum views requirement
-    const minViews = campaign.minViewsPerPromotion || 25;
+    const minViews = campaign.minViewsPerPromotion || 40;
     if (parseInt(viewsCount) < minViews) {
       await session.abortTransaction();
       session.endSession();

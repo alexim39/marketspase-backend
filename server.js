@@ -21,6 +21,7 @@ import DashboardRouter from './src/apps/dashboard/index.js';
 import PromoterRouter from './src/apps/promotion/index.js';
 import NotificationRouter from './src/apps/notification/index.js';
 import FinancialRouter from './src/apps/financial/routes/index.route.js';
+import NewsletterRouter from './src/apps/newsletter/routes/index.js';
 
 // Port
 const port = process.env.PORT || 8080;
@@ -72,6 +73,7 @@ app.use('/dashboard', DashboardRouter);
 app.use('/promotion', PromoterRouter);
 app.use('/notifications', NotificationRouter);
 app.use('/financial', FinancialRouter);
+app.use('/newsletter', NewsletterRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
