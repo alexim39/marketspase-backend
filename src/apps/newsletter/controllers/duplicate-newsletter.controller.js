@@ -11,7 +11,7 @@ export class DuplicateNewsletterController {
     try {
       const { id } = req.params;
 
-      console.log('sent id ',id)
+      //console.log('sent id ',id)
       
       const duplicatedNewsletter = await this.newsletterService.duplicateNewsletter(id);
       

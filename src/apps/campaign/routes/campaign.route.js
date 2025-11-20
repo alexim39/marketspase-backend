@@ -12,42 +12,21 @@ import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
 
 const CampaignRouter = express.Router();
 
-
 // Mount AdminRouter under CampaignRouter
 CampaignRouter.use('/admin', AdminRouter);
 
-
-// get campaigns by status (e.g., /campaign?status=active?userId=userId)
+// GET routes in order of specificity - FIXED ORDER
 CampaignRouter.get('/', getCampaignsByStatusAndUserId);
-// create campaign
-CampaignRouter.post('/create', campaignUpload.single('media'), createCampaign);
-// save campaign to draft
-CampaignRouter.post('/save', campaignUpload.single('media'), saveCampaign);
-// edit campaign
-CampaignRouter.put('/edit/:campaignId/:performedBy', campaignUpload.single('media'), EditCampaign);
-// promoter accept campaign
-CampaignRouter.post('/:campaignId/accept', acceptCampaign);
-
-
-/**
- * Get all campaigns for a marketer with pagination
- * @param {string} userId - User ID from URL params
- * @query {number} [page=1] - Page number (optional, default: 1)
- * @query {number} [limit=10] - Items per page (optional, default: 10, max: 100)
- */
-// get all campaigns for a marketer
 CampaignRouter.get('/user/:userId', GetAMarketerCampaigns);
-
-
-/* Dynamic Routes */
-// get a campaign by id - used by admin and owner of campaign
-CampaignRouter.get('/:id', getCampaignById);
-
-
-
-
-// GET /api/promotions/proof/:promotionId
 CampaignRouter.get('/promotions/proof/:promotionId', getProofDetails);
 
+// MOST SPECIFIC DYNAMIC ROUTES LAST - FIXED: This should be BEFORE other dynamic routes
+CampaignRouter.get('/:id', getCampaignById);
+
+// POST/PUT routes - MOVED AFTER GET routes to avoid conflicts
+CampaignRouter.post('/create', campaignUpload.single('media'), createCampaign);
+CampaignRouter.post('/save', campaignUpload.single('media'), saveCampaign);
+CampaignRouter.put('/edit/:campaignId/:performedBy', campaignUpload.single('media'), EditCampaign);
+CampaignRouter.post('/:campaignId/accept', acceptCampaign);
 
 export default CampaignRouter;

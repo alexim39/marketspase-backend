@@ -62,7 +62,7 @@ export const signin = async (req, res) => {
  try {
   const { email, password } = req.body;
 
-  console.log('request ',req.body)
+  //console.log('request ',req.body)
 
   // MODIFIED: Use `.select('+password')` to explicitly include the password field
   const user = await AdminModel.findOne({ email }).select('+password');
