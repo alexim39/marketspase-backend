@@ -27,7 +27,20 @@ const campaignSchema = new mongoose.Schema(
     // Promotion & Tracking
     maxPromoters: { type: Number, required: true, min: 1 }, 
     currentPromoters: { type: Number, required: true, min: 0, default: 0 },
-    minViewsPerPromotion: { type: Number, required: true, min: 40, default: 40 },
+    //minViewsPerPromotion: { type: Number, required: true, min: 40, default: 40 },
+    minViewsPerPromotion: { 
+      type: Number, 
+      required: true, 
+      min: 40, 
+      default: 40,
+      validate: {
+        validator: function(value) {
+          // Allow existing campaigns with 25, but new ones must be ≥40
+          return value >= 25;
+        },
+        message: 'minViewsPerPromotion must be at least 25 for existing campaigns'
+      }
+    },
     totalPromotions: { type: Number, default: 0 },
     validatedPromotions: { type: Number, default: 0 },
     paidPromotions: { type: Number, default: 0 },
