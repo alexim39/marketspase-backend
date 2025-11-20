@@ -86,10 +86,10 @@ export const newsletterEmailTemplate = (newsletter, user, trackingPixelUrl = nul
       <div style="border-top:1px solid #e2e8f0;padding-top:25px;margin-top:25px;">
         <h4 style="font-size:16px;font-weight:600;color:#1a202c;margin:0 0 15px;">Quick Links</h4>
         <div style="display:flex;flex-wrap:wrap;gap:15px;">
-          <a href="https://marketspase.com/campaigns" style="flex:1;min-width:120px;background:#f8f9fa;padding:12px;border-radius:6px;text-decoration:none;color:#673ab7;font-size:14px;text-align:center;font-weight:600;">
+          <a href="https://marketspase.com/dashboard/campaigns" style="flex:1;min-width:120px;background:#f8f9fa;padding:12px;border-radius:6px;text-decoration:none;color:#673ab7;font-size:14px;text-align:center;font-weight:600;">
             📢 Browse Campaigns
           </a>
-          <a href="https://marketspase.com/promotions" style="flex:1;min-width:120px;background:#f8f9fa;padding:12px;border-radius:6px;text-decoration:none;color:#673ab7;font-size:14px;text-align:center;font-weight:600;">
+          <a href="https://marketspase.com/dashboard" style="flex:1;min-width:120px;background:#f8f9fa;padding:12px;border-radius:6px;text-decoration:none;color:#673ab7;font-size:14px;text-align:center;font-weight:600;">
             💰 View Earnings
           </a>
           <a href="https://marketspase.com/resources" style="flex:1;min-width:120px;background:#f8f9fa;padding:12px;border-radius:6px;text-decoration:none;color:#673ab7;font-size:14px;text-align:center;font-weight:600;">
@@ -116,20 +116,24 @@ export const newsletterEmailTemplate = (newsletter, user, trackingPixelUrl = nul
       
       <!-- Social Links -->
       <div style="margin-bottom:20px;">
-        <a href="#" style="display:inline-block;margin:0 8px;color:#a0aec0;text-decoration:none;">
+        <a href="https://web.facebook.com/marketspase" style="display:inline-block;margin:0 8px;color:#a0aec0;text-decoration:none;" target="_blank">
           <img src="https://cdn-icons-png.flaticon.com/512/124/124010.png" alt="Facebook" width="24" height="24" style="border-radius:50%;">
         </a>
-        <a href="#" style="display:inline-block;margin:0 8px;color:#a0aec0;text-decoration:none;">
+        <!--
+        <a href="" style="display:inline-block;margin:0 8px;color:#a0aec0;text-decoration:none;" target="_blank">
           <img src="https://cdn-icons-png.flaticon.com/512/124/124021.png" alt="Twitter" width="24" height="24" style="border-radius:50%;">
         </a>
-        <a href="#" style="display:inline-block;margin:0 8px;color:#a0aec0;text-decoration:none;">
+        -->
+        <a href="https://www.instagram.com/marketspaseonline" style="display:inline-block;margin:0 8px;color:#a0aec0;text-decoration:none;" target="_blank">
+          <img src="https://cdn-icons-png.flaticon.com/512/1409/1409946.png" alt="Instagram" width="24" height="24" style="border-radius:50%;">
+        </a>
+        <a href="https://wa.me/2349062537816" style="display:inline-block;margin:0 8px;color:#a0aec0;text-decoration:none;" target="_blank">
           <img src="https://cdn-icons-png.flaticon.com/512/124/124027.png" alt="LinkedIn" width="24" height="24" style="border-radius:50%;">
         </a>
       </div>
       
       <p style="margin:0 0 12px;line-height:1.4;">
-        MarketSpase - Connecting marketers and promoters through WhatsApp Status<br>
-        Lagos, Nigeria
+        MarketSpase - Connecting marketers and promoters through WhatsApp Status
       </p>
       
       <p style="margin:0 0 20px;font-size:12px;color:#718096;">
@@ -146,8 +150,8 @@ export const newsletterEmailTemplate = (newsletter, user, trackingPixelUrl = nul
             ? `<a href="${unsubscribeUrl}" style="color:#a0aec0;text-decoration:none;margin:0 10px;">Unsubscribe</a> | `
             : ''}
           <a href="https://marketspase.com/preferences" style="color:#a0aec0;text-decoration:none;margin:0 10px;">Manage Preferences</a> |
-          <a href="https://marketspase.com/privacy" style="color:#a0aec0;text-decoration:none;margin:0 10px;">Privacy Policy</a> |
-          <a href="https://marketspase.com/contact" style="color:#a0aec0;text-decoration:none;margin:0 10px;">Contact Us</a>
+          <a href="https://marketspase.com/legal/privacy" style="color:#a0aec0;text-decoration:none;margin:0 10px;">Privacy Policy</a> |
+          <a href="https://marketspase.com/resources/contact" style="color:#a0aec0;text-decoration:none;margin:0 10px;">Contact Us</a>
         </p>
       </div>
     </div>
