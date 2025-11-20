@@ -70,12 +70,12 @@ export const approveWithdrawal = async (req, res) => {
     const transactionAmount = transaction.amount;
     const availableBalance = user.wallets.promoter.balance;
 
-    if (availableBalance < transactionAmount) {
-      return res.status(400).json({
-        success: false,
-        message: `Insufficient available balance. Available: ₦${availableBalance}, Requested: ₦${transactionAmount}`
-      });
-    }
+    // if (availableBalance < transactionAmount) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: `Insufficient available balance. Available: ₦${availableBalance}, Requested: ₦${transactionAmount}`
+    //   });
+    // }
 
     // VALIDATION: Check bank details exist for the withdrawal
     if (!transaction.bankDetails || !transaction.bankDetails.accountNumber) {
