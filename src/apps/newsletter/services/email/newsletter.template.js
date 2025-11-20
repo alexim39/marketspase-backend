@@ -63,7 +63,7 @@ export const newsletterEmailTemplate = (newsletter, user, trackingPixelUrl = nul
       
       <!-- Greeting -->
       <div style="margin-bottom:25px;">
-        <!-- <p style="font-size:16px;color:#718096;margin:0 0 8px;">Hello ${formattedName},</p> -->
+        ${formattedName !== 'there' ? `<p style="font-size:16px;color:#718096;margin:0 0 8px;">Hello ${formattedName},</p>` : ''}
         <h2 style="font-size:24px;font-weight:bold;color:#1a202c;margin:0;line-height:1.3;">${newsletter.subject}</h2>
         ${newsletter.previewText ? `<p style="font-size:16px;color:#718096;margin:10px 0 0;font-style:italic;">${newsletter.previewText}</p>` : ''}
       </div>
@@ -183,9 +183,7 @@ export const newsletterPlainTextTemplate = (newsletter, user) => {
 MARKETSPASE NEWSLETTER
 ======================
 
-Hello ${formattedName},
-
-${newsletter.subject}
+${formattedName !== 'there' ? `Hello ${formattedName},\n\n` : ''}${newsletter.subject}
 
 ${newsletter.previewText ? newsletter.previewText + '\n' : ''}
 
