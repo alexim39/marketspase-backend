@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { activitySchema } from './activity.schema.js';
+import { referralSchema } from './referral.schema.js';
 
 
 const bankDetailsSchema = new mongoose.Schema({
@@ -293,6 +294,19 @@ const userSchema = new mongoose.Schema(
         type: Boolean, 
         default: true 
       }
+    },
+    // Add to userSchema
+    referralInfo: {
+      referralCode: { type: String, unique: true, sparse: true }, // Same as username
+      referredBy: { type: String }, // Username of referrer
+      totalReferrals: { type: Number, default: 0 },
+      totalEarned: { type: Number, default: 0 },
+      referrals: [referralSchema]
+    },
+    
+    // Track qualification milestones - ensures one-time payment per referee
+    qualificationMilestones: {
+      hasReceivedReferralBonus: { type: Boolean, default: false } // Track if this user has generated bonus for their referrer
     },
 
   },

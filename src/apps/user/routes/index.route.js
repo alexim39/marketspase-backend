@@ -12,6 +12,7 @@ import { SwitchUser } from '../controllers/switch-user.controller.js'
 import PromoRouter from './promo/promo.routes.js';
 import StatsRouter from './stats/stats.routes.js';
 import ProfileRouter from './profile/profile.routes.js';
+import ReferralRouter from './referral.routes.js';
 
 
 const UserRouter = express.Router();
@@ -22,6 +23,8 @@ UserRouter.use('/promo', PromoRouter);
 UserRouter.use('/stats', StatsRouter);
 // Mount ProfileRouter under UserRouter
 UserRouter.use('/profile', ProfileRouter);
+// Mount referrals under UserRouter
+UserRouter.use('/referral', ReferralRouter);
 
 
 // admin - get all users

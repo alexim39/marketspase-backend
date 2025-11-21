@@ -72,14 +72,14 @@ export const downloadPromotion = async (req, res) => {
     }
 
     // Check if promotion is already downloaded
-    if (promotion.isDownloaded) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({
-        message: 'Promotion materials already downloaded.',
-        success: false,
-      });
-    }
+    // if (promotion.isDownloaded) {
+    //   await session.abortTransaction();
+    //   session.endSession();
+    //   return res.status(400).json({
+    //     message: 'Promotion materials already downloaded.',
+    //     success: false,
+    //   });
+    // }
 
     const payoutAmount = campaign.payoutPerPromotion;
     const marketer = await UserModel.findById(campaign.owner).session(session);
