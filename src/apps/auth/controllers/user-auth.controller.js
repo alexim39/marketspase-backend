@@ -5,7 +5,9 @@ import { adminWelcomeEmailTemplate } from '../services/email/adminTemplate.js';
 import { userWelcomeEmailTemplate } from '../services/email/userWelcomeTemplate.js';
 import { CampaignModel } from "../../campaign/models/campaign.model.js"; // Add this import
 import { PromotionModel } from "../../promotion/models/promotion.model.js"; // Add this import
-
+// import referral service for processing referrals
+import { ReferralService } from './../../user/services/referral.service.js';
+const referralService = new ReferralService();
 
 // Authenticate/Verify User
 export const Authenticate = async (req, res) => {
@@ -23,7 +25,8 @@ export const Authenticate = async (req, res) => {
       displayName,
       email,
       photoURL,
-      providerData
+      providerData,
+      referralCode = null
     } = firebaseUser;
 
     // Determine authentication method from providerData
@@ -62,8 +65,28 @@ export const Authenticate = async (req, res) => {
         newUser.email = email;
       }
 
-      //const user = await UserModel.create(newUser);
       user = await UserModel.create(newUser);
+
+    // Process referral if provided
+    if (referralCode) {
+      try {
+        await referralService.processReferral(user._id, referralCode, user.role);
+        
+        // Log the referral activity
+        await user.logActivity(
+          'referred_signup',
+          `Joined using referral from ${referralCode}`,
+          {
+            resourceType: 'referral',
+            metadata: { referrerUsername: referralCode }
+          }
+        );
+        console.error('Referral sign up with code:', referralCode);
+      } catch (referralError) {
+        console.error('Referral processing failed:', referralError);
+        // Don't fail registration if referral processing fails
+      }
+    }
       
       // Save the user to the database
       // await user.save(); // `create` method already saves the document.

@@ -305,9 +305,13 @@ const userSchema = new mongoose.Schema(
     },
     
     // Track qualification milestones - ensures one-time payment per referee
+   // In qualificationMilestones, replace hasReceivedReferralBonus with:
     qualificationMilestones: {
-      hasReceivedReferralBonus: { type: Boolean, default: false } // Track if this user has generated bonus for their referrer
-    },
+      hasGeneratedMarketerBonus: { type: Boolean, default: false }, // Track if this user generated marketer bonus for referrer
+      hasGeneratedPromoterBonus: { type: Boolean, default: false }, // Track if this user generated promoter bonus for referrer
+      firstCampaignFunded: { type: Boolean, default: false }, // Track if user funded their first campaign as marketer
+      firstPromotionPaid: { type: Boolean, default: false } // Track if user completed first paid promotion as promoter
+    }
 
   },
   { timestamps: true }

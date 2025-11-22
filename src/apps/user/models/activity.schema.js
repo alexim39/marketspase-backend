@@ -8,11 +8,11 @@ export const activitySchema = new mongoose.Schema({
     required: true,
     enum: [
       // Authentication & Profile
-      'login', 'logout', 'profile_update', 'password_change', 'email_verify',
+      'login', 'logout', 'profile_update', 'password_change', 'email_verify', 'referred_signup',
       
       // Wallet & Financial
       'wallet_fund', 'withdrawal_request', 'withdrawal_complete', 'transfer', 'promo_credit_claimed',
-      'withdrawal_approved', 'withdrawal_rejected',
+      'withdrawal_approved', 'withdrawal_rejected', 'referral_bonus_qualified', 'referral_bonus_paid',
       
       // Campaign & Promotion
       'campaign_create', 'campaign_update', 'campaign_delete', 'campaign_pause',
@@ -38,7 +38,7 @@ export const activitySchema = new mongoose.Schema({
   // Resource that was affected (optional)
   resourceType: {
     type: String,
-    enum: ['user', 'campaign', 'promotion', 'wallet', 'transaction', 'notification', 'device', 'payout_account', 'bonus']
+    enum: ['user', 'campaign', 'promotion', 'wallet', 'transaction', 'notification', 'device', 'payout_account', 'bonus', 'referral']
   },
   
   resourceId: {
