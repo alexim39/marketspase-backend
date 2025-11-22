@@ -1,11 +1,12 @@
 import { UserModel } from '../models/user.model.js';
+import mongoose from 'mongoose'; // ADD THIS IMPORT
 
 export class ReferralService {
   constructor() {}
   
   // Generate referral link
   generateReferralLink(username) {
-    return `www.marketspase.com/ref/${username}`;
+    return `https://marketspase.com/ref/${username}`;
   }
   
   // Process new user referral
@@ -30,13 +31,14 @@ export class ReferralService {
         return null;
       }
       
-      const bonusAmount = refereeRole === 'marketer' ? 1000 : 250;
+      // Set bonus amount based on role - FIXED: Set actual amounts
+      const bonusAmount = refereeRole === 'marketer' ? 1250 : 250;
       
       const referral = {
         referrerUsername,
         refereeUserId,
         refereeRole,
-        bonusAmount,
+        bonusAmount, // Now contains the actual bonus amount
         status: 'pending'
       };
       
@@ -48,7 +50,7 @@ export class ReferralService {
       referee.referralInfo.referredBy = referrerUsername;
       await referee.save();
       
-      console.log(`Referral recorded: ${referrerUsername} -> ${refereeUserId} (${refereeRole})`);
+      console.log(`Referral recorded: ${referrerUsername} -> ${refereeUserId} (${refereeRole}) - Potential bonus: ₦${bonusAmount}`);
       return referral;
     } catch (error) {
       console.error('Process referral error:', error);
@@ -56,74 +58,27 @@ export class ReferralService {
     }
   }
   
-  // Check and pay marketer referral bonus
-  async checkMarketerQualification(marketerUserId) {
-    try {
-      const marketer = await UserModel.findById(marketerUserId);
-      if (!marketer || marketer.qualificationMilestones.hasReceivedReferralBonus) {
-        return null;
-      }
-      
-      const referrer = await UserModel.findOne({
-        'referralInfo.referrals.refereeUserId': marketerUserId,
-        'referralInfo.referrals.status': 'pending'
-      });
-      
-      if (referrer) {
-        const referral = referrer.referralInfo.referrals.find(
-          ref => ref.refereeUserId.equals(marketerUserId) && ref.status === 'pending'
-        );
-        
-        if (referral) {
-          console.log(`Marketer qualification met: ${marketerUserId}`);
-          return await this.processReferralBonus(referrer, referral, marketer);
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error('Check marketer qualification error:', error);
-      throw error;
-    }
-  }
-  
-  // Check and pay promoter referral bonus
-  async checkPromoterQualification(promoterUserId) {
-    try {
-      const promoter = await UserModel.findById(promoterUserId);
-      if (!promoter || promoter.qualificationMilestones.hasReceivedReferralBonus) {
-        return null;
-      }
-      
-      const referrer = await UserModel.findOne({
-        'referralInfo.referrals.refereeUserId': promoterUserId,
-        'referralInfo.referrals.status': 'pending'
-      });
-      
-      if (referrer) {
-        const referral = referrer.referralInfo.referrals.find(
-          ref => ref.refereeUserId.equals(promoterUserId) && ref.status === 'pending'
-        );
-        
-        if (referral) {
-          console.log(`Promoter qualification met: ${promoterUserId}`);
-          return await this.processReferralBonus(referrer, referral, promoter);
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error('Check promoter qualification error:', error);
-      throw error;
-    }
-  }
-  
   // Process bonus payment with one-time restriction
-  async processReferralBonus(referrer, referral, referee) {
+  // Also update processReferralBonus to accept session
+  async processReferralBonus(referrer, referral, referee, session = null) {
     try {
-      // Double-check: ensure referee hasn't already generated bonus
-      if (referee.qualificationMilestones.hasReceivedReferralBonus) {
-        console.log(`Bonus already paid for referee: ${referee._id}`);
+      // Determine which bonus type we're processing
+      const isMarketerBonus = referral.refereeRole === 'marketer';
+      const bonusFlag = isMarketerBonus ? 'hasGeneratedMarketerBonus' : 'hasGeneratedPromoterBonus';
+
+      // Double-check: ensure referee hasn't already generated this specific bonus
+      if (referee.qualificationMilestones[bonusFlag]) {
+        console.log(`Bonus already paid for referee: ${referee._id} as ${referral.refereeRole}`);
         referral.status = 'cancelled';
-        await referrer.save();
+        
+        const saveOptions = session ? { session } : {};
+        await referrer.save(saveOptions);
+        return null;
+      }
+    
+      // Verify referee is currently in the correct role
+      if (referee.role !== referral.refereeRole) {
+        console.log(`Referee role mismatch: ${referee.role} vs ${referral.refereeRole}`);
         return null;
       }
       
@@ -149,11 +104,12 @@ export class ReferralService {
       referral.paidAt = new Date();
       referrer.referralInfo.totalEarned += referral.bonusAmount;
       
-      // Mark referee as having generated bonus (prevent double dipping)
-      referee.qualificationMilestones.hasReceivedReferralBonus = true;
-      
-      await referrer.save();
-      await referee.save();
+      // Mark referee as having generated THIS specific bonus
+      referee.qualificationMilestones[bonusFlag] = true;
+    
+      const saveOptions = session ? { session } : {};
+      await referrer.save(saveOptions);
+      await referee.save(saveOptions);
       
       // Log activities
       await referrer.logActivity(
@@ -219,6 +175,98 @@ export class ReferralService {
       return stats;
     } catch (error) {
       console.error('Get user referral stats error:', error);
+      throw error;
+    }
+  }
+
+  // New method to check marketer qualification when they fund their first campaign
+  // Also update checkMarketerFirstCampaign to accept session for consistency
+  async checkMarketerFirstCampaign(marketerUserId, session = null) {
+    try {
+      const query = UserModel.findById(marketerUserId);
+      if (session) query.session(session);
+      
+      const marketer = await query;
+      
+      // Check conditions for marketer bonus
+      if (!marketer || 
+          marketer.qualificationMilestones.hasGeneratedMarketerBonus ||
+          marketer.role !== 'marketer' ||
+          !marketer.qualificationMilestones.firstCampaignFunded) {
+        return null;
+      }
+      
+      const referrerQuery = UserModel.findOne({
+        'referralInfo.referrals.refereeUserId': marketerUserId,
+        'referralInfo.referrals.status': 'pending'
+      });
+      
+      if (session) referrerQuery.session(session);
+      
+      const referrer = await referrerQuery;
+      
+      if (referrer) {
+        const referral = referrer.referralInfo.referrals.find(
+          ref => ref.refereeUserId.equals(marketerUserId) && 
+                ref.status === 'pending' && 
+                ref.refereeRole === 'marketer'
+        );
+        
+        if (referral) {
+          console.log(`Marketer first campaign qualified: ${marketerUserId}`);
+          return await this.processReferralBonus(referrer, referral, marketer, session);
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Check marketer first campaign error:', error);
+      throw error;
+    }
+  }
+
+  // New method to check promoter qualification when they complete first paid promotion
+  async checkPromoterFirstPromotion(promoterUserId, session = null) {
+    try {
+      // Use session if provided, otherwise query normally
+      const query = UserModel.findById(promoterUserId);
+      if (session) query.session(session);
+      
+      const promoter = await query;
+      
+      // Check conditions for promoter bonus
+      if (!promoter || 
+          promoter.qualificationMilestones.hasGeneratedPromoterBonus ||
+          promoter.role !== 'promoter' ||
+          !promoter.qualificationMilestones.firstPromotionPaid) {
+        return null;
+      }
+      
+      // Use session for referrer query as well
+      const referrerQuery = UserModel.findOne({
+        'referralInfo.referrals.refereeUserId': promoterUserId,
+        'referralInfo.referrals.status': 'pending'
+      });
+      
+      if (session) referrerQuery.session(session);
+      
+      const referrer = await referrerQuery;
+      
+      if (referrer) {
+        const referral = referrer.referralInfo.referrals.find(
+          ref => ref.refereeUserId.equals(promoterUserId) && 
+                ref.status === 'pending' && 
+                ref.refereeRole === 'promoter'
+        );
+        
+        if (referral) {
+          console.log(`Promoter first promotion qualified: ${promoterUserId}`);
+          // Pass session to processReferralBonus as well
+          return await this.processReferralBonus(referrer, referral, promoter, session);
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Check promoter first promotion error:', error);
       throw error;
     }
   }

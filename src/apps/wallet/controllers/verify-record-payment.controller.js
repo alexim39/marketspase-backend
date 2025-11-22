@@ -8,6 +8,10 @@ import axios from 'axios';
 import dotenv from 'dotenv';
 dotenv.config();
 
+// import referral service for paying referred marketer
+import { ReferralService } from './../../user/services/referral.service.js';
+const referralService = new ReferralService();
+
 // Set up Paystack configuration from environment variables
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACKTOKEN;
 const PAYSTACK_VERIFY_URL = 'https://api.paystack.co/transaction/verify/';
@@ -64,21 +68,23 @@ export const verifyAndRecordPayment = async (req, res) => {
 
     const paystackVerificationData = response.data.data;
     if (!paystackVerificationData || paystackVerificationData.status !== 'success') {
-
-
-      try {
-        const emailContent = paymentDeclinedEmailTemplate({
-          userName: user.displayName,
-          amount: amount,
-          transactionReference: reference,
-          reason: 'Paystack verification failed or transaction was not successful.',
-        });
-        await sendEmail(user.email, 'Payment Declined', emailContent);
-      } catch (emailError) {
-        console.error('Failed to send declined email:', emailError);
+      // Get user for email before sending error
+      const userForEmail = await UserModel.findById(userId);
+      if (userForEmail) {
+        try {
+          const emailContent = paymentDeclinedEmailTemplate({
+            userName: userForEmail.displayName,
+            amount: amount,
+            transactionReference: reference,
+            reason: 'Paystack verification failed or transaction was not successful.',
+          });
+          await sendEmail(userForEmail.email, 'Payment Declined', emailContent);
+        } catch (emailError) {
+          console.error('Failed to send declined email:', emailError);
+        }
       }
 
-        return sendError(res, 'Paystack verification failed or transaction not successful.', 400);
+      return sendError(res, 'Paystack verification failed or transaction not successful.', 400);
     }
     
     // Also, ensure the user ID sent from the frontend matches the user ID in the database.
@@ -92,80 +98,95 @@ export const verifyAndRecordPayment = async (req, res) => {
     }
 
     // 5. Database Transaction and Atomic Update
-    // Mongoose transactions ensure both the balance update and transaction record are successful or none are.
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
-      // Find the user and update their marketer wallet balance
-      // Since the frontend payload shows `marketer` wallet, we'll assume that's the one to fund.
-      user.wallets.marketer.balance += amount; 
-
-      // Create the new transaction object based on your schema
-      const newTransaction = {
-        amount: amount,
-        type: 'credit',
-        category: 'deposit',
-        description: `Paystack funding: ${reference}`,
-        status: 'successful',
-        createdAt: new Date()
-      };
-
-      // Push the new transaction to the marketer's wallet
-      user.wallets.marketer.transactions.push(newTransaction);
-
-      // Save the user document within the session
-      await user.save({ session });
+      // Check if this is the user's first campaign funding
+      const isFirstCampaignFunding = !user.qualificationMilestones.firstCampaignFunded;
       
+      // Update user wallet and transaction
+      const updatedUser = await UserModel.findByIdAndUpdate(
+        userId,
+        {
+          $inc: { 
+            'wallets.marketer.balance': amount 
+          },
+          $push: {
+            'wallets.marketer.transactions': {
+              amount: amount,
+              type: 'credit',
+              category: 'deposit',
+              description: `Paystack funding: ${reference}`,
+              status: 'successful',
+              createdAt: new Date()
+            }
+          },
+          // Conditionally set firstCampaignFunded if this is the first time
+          ...(isFirstCampaignFunding && {
+            $set: {
+              'qualificationMilestones.firstCampaignFunded': true
+            }
+          })
+        },
+        { 
+          session, 
+          new: true // Return the updated document
+        }
+      );
+
       // Commit the transaction
       await session.commitTransaction();
       session.endSession();
+
+      // Check for referral bonus AFTER successful transaction
+      if (isFirstCampaignFunding) {
+        console.log(`First campaign funding detected for user: ${userId}`);
+        await referralService.checkMarketerFirstCampaign(userId);
+      }
 
       // 6. Respond to Frontend
       res.status(200).json({
         success: true,
         message: 'Payment verified and wallet successfully funded.',
-        newBalance: user.wallets.marketer.balance,
-        transactionId: newTransaction._id // Mongoose automatically adds _id for subdocuments
+        newBalance: updatedUser.wallets.marketer.balance,
+        transactionId: updatedUser.wallets.marketer.transactions[updatedUser.wallets.marketer.transactions.length - 1]._id,
+        isFirstCampaignFunding: isFirstCampaignFunding
       });
-
-
 
       // Send approved email to the user
       try {
         const emailContent = paymentApprovedEmailTemplate({
-          userName: user.displayName,
+          userName: updatedUser.displayName,
           amount: amount,
           transactionReference: reference,
-          newBalance: user.wallets.marketer.balance,
+          newBalance: updatedUser.wallets.marketer.balance,
         });
-        await sendEmail(user.email, 'Payment Approved', emailContent);
+        await sendEmail(updatedUser.email, 'Payment Approved', emailContent);
       } catch (emailError) {
         console.error('Failed to send approved email:', emailError);
       }
-
-
 
     } catch (transactionError) {
       // Abort the transaction in case of any error
       await session.abortTransaction();
       session.endSession();
 
-
-
       // Send declined email to the user
       try {
-        const emailContent = paymentDeclinedEmailTemplate({
-          userName: user.name,
-          amount: amount,
-          transactionReference: reference,
-          reason: 'Failed to update wallet and record transaction due to a database error.',
-        });
-        await sendEmail(user.email, 'Payment Declined', emailContent);
+        const userForEmail = await UserModel.findById(userId);
+        if (userForEmail) {
+          const emailContent = paymentDeclinedEmailTemplate({
+            userName: userForEmail.displayName,
+            amount: amount,
+            transactionReference: reference,
+            reason: 'Failed to update wallet and record transaction due to a database error.',
+          });
+          await sendEmail(userForEmail.email, 'Payment Declined', emailContent);
+        }
       } catch (emailError) {
         console.error('Failed to send declined email:', emailError);
       }
-
 
       sendError(res, 'Failed to update wallet and record transaction due to a database error.', 500);
     }

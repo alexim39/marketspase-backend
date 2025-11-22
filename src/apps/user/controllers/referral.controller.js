@@ -7,7 +7,7 @@ const referralService = new ReferralService();
 export const ReferralStats = async (req, res) => {
   try {
     const { userId } = req.params;
-    console.log('Fetching referral stats for userId:', userId);
+    //console.log('Fetching referral stats for userId:', userId);
 
     if (!userId) {
         return res.status(400).json({
@@ -53,7 +53,7 @@ export const ReferralDetails = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    console.log('Fetching referral stats for userId2:', userId);
+    //console.log('Fetching referral stats for userId2:', userId);
 
     const { page = 1, limit = 20 } = req.query;
 
@@ -125,7 +125,7 @@ export const ValidateReferralCode = async (req, res) => {
   try {
     const { referralCode } = req.params;
 
-    console.log('Fetching referral stats for referralCode:', referralCode);
+    //console.log('Fetching referral stats for referralCode:', referralCode);
     
     const user = await UserModel.findOne({ username: referralCode })
       .select('username displayName')
