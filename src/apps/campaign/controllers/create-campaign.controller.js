@@ -33,7 +33,7 @@ export const createCampaign = async (req, res) => {
       requirements = "",
       targetLocations = [],
       hasEndDate = true,
-      minViewsPerPromotion = 25
+      minViewsPerPromotion = 40
     } = req.body;
 
     // ✅ Handle uploaded file from Cloudinary
