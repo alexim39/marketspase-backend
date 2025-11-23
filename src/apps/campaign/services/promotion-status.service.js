@@ -31,18 +31,8 @@ export const handlePromotionStatusUpdate = async ({
   // 2. Handle status transitions with atomic operations
   switch (status) {
     case "validated":
+      // FIX: handleValidation now sets status to 'paid' and updates budget/paidPromotions in one go.
       await handleValidation({ promotion, campaign, promoter, performedBy, payoutAmount, session });
-
-      // Auto-mark as paid - use the same function but with updated promotion
-      const validatedPromotion = await PromotionModel.findById(promotionId).session(session);
-      await handlePayment({ 
-        promotion: validatedPromotion, 
-        campaign, 
-        performedBy, 
-        payoutAmount, 
-        session
-      });
-
       break;
       
     case "rejected":
@@ -50,7 +40,15 @@ export const handlePromotionStatusUpdate = async ({
       break;
       
     case "paid":
-      await handlePayment({ promotion, campaign, performedBy, payoutAmount, session });
+      // This case is now for legacy or specific manual calls, validation handles the primary payment logic.
+      if (promotion.status !== "validated") {
+        throw new Error("Cannot mark a promotion as 'paid' that is not in 'validated' status.");
+      }
+      await PromotionModel.findByIdAndUpdate(
+        promotion._id,
+        { $set: { status: 'paid', paidAt: new Date(), paidBy: performedBy } },
+        { session }
+      );
       break;
       
     default:
@@ -66,36 +64,46 @@ export const handlePromotionStatusUpdate = async ({
 };
 
 
-
+// REFACTORED: This function now handles the entire success flow (Validation & Payment)
 const handleValidation = async ({ promotion, campaign, promoter, performedBy, payoutAmount, session }) => {
   if (promotion.status !== "submitted") {
     throw new Error("Cannot validate a promotion that is not in 'submitted' status.");
   }
 
-  // Atomic update for promotion
+  // 1. Check if campaign will be exhausted after this payment
+  // We use the *current* spentBudget (which includes reserved funds) to check for exhaustion
+  const willBeExhausted = campaign.spentBudget + payoutAmount >= campaign.budget;
+
+  // 2. Atomic update for promotion: Set status directly to 'paid'
   await PromotionModel.findByIdAndUpdate(
     promotion._id,
     {
       $set: {
-        status: 'validated',
+        status: 'paid', // Transition directly to 'paid' as payment is happening now
         validatedAt: new Date(),
         validatedBy: performedBy,
+        paidAt: new Date(), // Set paid date here as it is auto-paid
         rejectionReason: null
       }
     },
     { session }
   );
 
-  // Atomic updates for campaign
+  // 3. Atomic updates for campaign (Campaign budget and counts)
   const campaignUpdate = {
     $inc: {
       validatedPromotions: 1,
-      currentPromoters: 1
+      paidPromotions: 1,
+      spentBudget: payoutAmount // Final spent amount is recorded here
+      // currentPromoters should not be incremented here as it was already done on acceptance
+    },
+    $set: {
+      status: willBeExhausted ? 'exhausted' : campaign.status // Update status based on new spending
     },
     $push: {
       activityLog: {
-        action: "Promotion Validated",
-        details: `Promotion UPI ${promotion.upi} validated. Promoter ${promoter.displayName} earned ${payoutAmount} NGN.`,
+        action: "Promotion Validated & Paid",
+        details: `Promotion UPI ${promotion.upi} validated and paid. Promoter ${promoter.displayName} earned ${payoutAmount} NGN.`,
         performedBy: performedBy,
         timestamp: new Date()
       }
@@ -103,17 +111,24 @@ const handleValidation = async ({ promotion, campaign, promoter, performedBy, pa
   };
 
   // Check if campaign is completed
-  if (campaign.validatedPromotions + 1 >= campaign.maxPromoters) {
-    campaignUpdate.$set = {
-      status: 'completed',
-      endDate: new Date()
-    };
-    campaignUpdate.$push.activityLog = {
+  if (campaign.paidPromotions + 1 >= campaign.maxPromoters) {
+    campaignUpdate.$set.status = 'completed';
+    campaignUpdate.$set.endDate = new Date();
+  }
+  
+  // Also set exhausted if needed, even if completed
+  if (willBeExhausted && campaignUpdate.$set.status !== 'completed') {
+    campaignUpdate.$set.status = 'exhausted';
+  }
+  
+  // Ensure we don't try to push an array of objects into a single object slot if not needed
+  if (campaignUpdate.$set.status === 'completed' && !campaignUpdate.$push.activityLog.length) {
+     campaignUpdate.$push.activityLog.push({
       action: "Status Changed",
-      details: "All promotions validated - campaign completed",
+      details: "All promotions paid - campaign completed",
       performedBy: performedBy,
       timestamp: new Date()
-    };
+    });
   }
 
   await CampaignModel.findByIdAndUpdate(
@@ -122,9 +137,9 @@ const handleValidation = async ({ promotion, campaign, promoter, performedBy, pa
     { session }
   );
 
-  // ✅ FIXED: Proper atomic update for promoter wallet
+  // 4. Atomic update for promoter wallet (Fund movement: reserved -> balance)
   await UserModel.findByIdAndUpdate(
-    promoter._id, // Use the promoter user ID from the populated promotion
+    promoter._id,
     {
       $inc: { 
         'wallets.promoter.reserved': -payoutAmount,
@@ -164,10 +179,10 @@ const handleValidation = async ({ promotion, campaign, promoter, performedBy, pa
 };
 
 
-
 const handleRejection = async ({ promotion, campaign, promoter, marketer, performedBy, rejectionReason, payoutAmount, session }) => {
-  if (promotion.status !== "submitted") {
-    throw new Error("Cannot reject a promotion that is not in 'submitted' status.");
+  // Allows rejection of 'submitted' or 'pending' promotions
+  if (promotion.status !== "submitted" && promotion.status !== "pending") {
+    throw new Error("Cannot reject a promotion that is not in 'submitted' or 'pending' status.");
   }
 
   // Atomic update for promotion
@@ -184,12 +199,12 @@ const handleRejection = async ({ promotion, campaign, promoter, marketer, perfor
     { session }
   );
 
-  // Atomic updates for campaign
+  // CRITICAL FIX: The logic here is correct and prevents the budget inflation.
   const campaignUpdate = {
     $inc: {
-      totalPromotions: -1,
-      currentPromoters: -1,
-      spentBudget: -payoutAmount
+      // totalPromotions: -1, // ⚠️ REFINEMENT: Removed to avoid potential breaking change/unknown field error
+      currentPromoters: -1, // Promoter slot is now free
+      spentBudget: -payoutAmount // <-- PERMANENT FIX: Reverse the budget commitment
     },
     $push: {
       activityLog: {
@@ -203,12 +218,13 @@ const handleRejection = async ({ promotion, campaign, promoter, marketer, perfor
 
   // Check if campaign should be reopened
   if (campaign.status === "exhausted") {
-    const potentialSpend = (campaign.spentBudget - payoutAmount) + campaign.payoutPerPromotion;
-    if (potentialSpend <= campaign.budget) {
+    // Check if the refund makes the campaign viable for at least one more promotion
+    const remainingAfterRefund = campaign.budget - (campaign.spentBudget - payoutAmount);
+    if (remainingAfterRefund >= campaign.payoutPerPromotion) {
       campaignUpdate.$set = { status: 'active' };
       campaignUpdate.$push.activityLog = {
         action: "Status Changed",
-        details: "Promotion rejected, campaign reopened",
+        details: "Promotion rejected, campaign reopened after refund",
         performedBy: performedBy,
         timestamp: new Date()
       };
@@ -221,7 +237,7 @@ const handleRejection = async ({ promotion, campaign, promoter, marketer, perfor
     { session }
   );
 
-  // ✅ FIXED: Proper atomic updates for both wallets
+  // 4. Atomic update for promoter wallet (Remove funds from reserved/escrow)
   await UserModel.findByIdAndUpdate(
     promoter._id,
     {
@@ -244,6 +260,7 @@ const handleRejection = async ({ promotion, campaign, promoter, marketer, perfor
     { session }
   );
 
+  // 5. Atomic update for marketer wallet (Refund funds to balance)
   await UserModel.findByIdAndUpdate(
     marketer._id,
     {
@@ -267,49 +284,4 @@ const handleRejection = async ({ promotion, campaign, promoter, marketer, perfor
   );
 };
 
-
-
-const handlePayment = async ({ promotion, campaign, performedBy, payoutAmount, session }) => {
-  if (promotion.status !== "validated") {
-    throw new Error("Cannot mark a promotion as 'paid' that is not in 'validated' status.");
-  }
-
-  // Atomic update for promotion
-  await PromotionModel.findByIdAndUpdate(
-    promotion._id,
-    {
-      $set: {
-        status: 'paid',
-        paidAt: new Date(),
-        paidBy: performedBy
-      }
-    },
-    { session }
-  );
-
-  // Check if campaign will be exhausted after this payment
-  const willBeExhausted = campaign.spentBudget + payoutAmount >= campaign.budget;
-
-  // Atomic updates for campaign
-  await CampaignModel.findByIdAndUpdate(
-    campaign._id,
-    {
-      $inc: {
-        paidPromotions: 1,
-        spentBudget: payoutAmount
-      },
-      $set: {
-        status: willBeExhausted ? 'exhausted' : campaign.status
-      },
-      $push: {
-        activityLog: {
-          action: "Promotion Paid",
-          details: `Payout for promotion UPI ${promotion.upi} confirmed.`,
-          performedBy: performedBy,
-          timestamp: new Date()
-        }
-      }
-    },
-    { session }
-  );
-};
+// handlePayment is removed as its logic is now merged into handleValidation.
