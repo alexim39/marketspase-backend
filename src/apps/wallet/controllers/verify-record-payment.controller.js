@@ -140,9 +140,24 @@ export const verifyAndRecordPayment = async (req, res) => {
       session.endSession();
 
       // Check for referral bonus AFTER successful transaction
+      // if (isFirstCampaignFunding) {
+      //   console.log(`First campaign funding detected for user: ${userId}`);
+      //   await referralService.checkMarketerFirstCampaign(userId);
+      // }
+
+      // Check for referral bonus AFTER successful transaction
       if (isFirstCampaignFunding) {
         console.log(`First campaign funding detected for user: ${userId}`);
-        await referralService.checkMarketerFirstCampaign(userId);
+        
+        // Ensure the referral bonus is only processed if the amount is N2000 or more (2000)
+        const MINIMUM_REFERRAL_AMOUNT = 2000;
+        
+        if (amount >= MINIMUM_REFERRAL_AMOUNT) {
+            console.log(`Funding amount (${amount}) meets the minimum referral requirement (${MINIMUM_REFERRAL_AMOUNT}). Checking for referrer...`);
+            await referralService.checkMarketerFirstCampaign(userId);
+        } else {
+            console.log(`Funding amount (${amount}) is below the minimum referral requirement of N${MINIMUM_REFERRAL_AMOUNT}. Referral bonus skipped.`);
+        }
       }
 
       // 6. Respond to Frontend
