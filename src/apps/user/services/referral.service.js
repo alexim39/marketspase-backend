@@ -32,7 +32,7 @@ export class ReferralService {
       }
       
       // Set bonus amount based on role - FIXED: Set actual amounts
-      const bonusAmount = refereeRole === 'marketer' ? 1250 : 250;
+      const bonusAmount = refereeRole === 'marketer' ? 1200 : 250;
       
       const referral = {
         referrerUsername,
