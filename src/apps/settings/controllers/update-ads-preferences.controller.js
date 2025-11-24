@@ -31,9 +31,9 @@ export const UpdateAdPreferences = async (req, res) => {
     // Build update object dynamically with only provided fields
     const updateFields = {};
     
-    if (preferences.notification !== undefined) {
-      updateFields['preferences.notification'] = preferences.notification;
-    }
+    // if (preferences.notification !== undefined) {
+    //   updateFields['preferences.notification'] = preferences.notification;
+    // }
     
     if (preferences.categoryBasedAds !== undefined) {
       updateFields['preferences.categoryBasedAds'] = preferences.categoryBasedAds;
