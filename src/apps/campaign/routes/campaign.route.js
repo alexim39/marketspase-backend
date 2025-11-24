@@ -5,7 +5,7 @@ import { saveCampaign } from '../controllers/save-campaign.controller.js'
 import { EditCampaign } from '../controllers/edit-campaign.controller.js'
 import { campaignUpload } from '../services/campaign-upload.service.js';
 import { getProofDetails, } from '../controllers/get-proof-details.controller.js'
-import { getCampaignsByStatusAndUserId } from '../controllers/get-bystatus-and-userid.controller.js'
+import { getCampaignsByStatusAndUserId } from '../controllers/get-by-status-and-userid.controller.js'
 import { GetAMarketerCampaigns } from '../controllers/get-marketer-campaign.controller.js'
 import AdminRouter from './admin/admin.routes.js';
 import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'

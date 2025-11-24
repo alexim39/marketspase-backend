@@ -61,22 +61,16 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
 
     if (user.preferences) {
       const { categoryBasedAds, locationBasedAds, adCategories } = user.preferences;
-      //const userLocation = user.personalInfo?.address?.state || user.personalInfo?.address?.city;
       const userLocation = user.personalInfo?.address?.street || 
                     user.personalInfo?.address?.city || 
                     user.personalInfo?.address?.state || 
                     user.personalInfo?.address?.country;
 
-      // console.log("User preferences:", {
-      //   categoryBasedAds,
-      //   locationBasedAds,
-      //   adCategories,
-      //   userLocation
-      // });
-
       // Apply category filter at database level if enabled
       if (categoryBasedAds && adCategories && adCategories.length > 0) {
-        enhancedQuery.category = { $in: adCategories.map(cat => new RegExp(cat, 'i')) };
+        // FIX: Use simple array $in for standard OR logic (match ANY category)
+        // This relies on the CampaignModel.category being a single string.
+        enhancedQuery.category = { $in: adCategories };
         userPreferencesUsed = true;
       }
 
@@ -85,6 +79,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     }
 
     // Get total count for pagination metadata
+    // The count is based on the database-level filtering (status, category)
     const totalCampaignsCount = await CampaignModel.countDocuments(enhancedQuery);
 
     // Get paginated campaigns from database with enhanced query
@@ -98,6 +93,8 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       })
       .exec();
 
+    // Check for campaigns *before* in-memory filtering. 
+    // If database returned zero results, we can stop here.
     if (!campaigns || campaigns.length === 0) {
       return res.status(404).json({
         success: false,
@@ -111,7 +108,6 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     let filteredCampaigns = [...campaigns];
     
     if (user.preferences && user.preferences.locationBasedAds) {
-      //const userLocation = user.personalInfo?.address?.state || user.personalInfo?.address?.city;
       const userLocation = user.personalInfo?.address?.street || 
                     user.personalInfo?.address?.city || 
                     user.personalInfo?.address?.state || 
@@ -123,24 +119,20 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
             return true; // If campaign has no location restrictions, include it
           }
           
-          // return campaign.targetLocations.some(location =>
-          //   location.toLowerCase().includes(userLocation.toLowerCase()) ||
-          //   userLocation.toLowerCase().includes(location.toLowerCase())
-          // );
-
           return campaign.targetLocations.some(location => {
-            const targetStr = (location.name || location.city || '').toString().toLowerCase(); // Adjust property name as needed
+            // Adjust property name as needed (e.g., location.name or location.city)
+            const targetStr = (location.name || location.city || '').toString().toLowerCase(); 
             const userStr = userLocation.toLowerCase();
             return targetStr.includes(userStr) || userStr.includes(targetStr);
           });
         });
         
-        if (filteredCampaigns.length === 0) {
-          console.log("No campaigns match user location preferences in this page");
-          // Fall back to original campaigns if location filtering removes all results
-          filteredCampaigns = campaigns;
-        } else {
+        // FIX: Remove the fallback to unfiltered campaigns. 
+        // We set the flag if the filter was applied and yielded results.
+        if (filteredCampaigns.length > 0) {
           userPreferencesUsed = true;
+        } else {
+           console.log("No campaigns match user location preferences in this page. Respecting preference.");
         }
       }
     }
@@ -164,6 +156,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     });
 
     // Calculate pagination metadata
+    // Note: totalCampaignsCount only reflects DB filters (status, category), not in-memory location filter.
     const totalPages = Math.ceil(totalCampaignsCount / limitNum);
     const hasNextPage = pageNum < totalPages;
     const hasPrevPage = pageNum > 1;
