@@ -15,7 +15,7 @@ import UserRouter from './src/apps/user/routes/index.route.js';
 import WalletRouter from './src/apps/wallet/index.js';
 import webhookRoutes from './src/apps/wallet/routes/webhook.routes.js';
 import CampaignRouter from './src/apps/campaign/index.js';
-import SettingsRouter from './src/apps/settings/index.js';
+import SettingsRouter from './src/apps/settings/routes/index.route.js';
 import ContactRouter from './src/apps/contact/index.js';
 import DashboardRouter from './src/apps/dashboard/index.js';
 import PromoterRouter from './src/apps/promotion/index.js';
