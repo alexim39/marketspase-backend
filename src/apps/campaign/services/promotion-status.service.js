@@ -46,7 +46,13 @@ export const handlePromotionStatusUpdate = async ({
       }
       await PromotionModel.findByIdAndUpdate(
         promotion._id,
-        { $set: { status: 'paid', paidAt: new Date(), paidBy: performedBy } },
+        { $set: { 
+          status: 'paid', 
+          paidAt: new Date(), 
+          paidBy: performedBy,
+          hasBeenPaid: true
+          } 
+        },
         { session }
       );
       break;
@@ -191,6 +197,7 @@ const handleRejection = async ({ promotion, campaign, promoter, marketer, perfor
     {
       $set: {
         status: 'rejected',
+        hasBeenRefunded: true,
         rejectedAt: new Date(),
         rejectedBy: performedBy,
         rejectionReason: rejectionReason || "No reason provided."

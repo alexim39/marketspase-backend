@@ -161,6 +161,24 @@ const campaignSchema = new mongoose.Schema(
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User"
+    },
+
+    // Store integration
+    store: { type: mongoose.Schema.Types.ObjectId, ref: "Store" },
+    promotionType: { 
+      type: String, 
+      enum: ["product_promotion", "store_promotion", "category_promotion"],
+      default: "product_promotion"
+    },
+    
+    // Product-specific promotion
+    promotedProducts: [{ type: mongoose.Schema.Types.ObjectId, ref: "Product" }],
+    
+    // Store promotion settings
+    promotionGoal: {
+      type: String,
+      enum: ["awareness", "traffic", "conversions", "sales"],
+      default: "traffic"
     }
   },
   { timestamps: true }

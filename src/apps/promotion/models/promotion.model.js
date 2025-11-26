@@ -128,6 +128,13 @@ const promotionSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    // bolean safety flag to prevent double-pay/double-refund
+    hasReservedFromMarketer: { type: Boolean, default: false },
+    hasReservedForPromoter: { type: Boolean, default: false },
+    hasBeenPaid: { type: Boolean, default: false },
+    hasBeenRefunded: { type: Boolean, default: false },
+
   },
   {
     timestamps: true,

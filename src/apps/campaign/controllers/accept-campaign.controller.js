@@ -52,15 +52,19 @@ export const acceptCampaign = async (req, res) => {
       // Create a brand new promotion record
       let promotion;
       try {
-        promotion = await new PromotionModel({
+        promotion = new PromotionModel({
           campaign: campaignId,
           promoter: userId,
           status: 'pending',
           payoutAmount,
           notes: 'Campaign accepted by promoter, awaiting download',
           createdAt: new Date(),
-          updatedAt: new Date()
+          updatedAt: new Date(),
+          hasReservedFromMarketer: true
         }).save({ session });
+
+        await promotion.save({ session });
+
       } catch (err) {
         // Handle race / unique-index conflicts gracefully
         if (err && err.code === 11000) {
@@ -69,6 +73,11 @@ export const acceptCampaign = async (req, res) => {
         }
         throw err;
       }
+
+      if (marketer.wallets.marketer.balance < payoutAmount) {
+          throw { status: 400, message: "Insufficient marketer balance for reservation" };
+      }
+
 
       // Reserve funds from marketer
       marketer.wallets.marketer.balance -= payoutAmount;
@@ -86,7 +95,7 @@ export const acceptCampaign = async (req, res) => {
 
       // Update campaign
       campaign.assignPromoter();
-      campaign.spentBudget = (campaign.spentBudget || 0) + payoutAmount;
+      //campaign.spentBudget = (campaign.spentBudget || 0) + payoutAmount;
 
       // Push activity via atomic update
       await UserModel.updateOne(
