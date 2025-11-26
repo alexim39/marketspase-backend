@@ -52,7 +52,7 @@ export const acceptCampaign = async (req, res) => {
       // Create a brand new promotion record
       let promotion;
       try {
-        promotion = new PromotionModel({
+        promotion = await new PromotionModel({
           campaign: campaignId,
           promoter: userId,
           status: 'pending',
@@ -63,7 +63,6 @@ export const acceptCampaign = async (req, res) => {
           hasReservedFromMarketer: true
         }).save({ session });
 
-        await promotion.save({ session });
 
       } catch (err) {
         // Handle race / unique-index conflicts gracefully
