@@ -508,6 +508,7 @@ cron.schedule('0 */5 * * *', async () => {
         // Find expired promotions in BOTH scenarios:
         const expiredPromotions = await PromotionModel.find({
             status: 'pending',
+            isDownloaded: false,
             createdAt: { $lte: twentyFourHoursAgo }
         })
         .populate('promoter', 'displayName email wallets')
@@ -523,6 +524,8 @@ cron.schedule('0 */5 * * *', async () => {
         let refundedAmount = 0;
 
         for (const promotion of expiredPromotions) {
+
+          if (promotion.hasBeenRefunded || promotion.hasBeenPaid) continue;
             
             const campaign = promotion.campaign;
             const promoter = promotion.promoter;
