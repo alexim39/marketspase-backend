@@ -12,10 +12,10 @@ export const downloadPromotion = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { campaignId, promoterId } = req.body;
+    const { campaignId, promoterId, promotionId } = req.body;
 
     // Validate required fields
-    if (!campaignId || !promoterId) {
+    if (!campaignId || !promoterId || !promotionId) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
@@ -27,10 +27,11 @@ export const downloadPromotion = async (req, res) => {
     // Find the campaign, promotion, and users within transaction
     const campaign = await CampaignModel.findById(campaignId).session(session);
     const promoter = await UserModel.findById(promoterId).session(session);
-    const promotion = await PromotionModel.findOne({
-      campaign: campaignId,
-      promoter: promoterId
-    }).session(session);
+    const promotion = await PromotionModel.findById(promotionId).session(session);
+    // const promotion = await PromotionModel.findOne({
+    //   campaign: campaignId,
+    //   promoter: promoterId
+    // }).session(session);
 
     // Validation checks
     if (!campaign || !promoter) {
@@ -56,7 +57,7 @@ export const downloadPromotion = async (req, res) => {
       await session.abortTransaction();
       session.endSession();
       return res.status(403).json({
-        message: 'User is not authorized to download promotions.',
+        message: 'User is not authorized to download promotions. Switch to a promoter account.',
         success: false,
       });
     }
@@ -72,14 +73,14 @@ export const downloadPromotion = async (req, res) => {
     }
 
     // Check if promotion is already downloaded
-    // if (promotion.isDownloaded) {
-    //   await session.abortTransaction();
-    //   session.endSession();
-    //   return res.status(400).json({
-    //     message: 'Promotion materials already downloaded.',
-    //     success: false,
-    //   });
-    // }
+    if (promotion.isDownloaded && promotion.hasReservedForPromoter) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: 'Promotion materials already downloaded.',
+        success: false,
+      });
+    }
 
     const payoutAmount = campaign.payoutPerPromotion;
     const marketer = await UserModel.findById(campaign.owner).session(session);
@@ -172,6 +173,7 @@ export const downloadPromotion = async (req, res) => {
       {
         $set: {
           isDownloaded: true,
+          hasReservedForPromoter: true,
           notes: "Campaign materials downloaded by promoter"
         },
         $push: {
