@@ -83,7 +83,8 @@ export class ReferralService {
       }
       
       // Add bonus to referrer's wallet based on their role
-      const walletType = referrer.role;
+      const walletType = 'promoter';
+      //const walletType = referrer.role;
       
       referrer.wallets[walletType].balance += referral.bonusAmount;
       
