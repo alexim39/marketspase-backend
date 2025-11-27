@@ -43,7 +43,7 @@ export const updateThemePreferences = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Theme preferences updated successfully',
+      message: 'Theme preferences updated successfully, reload to apply changes.',
       data: {
         theme: user.preferences.theme
       }
