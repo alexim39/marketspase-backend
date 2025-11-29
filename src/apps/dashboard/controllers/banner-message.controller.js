@@ -135,7 +135,9 @@ export const getDismissedNotifications = async (req, res) => {
 export const createNotification = async (req, res) => {
   try {
     const notificationData = req.body;
-    notificationData.createdBy = req.user?._id;
+    //notificationData.createdBy = req.q;
+
+    console.log('Creating notification with data:', notificationData);
 
     const notification = new BannerMessageModel(notificationData);
     await notification.save();

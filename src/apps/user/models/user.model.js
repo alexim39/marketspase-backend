@@ -198,6 +198,11 @@ const userSchema = new mongoose.Schema(
         default: false,
       },
       adCategories: [{ type: String }],
+      theme: {
+        darkMode: { type: Boolean, default: false },
+        highContrast: { type: Boolean, default: false },
+        systemDefault: { type: Boolean, default: true }
+      }
     },
 
     // Add activity tracking array

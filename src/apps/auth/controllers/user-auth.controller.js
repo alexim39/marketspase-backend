@@ -106,7 +106,8 @@ export const Authenticate = async (req, res) => {
       await sendEmail(user.email, userSubject, userMessage);
 
       // user activity log
-      await user.logActivity('login', `New account creation and login`, {});
+      await user.logActivity('login', `You signed up a new account account`, {});
+      console.log(`User ${user.username} signed up via ${authProvider}.`);
 
     } else {
       // 4. User Exists, Update Information
@@ -131,9 +132,9 @@ export const Authenticate = async (req, res) => {
       }
 
       // user activity log
-      await user.logActivity('login', `You logged into account`, {});
-      
+      await user.logActivity('login', `New account creation and login`, {});
       console.log(`User ${user.username} logged in via ${authProvider}.`);
+      
     }
 
     // 5. Respond with the User Data
