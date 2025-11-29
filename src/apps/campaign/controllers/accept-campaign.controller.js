@@ -45,9 +45,9 @@ export const acceptCampaign = async (req, res) => {
 
       // If there's an existing PENDING promotion for this promoter+campaign, block.
       // Otherwise ALWAYS create a NEW promotion document (do not reuse or modify old non-pending records).
-      if (existingPendingPromotion) {
-        throw { status: 400, message: 'You have already accepted this campaign and your acceptance is still pending' };
-      }
+      // if (existingPendingPromotion) {
+      //   throw { status: 400, message: 'You have already accepted this campaign and your acceptance is still pending' };
+      // }
 
       // Create a brand new promotion record
       let promotion;
@@ -94,7 +94,6 @@ export const acceptCampaign = async (req, res) => {
 
       // Update campaign
       campaign.assignPromoter();
-      //campaign.spentBudget = (campaign.spentBudget || 0) + payoutAmount;
 
       // Push activity via atomic update
       await UserModel.updateOne(
