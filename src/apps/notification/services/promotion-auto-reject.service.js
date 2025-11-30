@@ -1,195 +1,142 @@
-import { CampaignModel } from './../../campaign/models/campaign.model.js';
-import mongoose from 'mongoose';
+
+// src/apps/notification/services/promotion-auto-reject.service.js
+import { CampaignModel }  from './../../campaign/models/campaign.model.js';
 import { PromotionModel } from './../../promotion/models/promotion.model.js';
-import { UserModel } from './../../user/models/user.model.js';
+import { UserModel }      from './../../user/models/user.model.js';
 import { NotificationService } from './notification.service.js';
+import mongoose from 'mongoose';
+import { moveWithinWallet, moveBetweenWallets } from "../../wallet/services/wallet-move.service.js";
 
 export const promotionAutoRejection = async () => {
   const jobStartTime = new Date();
-  console.log(`🕐 [${jobStartTime.toISOString()}] Auto-Reject expired promotions started`);
+  console.log(`🕒 [${jobStartTime.toISOString()}] Auto-Reject expired promotions started`);
 
   try {
     const threshold = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    // Find expired unsubmitted promotions
     const expiredPromotions = await PromotionModel.find({
       status: "pending",
       createdAt: { $lte: threshold }
     })
-      .populate("promoter", "displayName email wallets")
-      .populate({
-        path: "campaign",
-        populate: { path: "owner", model: "User", select: "displayName email wallets" }
-      });
+    .populate("promoter", "displayName email wallets")
+    .populate({ path: "campaign", populate: { path: "owner", model: "User", select: "displayName email wallets" } });
 
     console.log(`📊 Found ${expiredPromotions.length} expired promotions`);
 
-    let rejected = 0;
-    let failed = 0;
+    let rejected = 0, failed = 0;
 
     for (const promotion of expiredPromotions) {
-      // SKIP if already refunded/paid
-      if (promotion.hasBeenPaid || promotion.hasBeenRefunded) continue;
-
+      if (promotion.status !== "pending") continue; // safety
       const promoter = promotion.promoter;
       const campaign = promotion.campaign;
       const marketer = campaign.owner;
-      const payoutAmount = promotion.payoutAmount || campaign.payoutPerPromotion;
-
-      const SCENARIO =
-        promotion.isDownloaded === true
-          ? "Downloaded but NOT submitted"
-          : "Accepted but NOT downloaded";
+      const payoutAmount = Number(promotion.payoutAmount ?? campaign.payoutPerPromotion ?? 0);
+      const SCENARIO = promotion.isDownloaded === true ? "Downloaded but NOT submitted" : "Accepted but NOT downloaded";
 
       const session = await mongoose.startSession();
-
       try {
         await session.startTransaction();
 
-        // 1️⃣ Mark promotion rejected
-        await PromotionModel.findByIdAndUpdate(
-          promotion._id,
+        // mark promotion rejected
+        await PromotionModel.updateOne(
+          { _id: promotion._id },
           {
-            $set: {
-              status: "rejected",
-              rejectedAt: new Date(),
-              rejectionReason: `Promotion expired — ${SCENARIO}`,
-              hasBeenRefunded: true
-            },
-            $push: {
-              activityLog: {
-                action: "Auto-Rejected",
-                details: `Promotion automatically rejected after 24 hours. ${SCENARIO}.`,
-                timestamp: new Date()
-              }
-            }
+            $set: { status: "rejected", rejectionReason: `Promotion expired — ${SCENARIO}` },
+            $push: { activityLog: { action: "Auto-Rejected", details: `Expired after 24 hours. ${SCENARIO}.`, timestamp: new Date() } }
           },
           { session }
         );
 
-        // 2️⃣ FINANCIAL LOGIC — Based on scenario
-
         if (!promotion.isDownloaded) {
-          // Scenario A: accepted but NEVER downloaded
-          // Refund: marketer.reserved → marketer.balance
+          // Scenario A: accepted but never downloaded -> refund marketer.reserved -> marketer.balance
+          await moveWithinWallet({
+            session, userId: marketer._id, side: 'marketer',
+            incReserved: -payoutAmount, incBalance: +payoutAmount
+          });
 
-          if (promotion.hasReservedFromMarketer === true) {
-            await UserModel.findByIdAndUpdate(
-              marketer._id,
-              {
-                $inc: {
-                  "wallets.marketer.reserved": -payoutAmount,
-                  "wallets.marketer.balance": payoutAmount
-                },
-                $push: {
-                  "wallets.marketer.transactions": {
-                    amount: payoutAmount,
-                    type: "credit",
-                    category: "refund",
-                    description: `Refund for unclaimed promotion: ${campaign.title}`,
-                    relatedCampaign: campaign._id,
-                    relatedPromotion: promotion._id,
-                    status: "successful",
-                    timestamp: new Date()
-                  }
+          await UserModel.updateOne(
+            { _id: marketer._id },
+            {
+              $push: {
+                "wallets.marketer.transactions": {
+                  amount: payoutAmount, type: "credit", category: "refund",
+                  description: `Refund for unclaimed promotion: ${campaign.title}`,
+                  relatedCampaign: campaign._id, relatedPromotion: promotion._id,
+                  status: "successful", createdAt: new Date()
                 }
-              },
-              { session }
-            );
-          }
-
+              }
+            },
+            { session }
+          );
         } else {
-          // Scenario B: downloaded but NOT submitted
-          // Refund: promoter.reserved → marketer.balance
+          // Scenario B: downloaded but NOT submitted -> promoter.reserved -> marketer.balance
+          await moveBetweenWallets({
+            session,
+            fromUserId: promoter._id, fromSide: 'promoter', fromField: 'reserved',
+            toUserId: marketer._id,   toSide: 'marketer',   toField: 'balance',
+            amount: payoutAmount
+          });
 
-          if (promotion.hasReservedForPromoter === true) {
-            // Remove from promoter escrow
-            await UserModel.findByIdAndUpdate(
-              promoter._id,
-              {
-                $inc: { "wallets.promoter.reserved": -payoutAmount },
-                $push: {
-                  "wallets.promoter.transactions": {
-                    amount: payoutAmount,
-                    type: "debit",
-                    category: "refund",
-                    description: `Reserved funds released for expired promotion: ${campaign.title}`,
-                    relatedCampaign: campaign._id,
-                    relatedPromotion: promotion._id,
-                    status: "reversed",
-                    timestamp: new Date()
-                  }
+          await UserModel.updateOne(
+            { _id: promoter._id },
+            {
+              $push: {
+                "wallets.promoter.transactions": {
+                  amount: payoutAmount, type: "debit", category: "refund",
+                  description: `Reserved funds released for expired promotion: ${campaign.title}`,
+                  relatedCampaign: campaign._id, relatedPromotion: promotion._id,
+                  status: "reversed", createdAt: new Date()
                 }
-              },
-              { session }
-            );
+              }
+            },
+            { session }
+          );
 
-            // Credit marketer balance
-            await UserModel.findByIdAndUpdate(
-              marketer._id,
-              {
-                $inc: { "wallets.marketer.balance": payoutAmount },
-                $push: {
-                  "wallets.marketer.transactions": {
-                    amount: payoutAmount,
-                    type: "credit",
-                    category: "refund",
-                    description: `Refund received for expired promotion: ${promotion.upi || promotion._id}`,
-                    relatedCampaign: campaign._id,
-                    relatedPromotion: promotion._id,
-                    status: "successful",
-                    timestamp: new Date()
-                  }
+          await UserModel.updateOne(
+            { _id: marketer._id },
+            {
+              $push: {
+                "wallets.marketer.transactions": {
+                  amount: payoutAmount, type: "credit", category: "refund",
+                  description: `Refund received for expired promotion: ${promotion.upi || promotion._id}`,
+                  relatedCampaign: campaign._id, relatedPromotion: promotion._id,
+                  status: "successful", createdAt: new Date()
                 }
-              },
-              { session }
-            );
-          }
+              }
+            },
+            { session }
+          );
         }
 
-        // 3️⃣ UPDATE CAMPAIGN (NO budget manipulation here)
+        // update campaign slot; optional reactivation
         const campaignUpdate = {
           $inc: { currentPromoters: -1 },
-          $push: {
-            activityLog: {
-              action: "Promotion Auto-Rejected",
-              details: `Promotion ${promotion._id} auto-rejected. ${SCENARIO}.`,
-              timestamp: new Date()
-            }
-          }
+          $push: { activityLog: { action: "Promotion Auto-Rejected", details: `Promotion ${promotion._id} auto-rejected. ${SCENARIO}.`, timestamp: new Date() } }
         };
-
-        // Reactivate campaign if it was exhausted and budget allows
         if (campaign.status === "exhausted") {
-          const remaining = campaign.budget - campaign.spentBudget;
-          if (remaining >= campaign.payoutPerPromotion) {
+          const remaining = (campaign.budget ?? 0) - (campaign.spentBudget ?? 0);
+          if (remaining >= (campaign.payoutPerPromotion ?? payoutAmount)) {
             campaignUpdate.$set = { status: "active" };
           }
         }
+        await CampaignModel.updateOne({ _id: campaign._id }, campaignUpdate, { session });
 
-        await CampaignModel.findByIdAndUpdate(campaign._id, campaignUpdate, { session });
-
-        await session.commitTransaction();
+        await session.commitTransaction(); session.endSession();
         rejected++;
       } catch (err) {
         failed++;
         await session.abortTransaction().catch(() => {});
-        console.error(`Failed to auto-reject promotion ${promotion._id}:`, err);
-      } finally {
         session.endSession();
+        console.error(`Failed to auto-reject promotion ${promotion._id}:`, err);
       }
 
-      // 4️⃣ OUTSIDE TRANSACTION → Notifications
+      // notifications outside transaction (or adopt outbox later)
       await NotificationService.createNotification({
         recipient: promoter._id,
         type: "promotion_rejected",
         title: "Promotion Expired ⏰",
         message: `Your promotion for "${campaign.title}" expired after 24 hours (${SCENARIO}).`,
-        data: {
-          campaignId: campaign._id,
-          promotionId: promotion._id,
-          scenario: SCENARIO
-        },
+        data: { campaignId: campaign._id, promotionId: promotion._id, scenario: SCENARIO },
         priority: "medium"
       });
 
@@ -203,12 +150,8 @@ export const promotionAutoRejection = async () => {
     }
 
     const end = new Date();
-    console.log(
-      `🎉 Auto-Reject job DONE — rejected: ${rejected}, failed: ${failed}, duration: ${
-        (end - jobStartTime) / 1000
-      }s`
-    );
+    console.log(`🎉 Auto-Reject job DONE — rejected: ${rejected}, failed: ${failed}, duration: ${(end - jobStartTime)/1000}s`);
   } catch (err) {
     console.error("❌ Auto-Reject job failed:", err);
   }
-}
+};

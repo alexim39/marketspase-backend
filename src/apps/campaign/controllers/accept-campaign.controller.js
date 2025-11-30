@@ -1,139 +1,86 @@
+
+// apps/campaign/controllers/accept-campaign.controller.js
+import mongoose from "mongoose";
 import { CampaignModel } from "../models/campaign.model.js";
 import { PromotionModel } from "../../promotion/models/promotion.model.js";
 import { UserModel } from "../../user/models/user.model.js";
-import mongoose from "mongoose";
+import { recordReservationTxEmbedded } from "../../user/services/transactions.service.js";
+import { logUserActivity } from "../../user/services/activity.service.js";
 
-/**
- * @description Allows a promoter to accept a campaign, creating a promotion record
- * without financial operations. Financial operations will be handled in downloadPromotion.
- */
 export const acceptCampaign = async (req, res) => {
-
   const session = await mongoose.startSession();
-
   try {
-    // run logic inside withTransaction so driver can retry transient errors
     const result = await session.withTransaction(async () => {
       const { campaignId } = req.params;
       const { userId } = req.body;
 
-      // 1. Find resources with session
       const campaign = await CampaignModel.findById(campaignId).session(session);
-      const promoter = await UserModel.findById(userId).session(session);
-      const marketer = await UserModel.findById(campaign?.owner).session(session);
-
-      // On validation failures, throw an object; withTransaction will abort automatically
       if (!campaign) throw { status: 404, message: 'Campaign not found' };
-      if (!promoter) throw { status: 404, message: 'Promoter user not found' };
-      if (!marketer) throw { status: 404, message: 'Campaign owner not found' };
       if (campaign.status !== 'active') throw { status: 400, message: 'Campaign is not active' };
 
-      // Check pending-only uniqueness
-      const existingPendingPromotion = await PromotionModel.findOne({
+      const promoter = await UserModel.findById(userId).session(session);
+      if (!promoter) throw { status: 404, message: 'Promoter user not found' };
+
+      const marketer = await UserModel.findById(campaign.owner).session(session);
+      if (!marketer) throw { status: 404, message: 'Campaign owner not found' };
+
+      // uniqueness for pending
+      const existing = await PromotionModel.findOne({ campaign: campaignId, promoter: userId, status: 'pending' }).session(session);
+      if (existing) throw { status: 409, message: 'You already have a pending promotion for this campaign' };
+
+      // payout in minor units
+      const payout = Number(campaign.payoutPerPromotion ?? 0);
+      if (!Number.isFinite(payout) || payout <= 0) throw { status: 400, message: 'Invalid campaign payout amount' };
+
+      // create pending promotion
+      const promotion = await new PromotionModel({
         campaign: campaignId,
         promoter: userId,
-        status: 'pending'
-      }).session(session);
-      console.log('existingPendingPromotion', existingPendingPromotion);
-      if (existingPendingPromotion) throw { status: 400, message: 'You have already accepted this campaign and your acceptance is still pending' };
+        status: 'pending',
+        payoutAmount: payout,
+        acceptedAt: new Date()
+      }).save({ session });
 
-      // determine payout and validate
-      const payoutAmount = Number(campaign?.payoutPerPromotion ?? 0);
-      if (!Number.isFinite(payoutAmount) || payoutAmount <= 0) {
-        throw { status: 400, message: 'Invalid campaign payout amount' };
-      }
+      // guarded reservation (no negatives)
+      const ok = await UserModel.updateOne(
+        { _id: marketer._id, 'wallets.marketer.balance': { $gte: payout } },
+        { $inc: { 'wallets.marketer.balance': -payout, 'wallets.marketer.reserved': +payout } },
+        { session }
+      );
+      if (!ok.modifiedCount) throw { status: 402, message: 'Insufficient marketer balance for reservation' };
 
-      // If there's an existing PENDING promotion for this promoter+campaign, block.
-      // Otherwise ALWAYS create a NEW promotion document (do not reuse or modify old non-pending records).
-      // if (existingPendingPromotion) {
-      //   throw { status: 400, message: 'You have already accepted this campaign and your acceptance is still pending' };
-      // }
-
-      // Create a brand new promotion record
-      let promotion;
-      try {
-        promotion = await new PromotionModel({
-          campaign: campaignId,
-          promoter: userId,
-          status: 'pending',
-          payoutAmount,
-          notes: 'Campaign accepted by promoter, awaiting download',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          hasReservedFromMarketer: true
-        }).save({ session });
-
-
-      } catch (err) {
-        // Handle race / unique-index conflicts gracefully
-        if (err && err.code === 11000) {
-          // Duplicate key -> another process created a pending promotion concurrently
-          throw { status: 409, message: 'You have already accepted this campaign (pending promotion exists)' };
-        }
-        throw err;
-      }
-
-      if (marketer.wallets.marketer.balance < payoutAmount) {
-          throw { status: 400, message: "Insufficient marketer balance for reservation" };
-      }
-
-
-      // Reserve funds from marketer
-      marketer.wallets.marketer.balance -= payoutAmount;
-      marketer.wallets.marketer.reserved += payoutAmount;
-      marketer.wallets.marketer.transactions.push({
-        amount: payoutAmount,
-        type: 'debit',
-        category: 'campaign',
-        description: `Funds reserved for campaign: "${campaign.title}"`,
-        relatedCampaign: campaignId,
-        relatedPromotion: promotion._id,
-        status: 'reserved',
-        timestamp: new Date()
-      });
-
-      // Update campaign
-      campaign.assignPromoter();
-
-      // Push activity via atomic update
-      await UserModel.updateOne(
-        { _id: promoter._id },
-        {
-          $push: {
-            activityLog: {
-              $each: [{
-                action: 'campaign_update',
-                description: `You accepted campaign: "${campaign.title}"`,
-                resourceType: 'campaign',
-                resourceId: campaignId,
-                metadata: { payoutAmount, promotionId: promotion._id },
-                timestamp: new Date()
-              }],
-              $position: 0,
-              $slice: 1000
-            }
-          }
-        },
+      // campaign capacity + reserved snapshot
+      await CampaignModel.updateOne(
+        { _id: campaign._id },
+        { $inc: { currentPromoters: 1, reservedAmount: payout } },
         { session }
       );
 
-      // Save documents within the same session
-      await Promise.all([
-        marketer.save({ session }),
-        campaign.save({ session }),
-        promoter.save({ session })
-      ]);
+      // idempotent transaction record
+      const operationId = `reserve:${promotion._id}`;
+      await recordReservationTxEmbedded({
+        session, operationId,
+        campaignId: campaign._id,
+        promotionId: promotion._id,
+        marketerId: marketer._id,
+        promoterId: promoter._id,
+        payout
+      });
 
-      // return data to outer scope for response
-      return { promotion, campaignStatus: campaign.status, reservedAmount: payoutAmount };
-    }, {
-      // optional transaction options
-      readPreference: 'primary',
-      readConcern: { level: 'local' },
-      writeConcern: { w: 'majority' }
-    });
+      // promoter activity log
+      await logUserActivity({
+        session,
+        userId: promoter._id,
+        action: 'campaign_update',
+        description: `You accepted campaign: "${campaign.title}"`,
+        resourceType: 'campaign',
+        resourceId: campaign._id,
+        metadata: { payout, promotionId: promotion._id }
+      });
 
-    // on success, send response (withTransaction committed)
+      return { promotion, reservedAmount: payout, campaignStatus: campaign.status };
+    }, { writeConcern: { w: 'majority' } });
+
     res.json({
       success: true,
       message: 'Campaign accepted successfully! You can now download the promotion materials.',
@@ -141,19 +88,13 @@ export const acceptCampaign = async (req, res) => {
       campaignStatus: result.campaignStatus,
       reservedAmount: result.reservedAmount
     });
-
   } catch (error) {
-    // handle controlled (thrown) HTTP errors first
-    if (error && typeof error === 'object' && error.status) {
+    if (error && error.status) {
       return res.status(error.status).json({ success: false, message: error.message });
     }
-
-    // transient/other errors
     console.error('Error accepting campaign:', error);
-    const message = (error && error.code === 11000) ? 'You have already accepted this campaign (pending exists)' : 'Internal server error';
-    res.status(500).json({ success: false, message });
+    res.status(500).json({ success: false, message: 'Internal server error' });
   } finally {
-    // always end the session
     await session.endSession();
   }
 };

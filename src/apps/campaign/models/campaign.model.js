@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 // A utility constant for enums
+//const CAMPAIGN_STATUSES = ["pending", "active", "paused", "rejected", "completed", "exhausted", "expired", "draft", "archived"];
 const CAMPAIGN_STATUSES = ["active", "paused", "rejected", "completed", "exhausted", "expired", "pending", "draft", "archived"];
 
 // Define the schema
@@ -251,7 +252,12 @@ campaignSchema.virtual('remainingDays').get(function() {
     return diffDays;
 });
 
-
+// Virtual for promotions population
+campaignSchema.virtual('promotions', {
+    ref: 'Promotion',
+    localField: '_id',
+    foreignField: 'campaign'
+});
 
 /* ------------------------------------------------------------
    METHODS
@@ -477,12 +483,7 @@ campaignSchema.statics = {
     }
 };
 
-// Virtual for promotions population
-campaignSchema.virtual('promotions', {
-    ref: 'Promotion',
-    localField: '_id',
-    foreignField: 'campaign'
-});
+
 
 campaignSchema.set('toObject', { virtuals: true });
 campaignSchema.set('toJSON', { virtuals: true });
