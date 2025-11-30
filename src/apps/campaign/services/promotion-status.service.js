@@ -177,7 +177,8 @@ const rejectPromotion = async ({
     // Reactivate the campaign if it was previously exhausted/completed/expired 
     // AND there is now at least one free slot.
     if (newCurrentPromoters < campaign.maxPromoters) {
-        if (campaign.status === 'exhausted' || campaign.status === 'completed' || campaign.status === 'expired') {
+        if (campaign.status === 'exhausted') {
+        // if (campaign.status === 'exhausted' || campaign.status === 'completed' || campaign.status === 'expired') {
             campaignUpdate.$set = { status: 'active' };
             campaignUpdate.$push.activityLog.push({
                 action: "Status Reverted",
