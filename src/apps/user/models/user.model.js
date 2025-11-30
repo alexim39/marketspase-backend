@@ -6,8 +6,8 @@ import { transactionSchema } from './transaction.schema.js';
 
 const walletSchema = new mongoose.Schema({
   currency: { type: String, default: 'NGN' },
-  balance: { type: Number, default: 0 },  // Available balance
-  reserved: { type: Number, default: 0 }, // Funds locked in escrow
+  balance: { type: Number, default: 0, min: 0 },  // Available balance
+  reserved: { type: Number, default: 0, min: 0 }, // Funds locked in escrow
   transactions: [transactionSchema]
 });
 
