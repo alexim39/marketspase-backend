@@ -19,9 +19,11 @@ export const UpdateCampaignStatus = async (req, res) => {
     // 1. Extract the campaign ID from the request parameters
     const { id } = req.params;
     // 2. Extract the new status and optional details from the request body
-    const { status, details = "" } = req.body;
+    const { status, details = "", performedBy } = req.body;
     // 3. Get the user ID from the request (assuming it's set by authentication middleware)
-    const performedBy = req.user?._id;
+    //const performedBy = req.user?._id;
+
+    console.log(`Updating campaign ID ${id} to status '${status}' by user ${performedBy}`);
 
     // 4. Validate that both ID and status are provided
     if (!id || !status) {
@@ -74,7 +76,7 @@ export const UpdateCampaignStatus = async (req, res) => {
     campaign.updateStatus(status, performedBy, details);
 
     // 10. Special handling for status changes that might affect wallet balances
-    if (status === "rejected" || status === "cancelled") {
+   /*  if (status === "rejected" || status === "cancelled") {
       // If campaign is rejected/cancelled, refund reserved funds to marketer
       const marketer = await UserModel.findById(campaign.owner).session(session);
       // if (marketer) {
@@ -95,9 +97,7 @@ export const UpdateCampaignStatus = async (req, res) => {
       //     await marketer.save({ session });
       //   }
       // }
-
-     
-    }
+    } */
 
     // 11. Save the updated campaign document within the transaction
     await campaign.save({ session });

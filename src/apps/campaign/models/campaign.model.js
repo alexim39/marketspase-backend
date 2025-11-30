@@ -252,6 +252,7 @@ campaignSchema.virtual('remainingDays').get(function() {
 });
 
 
+
 /* ------------------------------------------------------------
    METHODS
    Ensuring core fund logic is maintained in assignPromoter & recordPromoterPayment.
@@ -324,9 +325,11 @@ campaignSchema.methods.validatePromotion = function () {
 
 // Method to update campaign status
 campaignSchema.methods.updateStatus = function(newStatus, performedBy, details = "") {
+    console.log(`Campaign ${this._id}: Status changing from ${this.status} to ${newStatus} by user ${performedBy}`);
     const oldStatus = this.status;
     if (CAMPAIGN_STATUSES.includes(newStatus)) {
         this.status = newStatus;
+        this.createdBy = performedBy; // Track who performed the status change
         
         this.activityLog.push({
             action: "Status Changed",
@@ -462,6 +465,15 @@ campaignSchema.statics = {
             hasEndDate: true,
             endDate: { $lte: thresholdDate, $gte: new Date() }
         }).populate('owner');
+    },
+
+    // Find campaigns that have passed their end date
+    async findExpiredCampaigns() {
+        return this.find({
+            status: { $nin: ['completed', 'expired', 'rejected', 'archived'] }, // Only look at statuses that can be expired
+            hasEndDate: true,
+            endDate: { $lt: new Date() } // Where endDate is less than now
+        });
     }
 };
 
