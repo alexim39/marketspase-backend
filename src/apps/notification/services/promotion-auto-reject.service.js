@@ -68,6 +68,19 @@ export const promotionAutoRejection = async () => {
             },
             { session }
           );
+
+         // Set refund and escrow flags
+          await PromotionModel.updateOne(
+            { _id: promotion._id },
+            {
+              $set: {
+                hasBeenRefunded: true,
+                hasReservedFromMarketer: false
+              }
+            },
+            { session }
+          );
+
         } else {
           // Scenario B: downloaded but NOT submitted -> promoter.reserved -> marketer.balance
           await moveBetweenWallets({
@@ -106,11 +119,27 @@ export const promotionAutoRejection = async () => {
             },
             { session }
           );
+          
+          // Set refund and escrow flags
+          await PromotionModel.updateOne(
+            { _id: promotion._id },
+            {
+              $set: {
+                hasBeenRefunded: true,
+                hasReservedForPromoter: false
+              }
+            },
+            { session }
+          );
+
         }
 
         // update campaign slot; optional reactivation
         const campaignUpdate = {
-          $inc: { currentPromoters: -1 },
+          $inc: { 
+            currentPromoters: -1,
+            totalPromotions: -1
+          },
           $push: { activityLog: { action: "Promotion Auto-Rejected", details: `Promotion ${promotion._id} auto-rejected. ${SCENARIO}.`, timestamp: new Date() } }
         };
         if (campaign.status === "exhausted") {
@@ -120,6 +149,9 @@ export const promotionAutoRejection = async () => {
           }
         }
         await CampaignModel.updateOne({ _id: campaign._id }, campaignUpdate, { session });
+        // Trigger pre-save hook to recalculate spentBudget
+        const updatedCampaignDoc = await CampaignModel.findById(campaign._id).session(session);
+        if (updatedCampaignDoc) await updatedCampaignDoc.save({ session })
 
         await session.commitTransaction(); session.endSession();
         rejected++;

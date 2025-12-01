@@ -64,8 +64,17 @@ export const acceptCampaign = async (req, res) => {
         promotionId: promotion._id,
         marketerId: marketer._id,
         promoterId: promoter._id,
-        payout
+        amount: payout
       });
+
+      
+      // Set hasReservedFromMarketer flag on the promotion
+      await PromotionModel.updateOne(
+        { _id: promotion._id },
+        { $set: { hasReservedFromMarketer: true } },
+        { session }
+      );
+
 
       // promoter activity log
       await logUserActivity({

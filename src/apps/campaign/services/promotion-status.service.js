@@ -1,8 +1,8 @@
 
 // src/apps/campaign/services/promotion-status.service.js
 import { PromotionModel } from "../../promotion/models/promotion.model.js";
-import { CampaignModel }  from "../models/campaign.model.js";
-import { UserModel }      from "../../user/models/user.model.js";
+import { CampaignModel } from "../models/campaign.model.js";
+import { UserModel } from "../../user/models/user.model.js";
 import { moveWithinWallet, moveBetweenWallets } from "../../wallet/services/wallet-move.service.js";
 
 /** Helper: append an embedded transaction line safely */
@@ -15,10 +15,13 @@ async function pushEmbeddedTx({ session, userId, path, entry }) {
   if (!res.modifiedCount) throw new Error(`Failed to append transaction to ${path}`);
 }
 
-/** VALIDATE (status only) */
+/** VALIDATE (status & audit) */
 async function validateOnly({ promotion, performedBy, session }) {
+  const fresh = await PromotionModel.findById(promotion._id).session(session);
+  if (!fresh || fresh.status === "paid" || fresh.hasBeenPaid === true) return; // already paid, do nothing
+
   await PromotionModel.updateOne(
-    { _id: promotion._id, status: "submitted" },
+    { _id: promotion._id, status: { $in: ["submitted", "pending", "validated"] } },
     {
       $set: { status: "validated", validatedAt: new Date(), validatedBy: performedBy },
       $push: { activityLog: { action: "Promotion Validated", details: "Validated by admin", timestamp: new Date() } }
@@ -27,9 +30,20 @@ async function validateOnly({ promotion, performedBy, session }) {
   );
 }
 
-/** PAID (payout: promoter.reserved -> promoter.balance) */
+
+/** PAY (payout: promoter.reserved -> promoter.balance) */
 async function payPromotion({ promotion, campaign, promoter, payoutAmount, session, operationId }) {
-  // wallet move: promoter.reserved -> promoter.balance
+  // Idempotency: if already paid, skip
+  const fresh = await PromotionModel.findById(promotion._id).session(session);
+  if (fresh?.status === "paid") return;
+
+  // Must have reserved funds on promoter side before paying
+  // (download step should have set hasReservedForPromoter and moved marketer.reserved -> promoter.reserved)
+  if (!fresh?.hasReservedForPromoter) {
+    throw new Error("Cannot pay: promotion funds were not reserved for the promoter.");
+  }
+
+  // Wallet move: promoter.reserved -> promoter.balance
   await moveWithinWallet({
     session,
     userId: promoter._id,
@@ -38,7 +52,7 @@ async function payPromotion({ promotion, campaign, promoter, payoutAmount, sessi
     incBalance: +payoutAmount
   });
 
-  // embedded promoter transaction
+  // Embedded promoter transaction
   await pushEmbeddedTx({
     session,
     userId: promoter._id,
@@ -55,30 +69,56 @@ async function payPromotion({ promotion, campaign, promoter, payoutAmount, sessi
     }
   });
 
-  // promotion + campaign counters
+  // Promotion -> paid (also keep audit entries)
   await PromotionModel.updateOne(
     { _id: promotion._id },
     {
-      $set: { status: "paid", paidAt: new Date() },
+      $set: { 
+        status: "paid", paidAt: new Date(),
+        hasBeenPaid: true, 
+      },
       $push: { activityLog: { action: "Promotion Paid", details: "Payment processed", timestamp: new Date() } }
     },
     { session }
   );
 
+  // Campaign counters: increment paid & validated; decrease reservedAmount (use your existing `reservedAmount` field)
   await CampaignModel.updateOne(
     { _id: campaign._id },
     {
-      $inc: { paidPromotions: 1, validatedPromotions: 1, reservedAmountKobo: -payoutAmount /* if you track reservedAmount */ },
+      $inc: {
+        paidPromotions: 1,
+        validatedPromotions: 1,
+        totalPromotions: 1,      // <-- Increment totalPromotions on payment
+        reservedAmount: -payoutAmount // <-- match your model/controller that uses `reservedAmount`
+      },
       $push: { activityLog: { action: "Promoter Paid", details: `Paid ${payoutAmount} NGN`, timestamp: new Date() } }
     },
     { session }
   );
+
+  
+  // Trigger pre-save hook to recalculate spentBudget
+  const updatedCampaign = await CampaignModel.findById(campaign._id).session(session);
+  if (updatedCampaign) await updatedCampaign.save({ session });
+
 }
 
 /** REJECT (refund scenarios) */
 async function rejectPromotionFlow({
   promotion, campaign, promoter, marketer, performedBy, rejectionReason, payoutAmount, session, operationId
 }) {
+
+  
+ // Refresh latest flags inside the session for accurate branching
+  const fresh = await PromotionModel.findById(promotion._id).session(session);
+  if (!fresh) throw new Error("Promotion not found for rejection");
+
+  // Idempotency: if already rejected and refunded, skip
+  if (fresh.status === "rejected" && fresh.hasBeenRefunded === true) {
+    return;
+  }
+
   // Update promotion status + activity
   await PromotionModel.updateOne(
     { _id: promotion._id },
@@ -90,8 +130,7 @@ async function rejectPromotionFlow({
   );
 
   if (!promotion.isDownloaded) {
-    // Scenario A: accepted but NOT downloaded
-    // refund marketer.reserved -> marketer.balance
+    // Scenario A: accepted but NOT downloaded -> refund marketer.reserved -> marketer.balance
     await moveWithinWallet({
       session,
       userId: marketer._id,
@@ -100,7 +139,6 @@ async function rejectPromotionFlow({
       incBalance: +payoutAmount
     });
 
-    // embedded tx on marketer
     await pushEmbeddedTx({
       session,
       userId: marketer._id,
@@ -116,17 +154,28 @@ async function rejectPromotionFlow({
         createdAt: new Date()
       }
     });
+
+    
+    // Flags: reservation at marketer side is now released
+    await PromotionModel.updateOne(
+      { _id: promotion._id },
+      {
+        $set: {
+          hasBeenRefunded: true,           // <-- ✅ flip refund flag
+        }
+      },
+      { session }
+    );
+
   } else {
-    // Scenario B: downloaded but NOT submitted
-    // refund promoter.reserved -> marketer.balance (two-party move)
+    // Scenario B: downloaded but NOT submitted -> refund promoter.reserved -> marketer.balance
     await moveBetweenWallets({
       session,
       fromUserId: promoter._id, fromSide: 'promoter', fromField: 'reserved',
-      toUserId: marketer._id,   toSide: 'marketer',   toField: 'balance',
+      toUserId: marketer._id,   toSide: 'marketer',  toField: 'balance',
       amount: payoutAmount
     });
 
-    // embedded tx on promoter
     await pushEmbeddedTx({
       session,
       userId: promoter._id,
@@ -143,7 +192,6 @@ async function rejectPromotionFlow({
       }
     });
 
-    // embedded tx on marketer
     await pushEmbeddedTx({
       session,
       userId: marketer._id,
@@ -163,9 +211,13 @@ async function rejectPromotionFlow({
 
   // Free up campaign slot and possibly reactivate
   const campaignUpdate = {
-    $inc: { currentPromoters: -1 },
+    $inc: { 
+      currentPromoters: -1,
+      totalPromotions: -1
+    },
     $push: { activityLog: { action: "Promotion Rejected", details: "Slot freed after rejection", timestamp: new Date() } }
   };
+
   // Optional reactivation check (same as your existing logic)
   if (campaign.status === "exhausted") {
     const remaining = (campaign.budget ?? 0) - (campaign.spentBudget ?? 0);
@@ -173,6 +225,7 @@ async function rejectPromotionFlow({
       campaignUpdate.$set = { status: "active" };
     }
   }
+
   await CampaignModel.updateOne({ _id: campaign._id }, campaignUpdate, { session });
 }
 
@@ -190,18 +243,21 @@ export async function handlePromotionStatusUpdate({
     throw new Error(`Promotion is already ${promotion.status}.`);
   }
 
-  const campaign = promotion.campaign;
-  const promoter = promotion.promoter;
-  const marketer = campaign.owner;
+  const campaign  = promotion.campaign;
+  const promoter  = promotion.promoter;
+  const marketer  = campaign.owner;
   const payoutAmount = Number(promotion.payoutAmount ?? campaign.payoutPerPromotion ?? 0);
   if (!Number.isFinite(payoutAmount) || payoutAmount <= 0) throw new Error("Invalid payout amount");
 
   switch (status) {
     case "validated":
+      // NEW: validate AND pay in the same flow
       await validateOnly({ promotion, performedBy, session });
+      await payPromotion({ promotion, campaign, promoter, payoutAmount, session, operationId });
       break;
 
     case "paid":
+      // Direct pay (kept for backward compatibility)
       await payPromotion({ promotion, campaign, promoter, payoutAmount, session, operationId });
       break;
 

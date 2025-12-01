@@ -188,9 +188,11 @@ campaignSchema.index({ spentBudget: 1, budget: 1 });
 ------------------------------------------------------------- */
 campaignSchema.pre('save', function(next) {
     // 1. FUND FLOW: spentBudget is derived from paidPromotions
-    if (this.isModified('paidPromotions') || this.isNew) {
+    this.spentBudget = (this.paidPromotions * this.payoutPerPromotion) || 0;
+
+    /* if (this.isModified('paidPromotions') || this.isNew) {
         this.spentBudget = (this.paidPromotions * this.payoutPerPromotion) || 0;
-    }
+    } */
     
     // 2. Estimate Views & Duration (from old model)
     if (this.isModified('maxPromoters') || this.isNew) {

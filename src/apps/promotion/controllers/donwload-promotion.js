@@ -12,8 +12,11 @@ import mongoose from "mongoose";
  */
 export const downloadPromotion = async (req, res) => {
   const session = await mongoose.startSession();
+  // Capture the transaction outputs here
+  let txResult = null;
+
   try {
-    const result = await session.withTransaction(async () => {
+    await session.withTransaction(async () => {
       const { campaignId, promoterId, promotionId } = req.body;
 
       // Validate required fields
@@ -22,8 +25,8 @@ export const downloadPromotion = async (req, res) => {
       }
 
       // Fetch docs in the transaction session
-      const campaign  = await CampaignModel.findById(campaignId).session(session);
-      const promoter  = await UserModel.findById(promoterId).session(session);
+      const campaign = await CampaignModel.findById(campaignId).session(session);
+      const promoter = await UserModel.findById(promoterId).session(session);
       const promotion = await PromotionModel.findById(promotionId).session(session);
       const marketer  = await UserModel.findById(campaign?.owner).session(session);
 
@@ -43,12 +46,14 @@ export const downloadPromotion = async (req, res) => {
 
       // Idempotency: already downloaded & reserved to promoter
       if (promotion.isDownloaded && promotion.hasReservedForPromoter) {
-        return {
+        const payoutAmountAlready = Number(promotion?.payoutAmount ?? campaign?.payoutPerPromotion ?? 0);
+        txResult = {
           alreadyDownloaded: true,
           campaign,
           promotion,
-          payoutAmount: campaign.payoutPerPromotion
+          payoutAmount: payoutAmountAlready
         };
+        return; // exit early; transaction will commit as no writes are needed
       }
 
       // Must have been accepted (Stage 2 reserve on marketer side)
@@ -56,19 +61,18 @@ export const downloadPromotion = async (req, res) => {
         throw { status: 400, message: "This promotion was not reserved during acceptance. Please accept campaign first." };
       }
 
-      // Determine payout amount (keep current schema; prefer promotion snapshot if present)
+      // Determine payout amount (prefer promotion snapshot if present)
       const payoutAmount = Number(promotion?.payoutAmount ?? campaign?.payoutPerPromotion ?? 0);
       if (!Number.isFinite(payoutAmount) || payoutAmount <= 0) {
         throw { status: 400, message: "Invalid payout amount." };
       }
 
       // ---- Stage 3: marketer.reserved -> promoter.reserved (guarded, atomic) ----
-
       // 1) Debit marketer.reserved with a $gte guard to prevent negatives + push transaction
       const debitRes = await UserModel.updateOne(
         {
           _id: marketer._id,
-          'wallets.marketer.reserved': { $gte: payoutAmount }           // ✅ guard: prevents negative reserved
+          'wallets.marketer.reserved': { $gte: payoutAmount } // guard: prevents negative reserved
         },
         {
           $inc: { 'wallets.marketer.reserved': -payoutAmount },
@@ -76,11 +80,11 @@ export const downloadPromotion = async (req, res) => {
             'wallets.marketer.transactions': {
               amount: payoutAmount,
               type: "debit",
-              category: "campaign",                                       // ✅ valid enum
-              description: `Funds transferred to promoter ${promoter.displayName || promoter._id} for campaign: "${campaign.title}"`,
+              category: "campaign",
+              description: `Funds transferred to promoter ${promoter.displayName ?? promoter._id} for campaign: "${campaign.title}"`,
               relatedCampaign: campaignId,
               relatedPromotion: promotion._id,
-              status: "reserved_to_promoter",                             // ✅ valid enum in your schema
+              status: "reserved_to_promoter",
               createdAt: new Date()
             }
           }
@@ -100,11 +104,11 @@ export const downloadPromotion = async (req, res) => {
             'wallets.promoter.transactions': {
               amount: payoutAmount,
               type: "credit",
-              category: "promotion",                                      // ✅ valid enum
+              category: "promotion",
               description: `Funds reserved from campaign: "${campaign.title}"`,
               relatedCampaign: campaignId,
               relatedPromotion: promotion._id,
-              status: "reserved",                                         // ✅ valid enum
+              status: "reserved",
               createdAt: new Date()
             },
             activityLog: {
@@ -152,32 +156,41 @@ export const downloadPromotion = async (req, res) => {
         { session }
       );
 
-      // Return values for response after commit
-      return { campaign, promotion, payoutAmount };
+      // Capture outputs for response AFTER commit
+      //console.log(`Download promotion transaction completed successfully. with campaign ${campaignId} and promotion ${promotionId} and amount ${payoutAmount}`);
+      txResult = { campaign, promotion, payoutAmount };
     }, {
       readPreference: 'primary',
       readConcern: { level: 'local' },
       writeConcern: { w: 'majority' }
     });
 
-    // Build media URL (same behavior as your previous file)
-    const mediaUrl = getMediaUrl(result.campaign.mediaUrl, req);
+    // ------- Build response after transaction -------
+    if (!txResult || !txResult.campaign) {
+      console.log("Transaction completed but no result returned.", txResult);
+      return res.status(500).json({
+        message: "Campaign data missing after transaction.",
+        success: false
+      });
+    }
 
-    // If idempotent branch triggered, re-provide URL without error
-    if (result?.alreadyDownloaded) {
+    const mediaUrl = getMediaUrl(txResult.campaign.mediaUrl, req);
+
+    // Idempotent branch
+    if (txResult.alreadyDownloaded) {
       return res.status(200).json({
         message: "Promotion materials already downloaded. Media URL re-provided.",
         success: true,
         campaign: {
-          title: result.campaign.title,
-          caption: result.campaign.caption,
-          link: result.campaign.link,
+          title: txResult.campaign.title,
+          caption: txResult.campaign.caption,
+          link: txResult.campaign.link,
           mediaUrl,
-          mediaType: result.campaign.mediaType
+          mediaType: txResult.campaign.mediaType
         },
-        promotionId: result.promotion._id,
-        reservedAmount: result.payoutAmount,
-        currentPromoters: result.campaign.currentPromoters
+        promotionId: txResult.promotion._id,
+        reservedAmount: txResult.payoutAmount,
+        currentPromoters: txResult.campaign.currentPromoters
       });
     }
 
@@ -186,28 +199,25 @@ export const downloadPromotion = async (req, res) => {
       message: "Campaign materials downloaded successfully. Funds have been reserved for your promotion.",
       success: true,
       campaign: {
-        title: result.campaign.title,
-        caption: result.campaign.caption,
-        link: result.campaign.link,
+        title: txResult.campaign.title,
+        caption: txResult.campaign.caption,
+        link: txResult.campaign.link,
         mediaUrl,
-        mediaType: result.campaign.mediaType
+        mediaType: txResult.campaign.mediaType
       },
-      promotionId: result.promotion._id,
-      reservedAmount: result.payoutAmount,
-      currentPromoters: result.campaign.currentPromoters
+      promotionId: txResult.promotion._id,
+      reservedAmount: txResult.payoutAmount,
+      currentPromoters: txResult.campaign.currentPromoters
     });
-
   } catch (error) {
     // Clean up the session if an error occurs
     try {
       if (session.inTransaction()) await session.abortTransaction();
     } catch (abortError) {
       console.error("Error aborting transaction:", abortError.message);
-    } finally {
-      session.endSession();
     }
+    console.error("Error downloading promotion:", error.message, error);
 
-    console.error("Error downloading promotion:", error.message || error);
     if (error.name === 'CastError') {
       return res.status(400).json({
         message: "Invalid ID format provided.",
@@ -222,7 +232,7 @@ export const downloadPromotion = async (req, res) => {
       error: process.env.NODE_ENV === 'development' ? (error.message || String(error)) : undefined
     });
   } finally {
-    // Ensure session is ended if not already
+    // Ensure session is ended
     try { session.endSession(); } catch {}
   }
 };
@@ -232,7 +242,8 @@ export const downloadPromotion = async (req, res) => {
  */
 function getMediaUrl(mediaUrl, req) {
   if (mediaUrl && !mediaUrl.startsWith('http')) {
-    const protocol = (req.secure || req.headers['x-forwarded-proto'] === 'https') ? 'https' : 'https';
+    const protocol =
+      (req.secure || req.headers['x-forwarded-proto'] === 'https') ? 'https' : 'http'; // <-- fix: use 'http' when not https
     return `${protocol}://${req.get("host")}${mediaUrl}`;
   }
   return mediaUrl;

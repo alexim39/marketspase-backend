@@ -31,6 +31,8 @@ export async function recordReservationTxEmbedded({
   if (!marketerId || !campaignId || !promotionId) throw new Error("marketerId, campaignId, promotionId are required");
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("amount must be a positive number");
 
+ // console.log(`sessioni ${session} and marketer: ${marketerId} and campagin ${campaignId} and prmotion ${promotionId} and the amount ${amount}` );
+
   // 🔒 Idempotency guard: skip if a 'reserved' tx for this promotion already exists
   const marketer = await UserModel.findOne({
     _id: marketerId,
