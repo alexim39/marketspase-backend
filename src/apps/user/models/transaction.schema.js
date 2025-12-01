@@ -43,7 +43,8 @@ export const transactionSchema = new mongoose.Schema({
       'system_correction',
       'promoter_balance_reset',
       'balance_recalculation',
-      'negative_reserved_fix'
+      'negative_reserved_fix',
+      'balance_reset'
     ],
     required: true
   },

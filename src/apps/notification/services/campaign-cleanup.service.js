@@ -13,21 +13,21 @@ export const expireCampaigns = async () => {
 
     // Use bulk operations for efficiency
     const campaignIds = expiredCampaigns.map(c => c._id);
-    const performedBy = new mongoose.Types.ObjectId('68f9056d30863eb748964bb2'); // Use a dedicated System ID
+    //const performedBy = new mongoose.Types.ObjectId('68f9056d30863eb748964bb2'); // Use a dedicated System ID
 
     const result = await CampaignModel.updateMany(
         { _id: { $in: campaignIds } },
         {
             $set: {
                 status: 'completed',
-                updatedBy: performedBy
+                //updatedBy: performedBy
             },
             $push: {
                 activityLog: {
                     action: 'Status Changed (System)',
                     details: 'Campaign completed automatically: end date reached.',
                     timestamp: new Date(),
-                    performedBy: performedBy
+                    //performedBy: performedBy
                 }
             }
         }
