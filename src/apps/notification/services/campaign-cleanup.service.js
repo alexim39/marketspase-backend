@@ -20,7 +20,7 @@ export const expireCampaigns = async () => {
         {
             $set: {
                 status: 'completed',
-                updatedBy: performedBy
+                //updatedBy: performedBy
             },
             $push: {
                 activityLog: {
