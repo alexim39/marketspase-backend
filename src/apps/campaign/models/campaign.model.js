@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 // A utility constant for enums
+//const CAMPAIGN_STATUSES = ["pending", "active", "paused", "rejected", "completed", "exhausted", "expired", "draft", "archived"];
 const CAMPAIGN_STATUSES = ["active", "paused", "rejected", "completed", "exhausted", "expired", "pending", "draft", "archived"];
 
 // Define the schema
@@ -187,9 +188,11 @@ campaignSchema.index({ spentBudget: 1, budget: 1 });
 ------------------------------------------------------------- */
 campaignSchema.pre('save', function(next) {
     // 1. FUND FLOW: spentBudget is derived from paidPromotions
-    if (this.isModified('paidPromotions') || this.isNew) {
+    this.spentBudget = (this.paidPromotions * this.payoutPerPromotion) || 0;
+
+    /* if (this.isModified('paidPromotions') || this.isNew) {
         this.spentBudget = (this.paidPromotions * this.payoutPerPromotion) || 0;
-    }
+    } */
     
     // 2. Estimate Views & Duration (from old model)
     if (this.isModified('maxPromoters') || this.isNew) {
@@ -251,7 +254,12 @@ campaignSchema.virtual('remainingDays').get(function() {
     return diffDays;
 });
 
-
+// Virtual for promotions population
+campaignSchema.virtual('promotions', {
+    ref: 'Promotion',
+    localField: '_id',
+    foreignField: 'campaign'
+});
 
 /* ------------------------------------------------------------
    METHODS
@@ -477,12 +485,7 @@ campaignSchema.statics = {
     }
 };
 
-// Virtual for promotions population
-campaignSchema.virtual('promotions', {
-    ref: 'Promotion',
-    localField: '_id',
-    foreignField: 'campaign'
-});
+
 
 campaignSchema.set('toObject', { virtuals: true });
 campaignSchema.set('toJSON', { virtuals: true });

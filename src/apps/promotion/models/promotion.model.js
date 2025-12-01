@@ -22,6 +22,7 @@ const promotionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
+      //enum: ["accepted", 'downloaded', "submitted", "validated", "rejected", "paid"], 
       enum: ["pending", "submitted", "validated", "rejected", "paid"],
       default: "pending",
     },
@@ -192,7 +193,7 @@ promotionSchema.virtual("daysSinceAssignment").get(function () {
 promotionSchema.virtual("isOverdue").get(function () {
   if (
     !this.submittedAt ||
-    this.status === "validated" ||
+    this.status === "paid" ||
     this.status === "rejected"
   ) {
     return false;

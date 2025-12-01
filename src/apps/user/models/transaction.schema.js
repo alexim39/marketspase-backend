@@ -42,7 +42,8 @@ export const transactionSchema = new mongoose.Schema({
       'reversal',
       'system_correction',
       'promoter_balance_reset',
-      'balance_recalculation'
+      'balance_recalculation',
+      'negative_reserved_fix'
     ],
     required: true
   },
@@ -58,6 +59,7 @@ export const transactionSchema = new mongoose.Schema({
   // Transaction state tracking
   status: { 
     type: String, 
+    //enum: ['pending','reserved','escrowed','paid','refunded','reversed','failed'],
     enum: [
       'pending', 
       'successful', 

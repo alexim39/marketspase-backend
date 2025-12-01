@@ -41,12 +41,18 @@ export const UpdatePromotionStatus = async (req, res) => {
         });
       }
 
+
+      
+      // optional idempotency key per operation
+      const operationId = `${status}:${id}`;
+
       const result = await handlePromotionStatusUpdate({
         promotionId: id,
         status,
         rejectionReason,
         performedBy,
-        session
+        session,
+        operationId
       });
 
       await session.commitTransaction();

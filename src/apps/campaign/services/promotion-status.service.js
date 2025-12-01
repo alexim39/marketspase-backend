@@ -1,272 +1,278 @@
+
+// src/apps/campaign/services/promotion-status.service.js
 import { PromotionModel } from "../../promotion/models/promotion.model.js";
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
+import { moveWithinWallet, moveBetweenWallets } from "../../wallet/services/wallet-move.service.js";
 
-// Helper function for successful payment (Stage 4)
-const validatePromotion = async ({
-    promotion,
-    campaign,
-    promoter,
-    performedBy,
-    payoutAmount,
-    session
-}) => {
-    // 1. Fund Movement: promoter.reserved (DEBIT) -> promoter.balance (CREDIT)
-    await UserModel.updateOne(
-        { _id: promoter._id },
-        {
-            $inc: {
-                "wallets.promoter.reserved": -payoutAmount, // Debit escrow
-                "wallets.promoter.balance": payoutAmount    // Credit final balance
-            },
-            $push: {
-                "wallets.promoter.transactions": {
-                    amount: payoutAmount,
-                    type: "credit",
-                    category: "promotion",
-                    description: `Payment for validated promotion: "${campaign.title}"`,
-                    relatedCampaign: campaign._id,
-                    relatedPromotion: promotion._id,
-                    status: "successful",
-                    timestamp: new Date()
-                }
-            }
-        },
-        { session }
-    );
+/** Helper: append an embedded transaction line safely */
+async function pushEmbeddedTx({ session, userId, path, entry }) {
+  const res = await UserModel.updateOne(
+    { _id: userId },
+    { $push: { [path]: entry } },
+    { session }
+  );
+  if (!res.modifiedCount) throw new Error(`Failed to append transaction to ${path}`);
+}
 
-    // 2. Update Promotion Status
-    await PromotionModel.updateOne(
-        { _id: promotion._id },
-        {
-            $set: {
-                status: "paid",
-                validatedAt: new Date(),
-                paidAt: new Date(),
-            },
-            $push: {
-                activityLog: {
-                    action: "Promotion Paid",
-                    details: `Validated and paid by ${performedBy.displayName || performedBy.role}.`,
-                    timestamp: new Date()
-                }
-            },
-            _pendingNotification: 'promotion_validated'
-        },
-        { session }
-    );
+/** VALIDATE (status & audit) */
+async function validateOnly({ promotion, performedBy, session }) {
+  const fresh = await PromotionModel.findById(promotion._id).session(session);
+  if (!fresh || fresh.status === "paid" || fresh.hasBeenPaid === true) return; // already paid, do nothing
 
-    // 3. Update Campaign Tracking
-    // $inc paidPromotions which triggers automatic spentBudget calculation in the Campaign pre-save hook.
-    await CampaignModel.updateOne(
-        { _id: campaign._id },
-        {
-            $inc: {
-                paidPromotions: 1,
-                validatedPromotions: 1,
-            },
-            $push: {
-                activityLog: {
-                    action: "Promoter Paid",
-                    details: `Payment processed. Paid promotions: ${campaign.paidPromotions + 1}`,
-                    timestamp: new Date()
-                }
-            }
-        },
-        { session }
-    );
-};
+  await PromotionModel.updateOne(
+    { _id: promotion._id, status: { $in: ["submitted", "pending", "validated"] } },
+    {
+      $set: { status: "validated", validatedAt: new Date(), validatedBy: performedBy },
+      $push: { activityLog: { action: "Promotion Validated", details: "Validated by admin", timestamp: new Date() } }
+    },
+    { session }
+  );
+}
 
-// Helper function for rejection and refund (Stage 5)
-const rejectPromotion = async ({
-    promotion,
-    campaign,
-    promoter,
-    marketer,
-    performedBy,
-    rejectionReason,
-    payoutAmount,
-    session
-}) => {
-    // 1. Update Promotion Status (CRITICAL FIX 1)
-    await PromotionModel.updateOne(
-        { _id: promotion._id },
-        {
-            $set: {
-                status: "rejected",
-                rejectionReason: rejectionReason,
-                validatedAt: new Date(),
-                // Funds are being returned to marketer, so promoter no longer has reserved funds
-                hasReservedForPromoter: false, 
-            },
-            $push: {
-                activityLog: {
-                    action: "Promotion Rejected",
-                    details: `Rejected by ${performedBy.displayName || performedBy.role}. Reason: ${rejectionReason}`,
-                    timestamp: new Date()
-                }
-            },
-            _pendingNotification: 'promotion_rejected'
-        },
-        { session }
-    );
 
-    // 2. Fund Movement: promoter.reserved (DEBIT) -> marketer.balance (CREDIT) - (Checked and Correct)
-    
-    // Debit Promoter Reserved Wallet (Refund Promoter's Escrow)
-    await UserModel.updateOne(
-        { _id: promoter._id },
-        {
-            $inc: {
-                "wallets.promoter.reserved": -payoutAmount
-            },
-            $push: {
-                "wallets.promoter.transactions": {
-                    amount: payoutAmount,
-                    type: "debit",
-                    category: "refund",
-                    description: `Refund for rejected promotion: "${campaign.title}"`,
-                    relatedCampaign: campaign._id,
-                    relatedPromotion: promotion._id,
-                    status: "reversed",
-                    timestamp: new Date()
-                }
-            }
-        },
-        { session }
-    );
+/** PAY (payout: promoter.reserved -> promoter.balance) */
+async function payPromotion({ promotion, campaign, promoter, payoutAmount, session, operationId }) {
+  // Idempotency: if already paid, skip
+  const fresh = await PromotionModel.findById(promotion._id).session(session);
+  if (fresh?.status === "paid") return;
 
-    // Credit Marketer Balance Wallet (Refund Marketer's Available Balance)
-    await UserModel.updateOne(
-        { _id: marketer._id },
-        {
-            $inc: {
-                "wallets.marketer.balance": payoutAmount
-            },
-            $push: {
-                "wallets.marketer.transactions": {
-                    amount: payoutAmount,
-                    type: "credit",
-                    category: "refund",
-                    description: `Refund after rejected promotion: "${campaign.title}"`,
-                    relatedCampaign: campaign._id,
-                    relatedPromotion: promotion._id,
-                    status: "successful",
-                    timestamp: new Date()
-                }
-            }
-        },
-        { session }
-    );
+  // Must have reserved funds on promoter side before paying
+  // (download step should have set hasReservedForPromoter and moved marketer.reserved -> promoter.reserved)
+  if (!fresh?.hasReservedForPromoter) {
+    throw new Error("Cannot pay: promotion funds were not reserved for the promoter.");
+  }
 
-    // 3. Update Campaign Slot and Status (CRITICAL FIX 2)
-    const campaignUpdate = {
-        $inc: { currentPromoters: -1 }, // Free up one slot
-        $push: {
-            activityLog: {
-                action: "Promoter Rejected",
-                details: "Promotion rejected, freeing up one slot.",
-                timestamp: new Date()
-            }
-        }
-    };
+  // Wallet move: promoter.reserved -> promoter.balance
+  await moveWithinWallet({
+    session,
+    userId: promoter._id,
+    side: 'promoter',
+    incReserved: -payoutAmount,
+    incBalance: +payoutAmount
+  });
 
-    // Check if the campaign status needs to be reverted to 'active'
-    const newCurrentPromoters = campaign.currentPromoters - 1;
-
-    // Reactivate the campaign if it was previously exhausted/completed/expired 
-    // AND there is now at least one free slot.
-    if (newCurrentPromoters < campaign.maxPromoters) {
-        if (campaign.status === 'exhausted' || campaign.status === 'completed' || campaign.status === 'expired') {
-            campaignUpdate.$set = { status: 'active' };
-            campaignUpdate.$push.activityLog.push({
-                action: "Status Reverted",
-                details: `Campaign status reverted to 'active' due to a rejection freeing a slot.`,
-                timestamp: new Date()
-            });
-        }
+  // Embedded promoter transaction
+  await pushEmbeddedTx({
+    session,
+    userId: promoter._id,
+    path: "wallets.promoter.transactions",
+    entry: {
+      amount: payoutAmount,
+      type: "credit",
+      category: "promotion",
+      description: `Payment for validated promotion: "${campaign.title}" (op:${operationId})`,
+      relatedCampaign: campaign._id,
+      relatedPromotion: promotion._id,
+      status: "successful",
+      createdAt: new Date()
     }
+  });
+
+  // Promotion -> paid (also keep audit entries)
+  await PromotionModel.updateOne(
+    { _id: promotion._id },
+    {
+      $set: { 
+        status: "paid", paidAt: new Date(),
+        hasBeenPaid: true, 
+      },
+      $push: { activityLog: { action: "Promotion Paid", details: "Payment processed", timestamp: new Date() } }
+    },
+    { session }
+  );
+
+  // Campaign counters: increment paid & validated; decrease reservedAmount (use your existing `reservedAmount` field)
+  await CampaignModel.updateOne(
+    { _id: campaign._id },
+    {
+      $inc: {
+        paidPromotions: 1,
+        validatedPromotions: 1,
+        totalPromotions: 1,      // <-- Increment totalPromotions on payment
+        reservedAmount: -payoutAmount // <-- match your model/controller that uses `reservedAmount`
+      },
+      $push: { activityLog: { action: "Promoter Paid", details: `Paid ${payoutAmount} NGN`, timestamp: new Date() } }
+    },
+    { session }
+  );
+
+  
+  // Trigger pre-save hook to recalculate spentBudget
+  const updatedCampaign = await CampaignModel.findById(campaign._id).session(session);
+  if (updatedCampaign) await updatedCampaign.save({ session });
+
+}
+
+/** REJECT (refund scenarios) */
+async function rejectPromotionFlow({
+  promotion, campaign, promoter, marketer, performedBy, rejectionReason, payoutAmount, session, operationId
+}) {
+
+  
+ // Refresh latest flags inside the session for accurate branching
+  const fresh = await PromotionModel.findById(promotion._id).session(session);
+  if (!fresh) throw new Error("Promotion not found for rejection");
+
+  // Idempotency: if already rejected and refunded, skip
+  if (fresh.status === "rejected" && fresh.hasBeenRefunded === true) {
+    return;
+  }
+
+  // Update promotion status + activity
+  await PromotionModel.updateOne(
+    { _id: promotion._id },
+    {
+      $set: { status: "rejected", rejectionReason, validatedAt: new Date() },
+      $push: { activityLog: { action: "Promotion Rejected", details: rejectionReason, timestamp: new Date() } }
+    },
+    { session }
+  );
+
+  if (!promotion.isDownloaded) {
+    // Scenario A: accepted but NOT downloaded -> refund marketer.reserved -> marketer.balance
+    await moveWithinWallet({
+      session,
+      userId: marketer._id,
+      side: 'marketer',
+      incReserved: -payoutAmount,
+      incBalance: +payoutAmount
+    });
+
+    await pushEmbeddedTx({
+      session,
+      userId: marketer._id,
+      path: "wallets.marketer.transactions",
+      entry: {
+        amount: payoutAmount,
+        type: "credit",
+        category: "refund",
+        description: `Refund for unclaimed promotion: "${campaign.title}" (op:${operationId})`,
+        relatedCampaign: campaign._id,
+        relatedPromotion: promotion._id,
+        status: "successful",
+        createdAt: new Date()
+      }
+    });
+
     
-    // Apply atomic campaign updates
-    await CampaignModel.updateOne({ _id: campaign._id }, campaignUpdate, { session });
-};
+    // Flags: reservation at marketer side is now released
+    await PromotionModel.updateOne(
+      { _id: promotion._id },
+      {
+        $set: {
+          hasBeenRefunded: true,           // <-- ✅ flip refund flag
+        }
+      },
+      { session }
+    );
 
+  } else {
+    // Scenario B: downloaded but NOT submitted -> refund promoter.reserved -> marketer.balance
+    await moveBetweenWallets({
+      session,
+      fromUserId: promoter._id, fromSide: 'promoter', fromField: 'reserved',
+      toUserId: marketer._id,   toSide: 'marketer',  toField: 'balance',
+      amount: payoutAmount
+    });
 
-// Main Service Handler (replicated from your snippet)
-export const handlePromotionStatusUpdate = async ({
-    promotionId,
-    status,
-    rejectionReason,
-    performedBy,
-    session
-}) => {
+    await pushEmbeddedTx({
+      session,
+      userId: promoter._id,
+      path: "wallets.promoter.transactions",
+      entry: {
+        amount: payoutAmount,
+        type: "debit",
+        category: "refund",
+        description: `Reserved funds released for expired/rejected promotion: "${campaign.title}" (op:${operationId})`,
+        relatedCampaign: campaign._id,
+        relatedPromotion: promotion._id,
+        status: "reversed",
+        createdAt: new Date()
+      }
+    });
 
-    const promotion = await PromotionModel.findById(promotionId)
-        .populate({
-            path: 'campaign',
-            populate: { path: 'owner', model: 'User' }
-        })
-        .populate('promoter')
-        .session(session);
+    await pushEmbeddedTx({
+      session,
+      userId: marketer._id,
+      path: "wallets.marketer.transactions",
+      entry: {
+        amount: payoutAmount,
+        type: "credit",
+        category: "refund",
+        description: `Refund received for expired/rejected promotion: "${campaign.title}" (op:${operationId})`,
+        relatedCampaign: campaign._id,
+        relatedPromotion: promotion._id,
+        status: "successful",
+        createdAt: new Date()
+      }
+    });
+  }
 
-    if (!promotion) throw new Error("Promotion not found");
-    if (promotion.status === 'rejected' || promotion.status === 'paid') throw new Error(`Promotion is already ${promotion.status}.`);
+  // Free up campaign slot and possibly reactivate
+  const campaignUpdate = {
+    $inc: { 
+      currentPromoters: -1,
+      totalPromotions: -1
+    },
+    $push: { activityLog: { action: "Promotion Rejected", details: "Slot freed after rejection", timestamp: new Date() } }
+  };
 
-    const campaign = promotion.campaign;
-    const promoter = promotion.promoter;
-    const marketer = campaign.owner;
-
-    // Use a safety check for payout amount
-    const payoutAmount = promotion.payoutAmount || campaign.payoutPerPromotion;
-
-    switch (status) {
-        case "validated":
-            await validatePromotion({
-                promotion,
-                campaign,
-                promoter,
-                performedBy,
-                payoutAmount,
-                session
-            });
-            break;
-
-        case "rejected":
-            // Check if funds were reserved for the promoter before attempting to refund
-            if (!promotion.hasReservedForPromoter) {
-                // If funds were never moved to promoter's reserved wallet (Stage 3), 
-                // we only need to update the promotion and campaign slot, but skip the financial transaction.
-                
-                // Add logic to skip financial transactions here, but still update status and campaign slot.
-                
-                // CRITICAL: Since funds were never moved to promoter.reserved, they must still be in marketer.reserved (from Stage 2).
-                // If funds are in marketer.reserved, they must be moved back to marketer.balance.
-                
-                // ⚠️ NOTE: The core flow assumes Stage 3 (Download) happens before rejection. 
-                // If rejection can occur before download, the fund flow for rejection needs to move funds from 
-                // marketer.reserved -> marketer.balance, and the CampaignModel needs a `totalPromotions: -1` if `promotion.isDownloaded` is false.
-                
-                // ASSUMING rejection only happens after download (Stage 3 completed):
-                if (promotion.isDownloaded) {
-                    throw new Error("Invalid state: Promotion was downloaded but funds were not reserved for promoter (hasReservedForPromoter is false). Manual review needed.");
-                }
-            }
-
-            await rejectPromotion({
-                promotion,
-                campaign,
-                promoter,
-                marketer,
-                performedBy,
-                rejectionReason,
-                payoutAmount,
-                session
-            });
-            break;
-
-        default:
-            throw new Error(`Invalid status update: ${status}`);
+  // Optional reactivation check (same as your existing logic)
+  if (campaign.status === "exhausted") {
+    const remaining = (campaign.budget ?? 0) - (campaign.spentBudget ?? 0);
+    if (remaining >= (campaign.payoutPerPromotion ?? payoutAmount)) {
+      campaignUpdate.$set = { status: "active" };
     }
+  }
 
-    return promotion;
-};
+  await CampaignModel.updateOne({ _id: campaign._id }, campaignUpdate, { session });
+}
+
+/** Main handler (called from controller) */
+export async function handlePromotionStatusUpdate({
+  promotionId, status, rejectionReason, performedBy, session, operationId
+}) {
+  const promotion = await PromotionModel.findById(promotionId)
+    .populate({ path: 'campaign', populate: { path: 'owner', model: 'User' } })
+    .populate('promoter')
+    .session(session);
+
+  if (!promotion) throw new Error("Promotion not found");
+  if (promotion.status === 'rejected' || promotion.status === 'paid') {
+    throw new Error(`Promotion is already ${promotion.status}.`);
+  }
+
+  const campaign  = promotion.campaign;
+  const promoter  = promotion.promoter;
+  const marketer  = campaign.owner;
+  const payoutAmount = Number(promotion.payoutAmount ?? campaign.payoutPerPromotion ?? 0);
+  if (!Number.isFinite(payoutAmount) || payoutAmount <= 0) throw new Error("Invalid payout amount");
+
+  switch (status) {
+    case "validated":
+      // NEW: validate AND pay in the same flow
+      await validateOnly({ promotion, performedBy, session });
+      await payPromotion({ promotion, campaign, promoter, payoutAmount, session, operationId });
+      break;
+
+    case "paid":
+      // Direct pay (kept for backward compatibility)
+      await payPromotion({ promotion, campaign, promoter, payoutAmount, session, operationId });
+      break;
+
+    case "rejected":
+      await rejectPromotionFlow({
+        promotion, campaign, promoter, marketer,
+        performedBy, rejectionReason, payoutAmount, session, operationId
+      });
+      break;
+
+    default:
+      throw new Error(`Invalid status update: ${status}`);
+  }
+
+  // Return the updated promotion document
+  const updated = await PromotionModel.findById(promotionId).session(session);
+  return { promotion: updated };
+}
