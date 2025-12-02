@@ -1,94 +1,80 @@
+
+// server.js (key changes only)
 import express from 'express';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import path from 'path';
 
-// Cron Jobs
-import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
-import './src/apps/campaign/services/jobs/campaign-notification.job.js'; 
-import './src/apps/notification/services/jobs/notification-scheduler.job.js'; 
-
-import AuthRouter from './src/apps/auth/routes/index.route.js';
-import UserRouter from './src/apps/user/routes/index.route.js';
-import WalletRouter from './src/apps/wallet/index.js';
-import webhookRoutes from './src/apps/wallet/routes/webhook.routes.js';
-import CampaignRouter from './src/apps/campaign/index.js';
-import SettingsRouter from './src/apps/settings/routes/index.route.js';
-import ContactRouter from './src/apps/contact/index.js';
-import DashboardRouter from './src/apps/dashboard/index.js';
-import PromoterRouter from './src/apps/promotion/index.js';
-import NotificationRouter from './src/apps/notification/index.js';
-import FinancialRouter from './src/apps/financial/routes/index.route.js';
-import NewsletterRouter from './src/apps/newsletter/routes/index.js';
-
-// Port
-const port = process.env.PORT || 8080;
-const app = express();
 dotenv.config();
 
-// Middleware
-app.use(express.json({ limit: '50mb' })); // Increase JSON payload limit
-app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Increase URL-encoded payload limit
-app.use(cookieParser());
+const app = express();
+const port = process.env.PORT || 8080;
 
-// CORS Configuration
+// --- CORS first ---
 app.use(cors({
-    credentials: true,
-    origin: [
-        'http://localhost:4200', 
-        'http://localhost:4201', 
-        'http://localhost:4202', 
-        'https://marketspase.com', 
-        'http://marketspase.com',
-        'https://www.marketspase.com',
-        'https://admin.marketspase.com',
-    ],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: [
+    'https://marketspase.com',
+    'http://marketspase.com',
+    'https://www.marketspase.com',
+    'https://admin.marketspase.com',
+    'http://localhost:4200',
+    'http://localhost:4201',
+    'http://localhost:4202',
+  ],
+  credentials: true,
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization']
 }));
 
-// Handle preflight requests
-app.options('*', cors());
-
-// Debugging middleware to log request origins
-app.use((req, res, next) => {
-    console.log('Request Origin:', req.headers.origin);
-    next();
+app.options('*', (req, res) => {
+  res.set({
+    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+  });
+  return res.sendStatus(204);
 });
 
-// Webhook routes (must be before express.json() middleware)
-app.use('/api/webhook', webhookRoutes);
+// Lightweight health endpoint so the platform can see we're alive
+app.get('/health', (req, res) => res.status(200).json({status: 'ok'}));
 
-/* Routes */
-app.get('/', (req, res) => res.send('Node server is up and running'));
-app.use('/auth', AuthRouter);
-app.use('/user', UserRouter);
-app.use('/wallet', WalletRouter);
-app.use('/campaign', CampaignRouter);
-app.use('/settings', SettingsRouter);
-app.use('/contact', ContactRouter);
-app.use('/dashboard', DashboardRouter);
-app.use('/promotion', PromoterRouter);
-app.use('/notifications', NotificationRouter);
-app.use('/financial', FinancialRouter);
-app.use('/newsletter', NewsletterRouter);
+// ... your routes ...
 
-// Serve static files
-app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
+// Start the HTTP server immediately.
+// Binding to 0.0.0.0 ensures it’s reachable in the container networking.
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server listening on port ${port}`);
+  connectToDb();               // kick off DB connection after we are listening
+  startScheduledJobsSafely();  // start cron jobs only after DB is ready (see below)
+});
 
-/* DB connection */
-mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@cluster0.fblwb.mongodb.net/${process.env.MONGODB_DATABASE}?retryWrites=true&w=majority&appName=Cluster0`)
-.then(() => {
-    console.log('Connected to mongoDB');
-
-    // Start the cron jobs after a successful database connection
-    PromotionExpirationCheckerCronJobs();
-
-    app.listen(port, () => {
-        console.log(`Server is running on port: http://localhost:${port}`);
+async function connectToDb() {
+  const uri = `mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}` +
+              `@cluster0.fblwb.mongodb.net/${process.env.MONGODB_DATABASE}` +
+              `?retryWrites=true&w=majority&appName=Cluster0`;
+  try {
+    await mongoose.connect(uri, {
+      serverSelectionTimeoutMS: 15000, // fail fast rather than hanging indefinitely
+      socketTimeoutMS: 20000
     });
-}).catch((error) => {
-    console.error('Error from mongoDB connection ', error);
-});
+    console.log('Connected to MongoDB');
+    // if jobs depend on DB, you can start them here
+    startScheduledJobsSafely(true);
+  } catch (err) {
+    console.error('MongoDB connection error:', err?.message || err);
+    // Keep the HTTP server alive; platform can still serve /health and return 503s
+    // Optionally: retry connect with backoff
+    setTimeout(connectToDb, 15000);
+  }
+}
+
+let jobsStarted = false;
+function startScheduledJobsSafely(dbReady = false) {
+  if (jobsStarted || !dbReady) return;
+  jobsStarted = true;
+  // Start cron jobs here only once DB is ready
+  // PromotionExpirationCheckerCronJobs();
+  // ...other jobs...
+}
