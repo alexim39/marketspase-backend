@@ -40,7 +40,9 @@ export const SwitchUser = async (req, res) => {
         const updatedUser = await user.save();
 
         // log this activity
-        await user.logActivity('role_change', `You switched user role to ${user.role}`, {});
+        //await user.logActivity('role_change', `You switched user role to ${user.role}`, {});
+
+        console.log(`User role switched successfully for userId: ${userId} to role: ${newRole}`);
 
         // Respond with success
         res.status(200).json({
