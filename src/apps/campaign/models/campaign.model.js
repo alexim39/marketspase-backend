@@ -189,17 +189,26 @@ campaignSchema.index({ spentBudget: 1, budget: 1 });
 campaignSchema.pre('save', function(next) {
     // 1. FUND FLOW: spentBudget is derived from paidPromotions
     this.spentBudget = (this.paidPromotions * this.payoutPerPromotion) || 0;
-
-    /* if (this.isModified('paidPromotions') || this.isNew) {
-        this.spentBudget = (this.paidPromotions * this.payoutPerPromotion) || 0;
-    } */
     
     // 2. Estimate Views & Duration (from old model)
     if (this.isModified('maxPromoters') || this.isNew) {
         // Estimate 45 views per promoter on average
         this.estimatedViews = this.maxPromoters * 45;
     }
-    
+
+    // Check if budget is exhausted
+    if (this.spentBudget + this.payoutPerPromotion > this.budget || this.spentBudget >= this.budget) {
+        this.status = 'exhausted';
+    }
+
+    // Check if campaign is expired
+    if (this.hasEndDate && this.endDate) {
+        const now = new Date();
+        if (now > new Date(this.endDate)) {
+            this.status = 'expired';
+        }
+    }
+
     // Set duration text
     if (this.startDate && this.endDate && this.hasEndDate) {
         const start = new Date(this.startDate);
