@@ -5,12 +5,16 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
   "author": "Imenwo Alex",
   "license": "ISC",
+
+  "engines": {
+    "node": "18.x"
+  },
+
   "dependencies": {
     "axios": "^1.10.0",
     "axios-rate-limit": "^1.4.0",
@@ -29,6 +33,7 @@
     "nodemailer": "^6.9.15",
     "winston": "^3.17.0"
   },
+
   "devDependencies": {
     "nodemon": "^3.1.7"
   }
