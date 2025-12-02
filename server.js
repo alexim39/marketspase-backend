@@ -46,7 +46,7 @@ app.use(cors({
         'https://admin.marketspase.com',
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 // Handle preflight requests
