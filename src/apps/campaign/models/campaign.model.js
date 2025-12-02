@@ -483,15 +483,6 @@ campaignSchema.statics = {
             endDate: { $lte: thresholdDate, $gte: new Date() }
         }).populate('owner');
     },
-
-    // Find campaigns that have passed their end date
-    async findExpiredCampaigns() {
-        return this.find({
-            status: { $nin: ['completed', 'expired', 'rejected', 'archived'] }, // Only look at statuses that can be expired
-            hasEndDate: true,
-            endDate: { $lt: new Date() } // Where endDate is less than now
-        });
-    }
 };
 
 

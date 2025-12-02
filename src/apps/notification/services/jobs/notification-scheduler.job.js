@@ -7,7 +7,6 @@ import { NotificationService } from '../notification.service.js';
 import { NotificationModel } from '../../models/notification.model.js';
 import { sendEmail } from '../../../../services/email.service.js';
 import { promotionExpiringTemplate } from '../../../promotion/services/email/promotionExpiringTemplate.js';
-import { expireCampaigns } from '../../services/campaign-cleanup.service.js';
 import { promotionAutoRejection } from '../../services/promotion-auto-reject.service.js';
 
 // 1. 20-HOUR SUBMISSION REMINDER - Every hour
@@ -425,11 +424,7 @@ cron.schedule('0 2 * * *', async () => {
   }
 });
 
-// 7 Run the expiration job every day at 1:00 AM
-cron.schedule('0 1 * * *', expireCampaigns);
-//cron.schedule('*/2 * * * *', expireCampaigns)
-
-// 8. AUTO-REJECT EXPIRED PROMOTIONS (24 hours) — 100% aligned with new financial flow
+// 7. AUTO-REJECT EXPIRED PROMOTIONS (24 hours) — 100% aligned with new financial flow
 cron.schedule("0 */5 * * *", promotionAutoRejection);
 //cron.schedule('*/2 * * * *', promotionAutoRejection)
 
