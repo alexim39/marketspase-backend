@@ -91,4 +91,5 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
     });
 }).catch((error) => {
     console.error('Error from mongoDB connection ', error);
+    process.exit(1);
 });
