@@ -23,8 +23,9 @@ import NotificationRouter from './src/apps/notification/index.js';
 import FinancialRouter from './src/apps/financial/routes/index.route.js';
 import NewsletterRouter from './src/apps/newsletter/routes/index.js';
 
-// Port
-const port = process.env.PORT || 8080;
+// Port and Host
+const PORT = process.env.PORT || 8080;
+const HOST = '0.0.0.0'; // Essential for container deployment
 const app = express();
 dotenv.config();
 
@@ -86,8 +87,8 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
     // Start the cron jobs after a successful database connection
     PromotionExpirationCheckerCronJobs();
 
-    app.listen(port, () => {
-        console.log(`Server is running on port: http://localhost:${port}`);
+    app.listen(PORT, HOST, () => {
+        console.log(`Server listening on port ${PORT} at host ${HOST}`);
     });
 }).catch((error) => {
     console.error('Error from mongoDB connection ', error);
