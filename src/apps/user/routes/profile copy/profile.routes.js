@@ -1,8 +1,7 @@
 // routes/promo.routes.js
 import express from 'express';
 import { UpdateProfile } from '../../controllers/profile-update.controller.js'
-import { UpdateUsername } from '../../controllers/profile/update-username.controller.js';
-import { UpdateProfessionalInfo } from '../../controllers/profile/update-user-professtion.controller.js';
+import { UpdateProfessionalInfo, UpdateUsername } from '../../controllers/admin/user.controller.js';
 
 const ProfileRouter = express.Router();
 

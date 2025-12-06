@@ -2,17 +2,14 @@ import express from 'express';
 const app = express();
 app.use(express.json()); // Use json middleware
 app.use(express.urlencoded({extended: false})); // Use formdata middleware
-import {  
-    getAppUsers,
-    getAppUserById,
-    toggleUserActiveStatus
-} from '../controllers/user.controller.js';
+
 import { SwitchUser } from '../controllers/switch-user.controller.js'
 
 import PromoRouter from './promo/promo.routes.js';
 import StatsRouter from './stats/stats.routes.js';
 import ProfileRouter from './profile/profile.routes.js';
 import ReferralRouter from './referral.routes.js';
+import AdminRouter from './admin/admin.routes.js';
 
 
 const UserRouter = express.Router();
@@ -25,10 +22,12 @@ UserRouter.use('/stats', StatsRouter);
 UserRouter.use('/profile', ProfileRouter);
 // Mount referrals under UserRouter
 UserRouter.use('/referral', ReferralRouter);
+// Mount admin under AdminRouter
+UserRouter.use('/admin', AdminRouter);
 
 
 // admin - get all users
-UserRouter.get('/users', getAppUsers);
+//UserRouter.get('/users', getAppUsers);
 
 
 /**
@@ -42,14 +41,14 @@ UserRouter.post('/switch-user', SwitchUser);
 /* Dynamic Routes */
 
 // admin - get a user
-UserRouter.get('/:id', getAppUserById);
+//UserRouter.get('/:id', getAppUserById);
 
 /**
  * Submits the user status data to the controller.
  * Method: patch
  * /api/users/${id}/status:
  */
-UserRouter.patch('/:id/status', toggleUserActiveStatus);
+//UserRouter.patch('/:id/status', toggleUserActiveStatus);
 
 
 export default UserRouter;
