@@ -19,7 +19,9 @@ export const getAppUserById = async (req, res) => {
     // Find a single user by their ID
     // .findById() is a convenient Mongoose method for this
     // We still use .select('-password') for security
-    const user = await UserModel.findById(id).select('-password').exec();
+    const user = await UserModel.findById(id)
+    .populate('testimonials')
+    .select('-password').exec();
 
     // If no user is found with the given ID, return a 404 Not Found error
     if (!user) {
