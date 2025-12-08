@@ -9,7 +9,7 @@ import PromoRouter from './promo/promo.routes.js';
 import StatsRouter from './stats/stats.routes.js';
 import ProfileRouter from './profile/profile.routes.js';
 import ReferralRouter from './referral.routes.js';
-import AdminRouter from './admin/admin.routes.js';
+import AdminIndexRouter from './admin/Admin-index.routes.js';
 
 
 const UserRouter = express.Router();
@@ -23,7 +23,7 @@ UserRouter.use('/profile', ProfileRouter);
 // Mount referrals under UserRouter
 UserRouter.use('/referral', ReferralRouter);
 // Mount admin under AdminRouter
-UserRouter.use('/admin', AdminRouter);
+UserRouter.use('/admin', AdminIndexRouter);
 
 
 // admin - get all users
