@@ -6,12 +6,12 @@ import { getAppUserById } from '../../controllers/admin/get-user-by-id.controlle
 import { toggleUserActiveStatus } from '../../controllers/admin/toggle-user-status.controller.js';
 import { getAppUsersByRole } from '../../controllers/admin/get-all-users-by-role.controller.js';
 import { getUserStatsByRole } from '../../controllers/admin/get-statistics-by-role.controller.js';
-import RefundRouter from './refund.routes.js';
+//import RefundRouter from './refund.routes.js';
 
 const AdminIndexRouter = express.Router();
 
 // Mount refundRouter under adminIndexRouter
-AdminIndexRouter.use('/refund', RefundRouter);
+//AdminIndexRouter.use('/refund', RefundRouter);
 
 // admin - get all users
 AdminIndexRouter.get('/users', getAppUsers);

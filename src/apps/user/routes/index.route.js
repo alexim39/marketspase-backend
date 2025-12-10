@@ -8,7 +8,7 @@ import { SwitchUser } from '../controllers/switch-user.controller.js'
 import PromoRouter from './promo/promo.routes.js';
 import StatsRouter from './stats/stats.routes.js';
 import ProfileRouter from './profile/profile.routes.js';
-import ReferralRouter from './referral.routes.js';
+import ReferralRouter from './referral/referral.routes.js';
 import AdminIndexRouter from './admin/Admin-index.routes.js';
 
 

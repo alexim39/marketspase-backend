@@ -13,6 +13,7 @@ export const activitySchema = new mongoose.Schema({
       // Wallet & Financial
       'wallet_fund', 'withdrawal_request', 'withdrawal_complete', 'transfer', 'promo_credit_claimed',
       'withdrawal_approved', 'withdrawal_rejected', 'referral_bonus_qualified', 'referral_bonus_paid',
+      'refund_received',
       
       // Campaign & Promotion
       'campaign_create', 'campaign_update', 'campaign_delete', 'campaign_pause',
