@@ -18,77 +18,92 @@ export class AdminRefundController {
    * @param {Object} options.metadata - Additional metadata (optional)
    * @returns {Promise<Object>} Refund result
    */
-  static async refundPromoterBalance({
-    promoterUserId,
-    amount,
-    reason,
-    adminId,
-    metadata = {}
-  }) {
-    // Validate inputs
-    if (!promoterUserId || !amount || !reason || !adminId) {
-      throw new Error('Missing required parameters: promoterUserId, amount, reason, adminId');
-    }
+static async refundPromoterBalance({
+  promoterUserId,
+  amount,
+  reason,
+  adminId,
+  metadata = {}
+}) {
+  // Validate inputs
+  if (!promoterUserId || !amount || !reason || !adminId) {
+    throw new Error('Missing required parameters: promoterUserId, amount, reason, adminId');
+  }
 
-    if (amount <= 0) {
-      throw new Error('Refund amount must be greater than zero');
-    }
+  if (amount <= 0) {
+    throw new Error('Refund amount must be greater than zero');
+  }
 
-    const session = await mongoose.startSession();
+  const session = await mongoose.startSession();
+  let transactionCommitted = false;
+
+  try {
     session.startTransaction();
 
+    // Build query based on the identifier type
+    const query = {
+      $or: [],
+      role: { $in: ['promoter', 'marketer'] },
+      isActive: true,
+      isDeleted: false
+    };
+    
+    if (mongoose.Types.ObjectId.isValid(promoterUserId)) {
+      query.$or.push({ _id: new mongoose.Types.ObjectId(promoterUserId) });
+    }
+    
+    query.$or.push(
+      { username: promoterUserId },
+      { email: promoterUserId },
+      { uid: promoterUserId }
+    );
+
+    const promoter = await UserModel.findOne(query).session(session);
+
+    if (!promoter) {
+      throw new Error(`Promoter not found: ${promoterUserId}`);
+    }
+
+    const walletType = promoter.role === 'promoter' ? 'promoter' : 'marketer';
+    
+    if (!promoter.wallets?.[walletType]) {
+      throw new Error(`${promoter.role} wallet not found`);
+    }
+
+    const transaction = {
+      _id: new mongoose.Types.ObjectId(),
+      amount: amount,
+      type: 'credit',
+      category: 'refund',
+      description: `Admin refund: ${reason}`,
+      status: 'completed',
+      metadata: {
+        ...metadata,
+        refundReason: reason,
+        processedByAdmin: adminId,
+        processedAt: new Date(),
+        originalPromoterId: promoter._id,
+        originalPromoterUsername: promoter.username
+      },
+      createdAt: new Date()
+    };
+
+    const previousBalance = promoter.wallets[walletType].balance || 0;
+    promoter.wallets[walletType].balance = previousBalance + amount;
+    
+    if (!promoter.wallets[walletType].transactions) {
+      promoter.wallets[walletType].transactions = [];
+    }
+    promoter.wallets[walletType].transactions.unshift(transaction);
+
+    await promoter.save({ session });
+
+    // Commit transaction FIRST before logging activities
+    await session.commitTransaction();
+    transactionCommitted = true;
+
+    // Now log activities (outside transaction since they're not critical)
     try {
-      // Find the promoter user
-      const promoter = await UserModel.findOne({
-        $or: [
-          { _id: promoterUserId },
-          { uid: promoterUserId },
-          { username: promoterUserId }
-        ],
-        role: 'promoter',
-        isActive: true,
-        isDeleted: false
-      }).session(session);
-
-      if (!promoter) {
-        throw new Error('Promoter not found or inactive');
-      }
-
-      // Check if promoter has a wallet
-      if (!promoter.wallets?.promoter) {
-        throw new Error('Promoter wallet not found');
-      }
-
-      // Create transaction record for the refund
-      const transaction = {
-        _id: new mongoose.Types.ObjectId(),
-        amount: amount,
-        type: 'credit',
-        category: 'refund',
-        description: `Admin refund: ${reason}`,
-        status: 'completed',
-        metadata: {
-          ...metadata,
-          refundReason: reason,
-          processedByAdmin: adminId,
-          processedAt: new Date(),
-          originalPromoterId: promoter._id,
-          originalPromoterUsername: promoter.username
-        },
-        createdAt: new Date()
-      };
-
-      // Update promoter's wallet balance
-      const previousBalance = promoter.wallets.promoter.balance || 0;
-      promoter.wallets.promoter.balance = previousBalance + amount;
-      
-      // Add transaction to wallet
-      if (!promoter.wallets.promoter.transactions) {
-        promoter.wallets.promoter.transactions = [];
-      }
-      promoter.wallets.promoter.transactions.unshift(transaction);
-
-      // Log the refund activity for the promoter
       await promoter.logActivity('refund_received', `Received refund of ${amount} NGN from admin`, {
         resourceType: 'transaction',
         resourceId: transaction._id,
@@ -97,111 +112,136 @@ export class AdminRefundController {
           reason,
           adminId,
           previousBalance,
-          newBalance: promoter.wallets.promoter.balance
+          newBalance: promoter.wallets[walletType].balance,
+          walletType
         }
       });
+    } catch (logError) {
+      console.warn('Failed to log promoter activity:', logError);
+    }
 
-      // Log admin activity (optional - you might have an admin activity log)
-      // This would require fetching admin user and logging their activity
-      const admin = await UserModel.findById(adminId).session(session);
+    try {
+      const admin = await UserModel.findById(adminId);
       if (admin) {
-        await admin.logActivity('admin_refund_issued', `Issued refund of ${amount} NGN to promoter ${promoter.username}`, {
+        await admin.logActivity('admin_refund_issued', `Issued refund of ${amount} NGN to ${promoter.role} ${promoter.username}`, {
           resourceType: 'user',
           resourceId: promoter._id,
           metadata: {
             promoterId: promoter._id,
             promoterUsername: promoter.username,
+            promoterRole: promoter.role,
             amount,
             reason,
-            transactionId: transaction._id
+            transactionId: transaction._id,
+            walletType
           }
         });
       }
-
-      // Save promoter changes
-      await promoter.save({ session });
-
-      // Commit transaction
-      await session.commitTransaction();
-      session.endSession();
-
-      return {
-        success: true,
-        message: `Successfully refunded ${amount} NGN to promoter ${promoter.username}`,
-        data: {
-          transactionId: transaction._id,
-          promoter: {
-            id: promoter._id,
-            username: promoter.username,
-            email: promoter.email,
-            previousBalance,
-            newBalance: promoter.wallets.promoter.balance
-          },
-          refundDetails: {
-            amount,
-            reason,
-            processedBy: adminId,
-            processedAt: new Date()
-          }
-        }
-      };
-
-    } catch (error) {
-      // Rollback transaction on error
-      await session.abortTransaction();
-      session.endSession();
-      
-      console.error('Refund failed:', error);
-      throw new Error(`Refund failed: ${error.message}`);
+    } catch (logError) {
+      console.warn('Failed to log admin activity:', logError);
     }
-  }
 
-  /**
-   * Get promoter's current balance and transaction history
-   * @param {string} promoterIdentifier - User ID, username, or email
-   * @returns {Promise<Object>} Promoter wallet details
-   */
-  static async getPromoterWalletDetails(promoterIdentifier) {
-    try {
-      const promoter = await UserModel.findOne({
-        $or: [
-          { _id: promoterIdentifier },
-          { uid: promoterIdentifier },
-          { username: promoterIdentifier },
-          { email: promoterIdentifier }
-        ],
-        role: 'promoter',
-        isActive: true,
-        isDeleted: false
-      }).select('username email role wallets.promoter');
-
-      if (!promoter) {
-        throw new Error('Promoter not found');
+    return {
+      success: true,
+      message: `Successfully refunded ${amount} NGN to ${promoter.role} ${promoter.username}`,
+      data: {
+        transactionId: transaction._id,
+        promoter: {
+          id: promoter._id,
+          username: promoter.username,
+          email: promoter.email,
+          role: promoter.role,
+          previousBalance,
+          newBalance: promoter.wallets[walletType].balance
+        },
+        refundDetails: {
+          amount,
+          reason,
+          processedBy: adminId,
+          processedAt: new Date(),
+          walletType
+        }
       }
+    };
 
-      return {
-        success: true,
-        data: {
-          promoter: {
-            id: promoter._id,
-            username: promoter.username,
-            email: promoter.email,
-            role: promoter.role
-          },
-          wallet: {
-            balance: promoter.wallets?.promoter?.balance || 0,
-            reserved: promoter.wallets?.promoter?.reserved || 0,
-            currency: promoter.wallets?.promoter?.currency || 'NGN',
-            totalTransactions: promoter.wallets?.promoter?.transactions?.length || 0
-          },
-          recentTransactions: promoter.wallets?.promoter?.transactions?.slice(0, 10) || []
-        }
-      };
-    } catch (error) {
-      console.error('Failed to get promoter wallet details:', error);
-      throw new Error(`Failed to get wallet details: ${error.message}`);
+  } catch (error) {
+    // Only abort if transaction hasn't been committed
+    if (session.transaction.isActive && !transactionCommitted) {
+      await session.abortTransaction();
     }
+    
+    console.error('Refund failed:', error);
+    throw new Error(`Refund failed: ${error.message}`);
+  } finally {
+    await session.endSession();
   }
+}
+
+
+  
+  /**
+ * Get promoter's current balance and transaction history
+ * @param {string} promoterIdentifier - User ID, username, or email
+ * @returns {Promise<Object>} Promoter wallet details
+ */
+static async getPromoterWalletDetails(promoterIdentifier) {
+  try {
+    // Build query based on the identifier type
+    const query = {
+      $or: [],
+      role: { $in: ['promoter', 'marketer'] },
+      isActive: true,
+      isDeleted: false
+    };
+    
+    // Check if it's a valid MongoDB ObjectId
+    if (mongoose.Types.ObjectId.isValid(promoterIdentifier)) {
+      query.$or.push({ _id: new mongoose.Types.ObjectId(promoterIdentifier) });
+    }
+    
+    // Always try username and email
+    query.$or.push(
+      { username: promoterIdentifier },
+      { email: promoterIdentifier },
+      { uid: promoterIdentifier }
+    );
+    
+    const promoter = await UserModel.findOne(query).select('username email role wallets.promoter wallets.marketer');
+
+    if (!promoter) {
+      throw new Error(`Promoter not found: ${promoterIdentifier}`);
+    }
+
+    // Determine wallet type based on role
+    const walletType = promoter.role === 'promoter' ? 'promoter' : 'marketer';
+    const wallet = promoter.wallets?.[walletType] || {};
+
+    return {
+      success: true,
+      data: {
+        promoter: {
+          id: promoter._id,
+          username: promoter.username,
+          email: promoter.email,
+          role: promoter.role
+        },
+        wallet: {
+          balance: wallet.balance || 0,
+          reserved: wallet.reserved || 0,
+          currency: wallet.currency || 'NGN',
+          totalTransactions: wallet.transactions?.length || 0,
+          walletType: walletType
+        },
+        recentTransactions: wallet.transactions?.slice(0, 10) || []
+      }
+    };
+  } catch (error) {
+    console.error('Failed to get promoter wallet details:', error);
+    throw new Error(`Failed to get wallet details: ${error.message}`);
+  }
+}
+
+
 
   /**
    * Refund multiple promoters in bulk
@@ -323,82 +363,154 @@ export class AdminRefundController {
     }
   }
 
-  /**
-   * Validate if a refund can be processed for a promoter
-   * @param {string} promoterUserId - Promoter identifier
-   * @param {number} amount - Amount to refund
-   * @returns {Promise<Object>} Validation result
-   */
-  static async validateRefund(promoterUserId, amount) {
-    try {
-      const promoter = await UserModel.findOne({
-        $or: [
-          { _id: promoterUserId },
-          { uid: promoterUserId },
-          { username: promoterUserId }
-        ],
-        role: 'promoter',
-        isActive: true,
-        isDeleted: false
-      });
 
-      if (!promoter) {
-        return {
-          valid: false,
-          error: 'Promoter not found or inactive'
-        };
-      }
+/**
+ * Validate if a refund can be processed for a promoter
+ * @param {string} promoterIdentifier - Promoter identifier (could be _id, uid, username, or email)
+ * @param {number} amount - Amount to refund
+ * @returns {Promise<Object>} Validation result
+ */
+static async validateRefund(promoterIdentifier, amount) {
+  try {
+    console.log('Validating refund:', { promoterIdentifier, amount });
+    
+    // Build query based on the identifier type
+    const query = {
+      $or: [],
+      isActive: true,
+      isDeleted: false
+    };
+    
+    // Check if it's a valid MongoDB ObjectId
+    if (mongoose.Types.ObjectId.isValid(promoterIdentifier)) {
+      query.$or.push({ _id: new mongoose.Types.ObjectId(promoterIdentifier) });
+    }
+    
+    // Always try username and email
+    query.$or.push(
+      { username: promoterIdentifier },
+      { email: promoterIdentifier }
+    );
+    
+    // Also try uid if present
+    query.$or.push({ uid: promoterIdentifier });
+    
+    // Only search for promoters or marketers
+    query.role = { $in: ['promoter', 'marketer'] };
+    
+    console.log('Search query:', JSON.stringify(query, null, 2));
+    
+    const promoter = await UserModel.findOne(query);
 
-      if (!promoter.wallets?.promoter) {
-        return {
-          valid: false,
-          error: 'Promoter wallet not found'
-        };
-      }
-
-      if (amount <= 0) {
-        return {
-          valid: false,
-          error: 'Refund amount must be greater than zero'
-        };
-      }
-
-      // Additional business logic validations can be added here
-      // For example:
-      // - Maximum refund limit per day
-      // - Promoter's account age restrictions
-      // - Recent suspicious activity checks
-
-      return {
-        valid: true,
-        data: {
-          promoter: {
-            id: promoter._id,
-            username: promoter.username,
-            email: promoter.email,
-            accountAge: new Date() - new Date(promoter.createdAt)
-          },
-          wallet: {
-            currentBalance: promoter.wallets.promoter.balance || 0,
-            newBalance: (promoter.wallets.promoter.balance || 0) + amount,
-            currency: promoter.wallets.promoter.currency || 'NGN'
-          },
-          validation: {
-            amount,
-            maximumAllowed: 1000000, // Example: 1,000,000 NGN limit
-            isValidAmount: amount <= 1000000
-          }
-        }
-      };
-
-    } catch (error) {
-      console.error('Refund validation failed:', error);
+    console.log('Found promoter:', promoter ? `Yes: ${promoter.username} (${promoter._id})` : 'No');
+    
+    if (!promoter) {
       return {
         valid: false,
-        error: `Validation failed: ${error.message}`
+        error: `User not found. Please check the identifier: ${promoterIdentifier}`
       };
     }
+
+    // Check wallet based on role
+    const walletType = promoter.role === 'promoter' ? 'promoter' : 'marketer';
+    
+    if (!promoter.wallets?.[walletType]) {
+      return {
+        valid: false,
+        error: `${promoter.role} wallet not found`
+      };
+    }
+
+    if (amount <= 0) {
+      return {
+        valid: false,
+        error: 'Refund amount must be greater than zero'
+      };
+    }
+
+    if (amount > 1000000) {
+      return {
+        valid: false,
+        error: 'Refund amount cannot exceed ₦1,000,000'
+      };
+    }
+
+    // Get current balance
+    const currentBalance = promoter.wallets[walletType].balance || 0;
+    
+    return {
+      valid: true,
+      data: {
+        promoter: {
+          id: promoter._id,
+          username: promoter.username,
+          email: promoter.email,
+          role: promoter.role,
+          accountAge: new Date() - new Date(promoter.createdAt)
+        },
+        wallet: {
+          currentBalance: currentBalance,
+          newBalance: currentBalance + amount,
+          currency: promoter.wallets[walletType].currency || 'NGN',
+          walletType: walletType
+        },
+        validation: {
+          amount,
+          maximumAllowed: 1000000,
+          isValidAmount: amount <= 1000000
+        }
+      }
+    };
+
+  } catch (error) {
+    console.error('Refund validation failed:', error);
+    return {
+      valid: false,
+      error: `Validation failed: ${error.message}`
+    };
   }
+}
+
+
+/**
+ * Search promoters by query
+ * @param {string} query - Search query
+ * @returns {Promise<Object>} Search results
+ */
+static async searchPromoters(query) {
+  try {
+    if (!query || query.length < 2) {
+      return {
+        success: true,
+        data: []
+      };
+    }
+
+    const promoters = await UserModel.find({
+      $or: [
+        { username: { $regex: query, $options: 'i' } },
+        { email: { $regex: query, $options: 'i' } },
+        { displayName: { $regex: query, $options: 'i' } }
+      ],
+      role: { $in: ['promoter', 'marketer'] },
+      isActive: true,
+      isDeleted: false
+    })
+    .limit(10)
+    .select('username email displayName role wallets.promoter wallets.marketer isActive isVerified');
+
+    return {
+      success: true,
+      data: promoters
+    };
+  } catch (error) {
+    console.error('Search promoters error:', error);
+    return {
+      success: false,
+      error: `Search failed: ${error.message}`
+    };
+  }
+}
 }
 
 // Export as default
