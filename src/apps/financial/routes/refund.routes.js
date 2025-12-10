@@ -1,6 +1,6 @@
 // routes/promo.routes.js
 import express from 'express';
-import { AdminRefundController } from '../../controllers/admin/refund.controller.js';
+import { AdminRefundController } from '../controllers/refund.controller.js';
 const RefundRouter = express.Router();
 
 
@@ -82,6 +82,30 @@ RefundRouter.post('/bulk', async (req, res) => {
  * @access Admin only
  */
 RefundRouter.get('/promoter/:identifier/refund-history', async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const { limit = 20, page = 1 } = req.query;
+
+    const result = await AdminRefundController.getPromoterRefundHistory(identifier, {
+      limit: parseInt(limit),
+      page: parseInt(page)
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route GET /api/user/admin/refund/history
+ * @description Get promoter's refund history
+ * @access Admin only
+ */
+RefundRouter.get('/history', async (req, res) => {
   try {
     const { identifier } = req.params;
     const { limit = 20, page = 1 } = req.query;

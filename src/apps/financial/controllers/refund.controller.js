@@ -1,5 +1,5 @@
 // file: admin.refund.controller.js
-import { UserModel } from './../../models/user.model.js';
+import { UserModel } from '../../user/models/user.model.js';
 import mongoose from 'mongoose';
 
 /**
