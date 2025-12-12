@@ -27,7 +27,9 @@ const notificationSchema = new mongoose.Schema({
       'weekly_summary',       // Weekly performance summary
       'submission_reminder', // Reminder to submit promotion
       'deadline_reminder',    // Reminder of upcoming campaign deadline
-      'refund_processed'  // Refunding marketer wallet from promoter wallet
+      'refund_processed',  // Refunding marketer wallet from promoter wallet
+      'system_report',    // System generated report
+      'birthday_greeting'  // User birthday greeting
     ],
     required: true
   },
