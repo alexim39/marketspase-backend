@@ -44,7 +44,8 @@ export const transactionSchema = new mongoose.Schema({
       'promoter_balance_reset',
       'balance_recalculation',
       'negative_reserved_fix',
-      'balance_reset'
+      'balance_reset',
+      'birthday_bonus'
     ],
     required: true
   },
