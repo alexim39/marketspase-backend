@@ -145,24 +145,30 @@ const promotionSchema = new mongoose.Schema(
   }
 );
 
-// Index to prevent duplicate applications
-promotionSchema.index(
-  { campaign: 1, promoter: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { status: { $eq: "pending" } },
-    name: "unique_campaign_promoter_pending",
-  }
-);
-
+// // Index to prevent duplicate applications
 // promotionSchema.index(
 //   { campaign: 1, promoter: 1 },
 //   {
 //     unique: true,
-//     partialFilterExpression: { status: "pending" },
+//     partialFilterExpression: { status: { $eq: "pending" } },
 //     name: "unique_campaign_promoter_pending",
 //   }
 // );
+
+
+
+// Remove/replace the old "pending-only" uniqueness with a stricter composite index.
+// Ensures at most one doc per (campaign, promoter) while status ∈ {pending, active}.
+promotionSchema.index(
+  { campaign: 1, promoter: 1, status: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: { $in: ['pending', 'active'] } },
+    name: 'uniq_campaign_promoter_status_partial'
+  }
+);
+
+
 
 // Index for better query performance
 promotionSchema.index({ status: 1 });
