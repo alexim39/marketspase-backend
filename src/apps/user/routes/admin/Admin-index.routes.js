@@ -6,12 +6,15 @@ import { getUserById } from '../../controllers/admin/get-user-by-id.controller.j
 import { toggleUserActiveStatus } from '../../controllers/admin/toggle-user-status.controller.js';
 import { getUsersByRole } from '../../controllers/admin/get-all-users-by-role.controller.js';
 import { getUserStatsByRole } from '../../controllers/admin/get-statistics-by-role.controller.js';
-//import RefundRouter from './refund.routes.js';
+import { getUserSummary } from '../../controllers/admin/get-user-summary.controller.js'
+import { getRoleStatistics } from '../../controllers/admin/get-role-statistics.controller.js'
+import { streamUsers } from '../../controllers/admin/stream-users.controller.js'
+import { deleteUser } from '../../controllers/admin/delete-soft-user.controller.js'
+import { restoreUser } from '../../controllers/admin/restore-user-soft.controller.js'
+import { updateUserDisplayName } from '../../controllers/admin/update-user-displayname.controller.js'
+
 
 const AdminIndexRouter = express.Router();
-
-// Mount refundRouter under adminIndexRouter
-//AdminIndexRouter.use('/refund', RefundRouter);
 
 // admin - get all users
 AdminIndexRouter.get('/users', getUsers);
@@ -28,21 +31,22 @@ AdminIndexRouter.get('/:id', getUserById);
 // toggle user active status
 AdminIndexRouter.patch('/:id/status', toggleUserActiveStatus);
 
-
-
-// New routes
-// Main users routes with pagination
-/* router.get('/admin/users/summary', getUserSummary);
-router.get('/admin/users/stream', streamUsers);
+// update user displayname
+AdminIndexRouter.patch('/:userId/display-name', updateUserDisplayName);
 
 // Role-based routes
-router.get('/admin/users/role/:role', getUsersByRole);
-router.get('/admin/users/role/:role/stats', getRoleStatistics);
+AdminIndexRouter.get('/summary', getUserSummary);
 
-// Individual user routes
-router.get('/admin/:id', getUserById);
-router.patch('/admin/:id/status', updateUserStatus);
-router.delete('/admin/:id', deleteUser);
-router.patch('/admin/:id/restore', restoreUser); */
+// Role-based routes
+AdminIndexRouter.get('/admin/users/role/:role/stats', getRoleStatistics);
+
+//
+AdminIndexRouter.get('/stream', streamUsers);
+
+//
+AdminIndexRouter.patch('/admin/:id/restore', restoreUser); 
+
+AdminIndexRouter.delete('/admin/:id', deleteUser);
+
 
 export default AdminIndexRouter;
