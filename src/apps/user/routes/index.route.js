@@ -6,7 +6,7 @@ app.use(express.urlencoded({extended: false})); // Use formdata middleware
 import { SwitchUser } from '../controllers/switch-user.controller.js'
 
 import PromoRouter from './promo/promo.routes.js';
-import StatsRouter from './stats/stats.routes.js';
+//import StatsRouter from './stats/stats.routes.js';
 import ProfileRouter from './profile/profile.routes.js';
 import ReferralRouter from './referral/referral.routes.js';
 import AdminIndexRouter from './admin/Admin-index.routes.js';
@@ -17,7 +17,7 @@ const UserRouter = express.Router();
 // Mount PromoRouter under UserRouter
 UserRouter.use('/promo', PromoRouter);
 // Mount StatsRouter under UserRouter
-UserRouter.use('/stats', StatsRouter);
+//UserRouter.use('/stats', StatsRouter);
 // Mount ProfileRouter under UserRouter
 UserRouter.use('/profile', ProfileRouter);
 // Mount referrals under UserRouter

@@ -87,7 +87,7 @@ export const userBirthdayEmailTemplate = (user) => {
       <div style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);border-radius:12px;padding:30px;margin-bottom:40px;color:white;">
         <h2 style="font-size:22px;font-weight:700;margin:0 0 20px;">A Special Gift For You</h2>
         <p style="font-size:16px;line-height:1.6;margin-bottom:20px;opacity:0.95;">
-          As our birthday gift to you, we've added <strong style="font-size:18px;">₦500 bonus</strong> to your account! 
+          As our birthday gift to you, we've added <strong style="font-size:18px;">₦50 bonus</strong> to your account! 
           Use it to ${isPromoter ? 'take on more campaigns' : 'fund your next marketing campaign'} and make this birthday extra special.
         </p>
         <p style="font-size:14px;font-style:italic;margin:0;opacity:0.8;">
@@ -143,7 +143,7 @@ export const userBirthdayEmailTemplate = (user) => {
           <div style="background:#faf5ff;padding:20px;border-radius:10px;">
             <div style="font-size:24px;margin-bottom:10px;">👥</div>
             <h4 style="font-size:16px;font-weight:600;color:#805ad5;margin:0 0 10px;">Referral Bonus</h4>
-            <p style="font-size:14px;color:#718096;margin:0;line-height:1.5;">Invite friends today and earn ₦1,000 bonus when they complete their first campaign!</p>
+            <p style="font-size:14px;color:#718096;margin:0;line-height:1.5;">Invite friends today and earn ₦2,250 bonus when they complete their first campaign!</p>
           </div>
           ` : ''}
         </div>
@@ -164,10 +164,10 @@ export const userBirthdayEmailTemplate = (user) => {
     <div style="background:#1a202c;color:#a0aec0;padding:30px 20px;text-align:center;">
       <div style="margin-bottom:20px;">
         <p style="font-size:14px;margin:0 0 15px;">Share the celebration with friends!</p>
-        <div style="display:flex;justify-content:center;gap:15px;">
-          <a href="#" style="color:#a0aec0;text-decoration:none;font-size:12px;">Invite Friends</a> | 
-          <a href="#" style="color:#a0aec0;text-decoration:none;font-size:12px;">Share on Twitter</a> | 
-          <a href="#" style="color:#a0aec0;text-decoration:none;font-size:12px;">Share on WhatsApp</a>
+        <div style="display:flex;justify-content:center;gap:15px;align-items:center;">
+          <a href="#" style="color:#a0aec0;text-decoration:none;font-size:12px;">Invite Friends</a> | &nbsp;
+          <a href="#" style="color:#a0aec0;text-decoration:none;font-size:12px;">Share on Twitter</a> | &nbsp;
+          <a href="https://whatsapp.com/channel/0029Vb77xA51NCrKysUMO11D" target="_blank" style="color:#a0aec0;text-decoration:none;font-size:12px;">WhatsApp Channel</a>
         </div>
       </div>
       

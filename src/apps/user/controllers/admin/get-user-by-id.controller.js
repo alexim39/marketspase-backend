@@ -1,56 +1,108 @@
 import { UserModel } from '../../models/user.model.js';
 import mongoose from 'mongoose';
 
+// Helper function to build query from filters
+const buildUserQuery = (filters = {}) => {
+  const query = { isDeleted: false };
+  
+  // Role filter
+  if (filters.role) {
+    query.role = filters.role;
+  }
+  
+  // Status filters
+  if (filters.isActive !== undefined) {
+    query.isActive = filters.isActive === 'true' ? true : filters.isActive === 'false' ? false : filters.isActive;
+  }
+  
+  if (filters.isVerified !== undefined) {
+    query.isVerified = filters.isVerified === 'true' ? true : filters.isVerified === 'false' ? false : filters.isVerified;
+  }
+  
+  // Search filter (text search across multiple fields)
+  if (filters.search && filters.search.trim()) {
+    const searchRegex = new RegExp(filters.search.trim(), 'i');
+    query.$or = [
+      { username: searchRegex },
+      { email: searchRegex },
+      { displayName: searchRegex },
+      { 'personalInfo.phone': searchRegex }
+    ];
+  }
+  
+  return query;
+};
 
-// Controller to get a single user by ID
-export const getAppUserById = async (req, res) => {
+// Helper function to build sorting
+const buildUserSort = (sort = '-createdAt') => {
+  const sortObj = {};
+  
+  if (sort.startsWith('-')) {
+    sortObj[sort.substring(1)] = -1; // Descending
+  } else {
+    sortObj[sort] = 1; // Ascending
+  }
+  
+  return sortObj;
+};
+
+// Helper function to build projection (fields to return)
+const buildUserProjection = () => ({
+  password: 0,
+  notificationSettings: 0,
+  deviceTokens: 0,
+  sseConnections: 0,
+  activityLog: 0,
+  'wallets.marketer.transactions': 0,
+  'wallets.promoter.transactions': 0
+})
+
+
+/**
+ * Get user by ID
+ * GET /api/user/admin/:id
+ */
+export const getUserById = async (req, res) => {
   try {
-    // Extract the user ID from the request parameters
     const { id } = req.params;
 
-    // Check if the ID is provided
-    if (!id) {
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
-        message: 'User ID is required.'
+        message: 'Invalid user ID format'
       });
     }
 
-    // Find a single user by their ID
-    // .findById() is a convenient Mongoose method for this
-    // We still use .select('-password') for security
     const user = await UserModel.findById(id)
-    .populate('testimonials')
-    .select('-password').exec();
+      .select('-password -deviceTokens -sseConnections -activityLog')
+      .lean();
 
-    // If no user is found with the given ID, return a 404 Not Found error
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found.'
+        message: 'User not found'
       });
     }
 
-    // Send a success response with the single user's data
+    if (user.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'User has been deleted'
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: 'User fetched successfully',
       data: user
     });
+
   } catch (error) {
-    // Handle errors, such as invalid ID format (e.g., non-valid ObjectId)
-    console.error('Error fetching user by ID:', error);
-    // Mongoose CastError for invalid IDs
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid user ID format.'
-      });
-    }
-    // Generic server error
+    console.error('Error fetching user:', error);
     res.status(500).json({
       success: false,
-      message: 'An error occurred while fetching the user.'
+      message: 'An error occurred while fetching user.'
     });
   }
 };
