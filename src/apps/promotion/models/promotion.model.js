@@ -1,12 +1,6 @@
 import mongoose from "mongoose";
 import { NotificationService } from "../../notification/services/notification.service.js";
-
-// Function to generate a unique 6-digit number
-const generateUniqueUpi = () => {
-  const min = 100000;
-  const max = 999999;
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-};
+import { generateUniqueUpi } from './../utils/generateUniqueUpi.js'
 
 const promotionSchema = new mongoose.Schema(
   {
@@ -174,7 +168,7 @@ promotionSchema.index(
 promotionSchema.index({ status: 1 });
 promotionSchema.index({ promoter: 1, status: 1 });
 promotionSchema.index({ campaign: 1, status: 1 });
-promotionSchema.index({ upi: 1 });
+promotionSchema.index({ upi: 1 }, { unique: true });
 promotionSchema.index({ "notificationLog.sentAt": 1 });
 promotionSchema.index({ submittedAt: 1 });
 promotionSchema.index({ "reminders.submission.lastSent": 1 });
