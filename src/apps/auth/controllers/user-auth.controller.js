@@ -9,6 +9,26 @@ import { PromotionModel } from "../../promotion/models/promotion.model.js"; // A
 import { ReferralService } from './../../user/services/referral.service.js';
 const referralService = new ReferralService();
 
+
+const logActivitySafe = async (userId, activity) => {
+  try {
+    await UserModel.updateOne(
+      { _id: userId },
+      {
+        $push: {
+          activityLog: {
+            $each: [activity],
+            $slice: -200 // prevent unbounded growth
+          }
+        }
+      }
+    );
+  } catch (err) {
+    console.warn('Activity log failed:', err.message);
+  }
+};
+
+
 // Authenticate/Verify User
 export const Authenticate = async (req, res) => {
   try {
@@ -73,14 +93,12 @@ export const Authenticate = async (req, res) => {
         await referralService.processReferral(user._id, referralCode, user.role);
         
         // Log the referral activity
-        await user.logActivity(
-          'referred_signup',
-          `Joined using referral from ${referralCode}`,
-          {
-            resourceType: 'referral',
-            metadata: { referrerUsername: referralCode }
-          }
-        );
+        await logActivitySafe(user._id, {
+          action: 'referred_signup',
+          description: `Joined using referral from ${referralCode}`,
+          createdAt: new Date(),
+          metadata: { referrerUsername: referralCode }
+        });
         console.error('Referral sign up with code:', referralCode);
       } catch (referralError) {
         console.error('Referral processing failed:', referralError);
@@ -106,7 +124,12 @@ export const Authenticate = async (req, res) => {
       await sendEmail(user.email, userSubject, userMessage);
 
       // user activity log
-      await user.logActivity('login', `You signed up a new account account`, {});
+      await logActivitySafe(user._id, {
+        action: 'login',
+        description: `You signed up a new account account`,
+        createdAt: new Date(),
+        metadata: { referrerUsername: referralCode }
+      });
       console.log(`User ${user.username} signed up via ${authProvider}.`);
 
     } else {
@@ -132,7 +155,12 @@ export const Authenticate = async (req, res) => {
       }
 
       // user activity log
-      await user.logActivity('login', `New account creation and login`, {});
+      await logActivitySafe(user._id, {
+        action: 'login',
+        description: `New account creation and login`,
+        createdAt: new Date(),
+        metadata: { referrerUsername: referralCode }
+      });
       console.log(`User ${user.username} logged in via ${authProvider}.`);
       
     }

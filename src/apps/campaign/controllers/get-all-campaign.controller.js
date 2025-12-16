@@ -1,42 +1,156 @@
 import { CampaignModel } from "../models/campaign.model.js";
 
+/**
+ * Configuration for pagination and performance
+ */
+const CAMPAIGN_FETCH_CONFIG = {
+  DEFAULT_PAGE_SIZE: 50,
+  MAX_PAGE_SIZE: 100,
+  SORT_FIELD: "-createdAt",
+  OWNER_POPULATE_FIELDS: "displayName username email avatar uid",
+  PROMOTIONS_POPULATE_FIELDS: "promoter views screenshotUrl status",
+};
 
 /**
- * Controller to get all campaigns.
- * It populates the 'owner' field to include user data and also
- * populates the 'promotions' virtual to include promotion data for each campaign.
- * It returns the campaigns sorted by creation date in descending order (newest first).
+ * Builds optimized MongoDB aggregation pipeline for fetching campaigns
+ * More efficient than separate .populate() calls for large datasets
+ */
+const buildAggregationPipeline = ({ page = 1, limit, filters = {} }) => {
+  const pageSize = Math.min(
+    limit || CAMPAIGN_FETCH_CONFIG.DEFAULT_PAGE_SIZE,
+    CAMPAIGN_FETCH_CONFIG.MAX_PAGE_SIZE
+  );
+  const skip = (page - 1) * pageSize;
+
+  const pipeline = [
+    { $match: filters },
+    { $sort: { createdAt: -1 } },
+    { $skip: skip },
+    { $limit: pageSize },
+    // Lookup owner data (more efficient than populate for large datasets)
+    {
+      $lookup: {
+        from: "users",
+        localField: "owner",
+        foreignField: "_id",
+        as: "owner",
+        pipeline: [
+          {
+            $project: CAMPAIGN_FETCH_CONFIG.OWNER_POPULATE_FIELDS
+              .split(" ")
+              .reduce((acc, field) => {
+                acc[field] = 1;
+                return acc;
+              }, {}),
+          },
+        ],
+      },
+    },
+    { $unwind: { path: "$owner", preserveNullAndEmptyArrays: true } },
+    // Lookup promotions data
+    {
+      $lookup: {
+        from: "promotions",
+        localField: "_id",
+        foreignField: "campaign",
+        as: "promotions",
+        pipeline: [
+          {
+            $project: CAMPAIGN_FETCH_CONFIG.PROMOTIONS_POPULATE_FIELDS
+              .split(" ")
+              .reduce((acc, field) => {
+                acc[field] = 1;
+                return acc;
+              }, {}),
+          },
+        ],
+      },
+    },
+  ];
+
+  return { pipeline, pageSize, skip };
+};
+
+/**
+ * Fetches campaigns with pagination and performance optimizations
+ */
+const fetchCampaigns = async (query = {}) => {
+  const { pipeline, pageSize } = buildAggregationPipeline(query);
+
+  // Execute aggregation with parallel operations
+  const [campaigns, totalCount] = await Promise.all([
+    CampaignModel.aggregate(pipeline).exec(),
+    CampaignModel.countDocuments(query.filters || {}),
+  ]);
+
+  return {
+    campaigns,
+    pagination: {
+      page: query.page || 1,
+      limit: pageSize,
+      total: totalCount,
+      pages: Math.ceil(totalCount / pageSize),
+      hasMore: totalCount > (query.page || 1) * pageSize,
+    },
+  };
+};
+
+/**
+ * Controller to get campaigns with pagination and performance optimizations
  */
 export const getAllCampaigns = async (req, res) => {
   try {
-    // 1. Find all campaigns
-    const campaigns = await CampaignModel.find({})
-      // 2. Sort the results. The '-createdAt' sorts by the 'createdAt' field in descending order.
-      .sort("-createdAt") 
-      // 3. Populate the 'owner' field with user details
-      .populate({
-        path: "owner",
-        select: "displayName username email avatar uid", // Specify which fields to include
-      })
-      // 4. Populate the 'promotions' virtual field
-      .populate({
-        path: "promotions",
-        select: "promoter views screenshotUrl status", // Specify which fields to include from promotions
-      })
-      .exec();
+    const { page = 1, limit, status, startDate, endDate } = req.query;
 
-    // 5. Send a success response with the fetched campaigns
+    // Build filters from query params
+    const filters = {};
+    if (status) filters.status = status;
+    if (startDate || endDate) {
+      filters.createdAt = {};
+      if (startDate) filters.createdAt.$gte = new Date(startDate);
+      if (endDate) filters.createdAt.$lte = new Date(endDate);
+    }
+
+    const { campaigns, pagination } = await fetchCampaigns({
+      page: parseInt(page, 10),
+      limit: limit ? parseInt(limit, 10) : undefined,
+      filters,
+    });
+
+    // Set cache headers for CDN/browser caching
+    res.set({
+      "Cache-Control": "public, max-age=60", // Cache for 1 minute
+      "X-Total-Count": pagination.total,
+      "X-Page": pagination.page,
+      "X-Page-Size": pagination.limit,
+    });
+
     res.status(200).json({
       success: true,
       message: "Campaigns fetched successfully.",
       data: campaigns,
+      pagination,
     });
   } catch (error) {
-    // 6. Handle any errors that occur during the database query
     console.error("Error fetching campaigns:", error);
+
+    // Handle specific MongoDB errors
+    if (error.name === "MongoError" || error.name === "MongoServerError") {
+      if (error.code === 16500) {
+        // MongoDB Atlas might throw resource exhaustion errors
+        return res.status(429).json({
+          success: false,
+          message: "Database resources temporarily exceeded. Please try again later.",
+          retryAfter: 60,
+        });
+      }
+    }
+
     res.status(500).json({
       success: false,
       message: "An error occurred while fetching campaigns.",
+      // Don't expose internal error details in production
+      ...(process.env.NODE_ENV === "development" && { error: error.message }),
     });
   }
 };

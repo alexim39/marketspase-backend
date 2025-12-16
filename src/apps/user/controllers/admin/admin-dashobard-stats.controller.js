@@ -1,4 +1,4 @@
-import { UserModel } from '../../models/user.model.js';
+/* import { UserModel } from '../../models/user.model.js';
 import mongoose from 'mongoose';
 import { CampaignModel } from '../../../campaign/models/campaign.model.js';
 import { PromotionModel } from '../../../promotion/models/promotion.model.js';
@@ -147,7 +147,7 @@ export const getEngagementStats = async (req, res) => {
       message: 'Error calculating engagement statistics'
     });
   }
-};
+}; */
 
 // Alternative method using aggregation for better performance
 // export const getEngagementStatsAggregated = async (req, res) => {

@@ -67,7 +67,7 @@ export const promotionExpiringTemplate = (promotionData) => {
         <p style="font-size:14px;line-height:1.5;margin:0 0 16px;color:#4a5568;">Upload up to 3 screenshots that clearly show:</p>
         <ul style="margin:0;padding-left:20px;font-size:14px;line-height:1.5;color:#4a5568;">
           <li><strong>Promotion ID:</strong> ${promotionData.promotionId} visible in the status</li>
-          <li><strong>Status Views:</strong> Must show 25+ views count</li>
+          <li><strong>Status Views:</strong> Must show 40+ views count</li>
           <li><strong>Date & Time:</strong> Current date and time visible</li>
           <li><strong>Clear Visibility:</strong> Content must be readable</li>
         </ul>

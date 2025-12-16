@@ -197,7 +197,7 @@ campaignSchema.pre('save', function(next) {
     }
 
     // Check if budget is exhausted
-    if (this.spentBudget + this.payoutPerPromotion > this.budget || this.spentBudget >= this.budget) {
+    if (this.spentBudget >= this.budget) {
         this.status = 'exhausted';
     }
 
@@ -278,7 +278,8 @@ campaignSchema.virtual('promotions', {
 // Method to assign a promoter (used during acceptance)
 campaignSchema.methods.assignPromoter = function () {
     // 1. FUND FLOW CHECK (Stage 1/2 Gate): Check if the next payout exceeds the budget
-    const potentialSpentBudget = (this.paidPromotions * this.payoutPerPromotion);
+    const potentialSpentBudget = (this.currentPromoters * this.payoutPerPromotion);
+    //const potentialSpentBudget = (this.paidPromotions * this.payoutPerPromotion || this.currentPromoters * this.payoutPerPromotion);
     const potentialSpend = potentialSpentBudget + this.payoutPerPromotion;
 
     if (potentialSpend > this.budget) {

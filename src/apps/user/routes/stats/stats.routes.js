@@ -1,4 +1,4 @@
-// routes/promo.routes.js
+/* // routes/promo.routes.js
 import express from 'express';
 import { getRevenueStats, getEngagementStats } from '../../controllers/admin/admin-dashobard-stats.controller.js'
 
@@ -8,4 +8,4 @@ StatsRouter.get('/revenue', getRevenueStats);
 
 StatsRouter.get('/engagement', getEngagementStats);
 
-export default StatsRouter;
+export default StatsRouter; */

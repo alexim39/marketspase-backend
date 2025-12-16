@@ -1,24 +1,82 @@
 import { UserModel } from '../../models/user.model.js';
 import mongoose from 'mongoose';
 
+// Helper function to build query from filters
+const buildUserQuery = (filters = {}) => {
+  const query = { isDeleted: false };
+  
+  // Role filter
+  if (filters.role) {
+    query.role = filters.role;
+  }
+  
+  // Status filters
+  if (filters.isActive !== undefined) {
+    query.isActive = filters.isActive === 'true' ? true : filters.isActive === 'false' ? false : filters.isActive;
+  }
+  
+  if (filters.isVerified !== undefined) {
+    query.isVerified = filters.isVerified === 'true' ? true : filters.isVerified === 'false' ? false : filters.isVerified;
+  }
+  
+  // Search filter (text search across multiple fields)
+  if (filters.search && filters.search.trim()) {
+    const searchRegex = new RegExp(filters.search.trim(), 'i');
+    query.$or = [
+      { username: searchRegex },
+      { email: searchRegex },
+      { displayName: searchRegex },
+      { 'personalInfo.phone': searchRegex }
+    ];
+  }
+  
+  return query;
+};
+
+// Helper function to build sorting
+const buildUserSort = (sort = '-createdAt') => {
+  const sortObj = {};
+  
+  if (sort.startsWith('-')) {
+    sortObj[sort.substring(1)] = -1; // Descending
+  } else {
+    sortObj[sort] = 1; // Ascending
+  }
+  
+  return sortObj;
+};
+
+// Helper function to build projection (fields to return)
+const buildUserProjection = () => ({
+  password: 0,
+  notificationSettings: 0,
+  deviceTokens: 0,
+  sseConnections: 0,
+  activityLog: 0,
+  'wallets.marketer.transactions': 0,
+  'wallets.promoter.transactions': 0
+})
+
 
 /**
- * Get users by role with pagination, filtering, and sorting
+ * Get users by specific role with pagination
+ * GET /api/user/admin/users/role/:role
  */
-export const getAppUsersByRole = async (req, res) => {
+export const getUsersByRole = async (req, res) => {
   try {
     const { role } = req.params;
     const {
       page = 1,
       limit = 50,
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
       search = '',
-      status = '', // 'active', 'inactive', 'deleted'
-      verified = '', // 'true', 'false'
-      dateFrom = '',
-      dateTo = ''
+      sort = '-createdAt',
+      isActive,
+      isVerified
     } = req.query;
+
+    const pageNum = parseInt(page);
+    const limitNum = Math.min(parseInt(limit), 200);
+    const skip = (pageNum - 1) * limitNum;
 
     // Validate role
     const validRoles = ['marketer', 'promoter', 'admin'];
@@ -29,162 +87,68 @@ export const getAppUsersByRole = async (req, res) => {
       });
     }
 
-    // Build filter query
-    const filter = { role };
+    // Build query
+    const query = {
+      isDeleted: false,
+      role
+    };
+
+    if (isActive !== undefined) {
+      query.isActive = isActive === 'true';
+    }
     
-    // Status filter
-    if (status) {
-      if (status === 'active') {
-        filter.isActive = true;
-        filter.isDeleted = false;
-      } else if (status === 'inactive') {
-        filter.isActive = false;
-        filter.isDeleted = false;
-      } else if (status === 'deleted') {
-        filter.isDeleted = true;
-      }
-    } else {
-      // Default: exclude deleted users
-      filter.isDeleted = false;
-    }
-
-    // Verified filter
-    if (verified === 'true') {
-      filter.isVerified = true;
-    } else if (verified === 'false') {
-      filter.isVerified = false;
-    }
-
-    // Date range filter for createdAt
-    const dateFilter = {};
-    if (dateFrom) {
-      dateFilter.$gte = new Date(dateFrom);
-    }
-    if (dateTo) {
-      dateFilter.$lte = new Date(dateTo);
-    }
-    if (Object.keys(dateFilter).length > 0) {
-      filter.createdAt = dateFilter;
+    if (isVerified !== undefined) {
+      query.isVerified = isVerified === 'true';
     }
 
     // Search filter
-    if (search) {
-      const searchRegex = new RegExp(search, 'i');
-      filter.$or = [
+    if (search && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), 'i');
+      query.$or = [
         { username: searchRegex },
-        { displayName: searchRegex },
         { email: searchRegex },
-        { 'personalInfo.phone': searchRegex }
+        { displayName: searchRegex }
       ];
     }
 
-    // Calculate pagination
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const skip = (pageNum - 1) * limitNum;
+    const sortObj = buildUserSort(sort);
+    const projection = buildUserProjection();
 
-    // Sort configuration
-    const sort = {};
-    sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+    // Execute queries
+    const [users, total] = await Promise.all([
+      UserModel.find(query)
+        .select(projection)
+        .sort(sortObj)
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      
+      UserModel.countDocuments(query)
+    ]);
 
-    // Execute query with projection to exclude sensitive data
-    const users = await UserModel.find(filter)
-      .select('-password -__v -deviceTokens -sseConnections -notificationSettings -notificationStats')
-      .sort(sort)
-      .skip(skip)
-      .limit(limitNum)
-      .lean();
+    const totalPages = Math.ceil(total / limitNum);
 
-    // Get total count for pagination metadata
-    const totalUsers = await UserModel.countDocuments(filter);
-    const totalPages = Math.ceil(totalUsers / limitNum);
-
-    // Format user data for frontend
-    const formattedUsers = users.map(user => ({
-      _id: user._id,
-      uid: user.uid,
-      username: user.username,
-      displayName: user.displayName,
-      email: user.email,
-      avatar: user.avatar,
-      role: user.role,
-      authenticationMethod: user.authenticationMethod,
-      
-      // Wallet balances
-      wallets: {
-        marketer: {
-          balance: user.wallets?.marketer?.balance || 0,
-          reserved: user.wallets?.marketer?.reserved || 0,
-          currency: user.wallets?.marketer?.currency || 'NGN',
-          transactionCount: user.wallets?.marketer?.transactions?.length || 0
-        },
-        promoter: {
-          balance: user.wallets?.promoter?.balance || 0,
-          reserved: user.wallets?.promoter?.reserved || 0,
-          currency: user.wallets?.promoter?.currency || 'NGN',
-          transactionCount: user.wallets?.promoter?.transactions?.length || 0
-        }
-      },
-      
-      // Status flags
-      isActive: user.isActive,
-      isVerified: user.isVerified,
-      isDeleted: user.isDeleted,
-      
-      // Additional user info
-      rating: user.rating,
-      ratingCount: user.ratingCount,
-      
-      // Personal info (partial)
-      personalInfo: {
-        phone: user.personalInfo?.phone || null,
-        city: user.personalInfo?.address?.city || null,
-        state: user.personalInfo?.address?.state || null,
-        country: user.personalInfo?.address?.country || null
-      },
-      
-      // Referral info
-      referralInfo: {
-        referralCode: user.referralInfo?.referralCode || null,
-        referredBy: user.referralInfo?.referredBy || null,
-        totalReferrals: user.referralInfo?.totalReferrals || 0,
-        totalEarned: user.referralInfo?.totalEarned || 0
-      },
-      
-      // Activity stats
-      activityCount: user.activityLog?.length || 0,
-      
-      // Timestamps
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt
-    }));
-
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
-      data: formattedUsers,
-      pagination: {
-        currentPage: pageNum,
-        totalPages,
-        totalUsers,
-        hasNextPage: pageNum < totalPages,
-        hasPrevPage: pageNum > 1
-      },
-      filters: {
-        role,
-        search,
-        status,
-        verified,
-        dateFrom,
-        dateTo
+      message: `${role.charAt(0).toUpperCase() + role.slice(1)} users fetched successfully`,
+      data: {
+        users,
+        pagination: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages,
+          hasNext: pageNum < totalPages,
+          hasPrev: pageNum > 1
+        }
       }
     });
 
   } catch (error) {
-    console.error('Error fetching users by role:', error);
-    return res.status(500).json({
+    console.error(`Error fetching ${req.params.role} users:`, error);
+    res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: error.message
+      message: `An error occurred while fetching ${req.params.role} users.`
     });
   }
-}
+};

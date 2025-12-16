@@ -59,70 +59,68 @@ const buildUserProjection = () => ({
 
 
 /**
- * Get all users with pagination and filters
- * GET /api/user/admin/users
+ * Restore soft-deleted user
+ * PATCH /api/user/admin/:id/restore
  */
-export const getUsers = async (req, res) => {
+export const restoreUser = async (req, res) => {
   try {
-    // Extract query parameters
-    const {
-      page = 1,
-      limit = 50,
-      search = '',
-      sort = '-createdAt',
-      role,
-      isActive,
-      isVerified
-    } = req.query;
+    const { id } = req.params;
 
-    const pageNum = parseInt(page);
-    const limitNum = Math.min(parseInt(limit), 200); // Cap at 200 for safety
-    const skip = (pageNum - 1) * limitNum;
+    // Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
 
-    // Build query, sort, and projection
-    const query = buildUserQuery({ search, role, isActive, isVerified });
-    const sortObj = buildUserSort(sort);
-    const projection = buildUserProjection();
+    const user = await UserModel.findById(id);
 
-    // Execute queries in parallel for better performance
-    const [users, total] = await Promise.all([
-      UserModel.find(query)
-        .select(projection)
-        .sort(sortObj)
-        .skip(skip)
-        .limit(limitNum)
-        .lean(), // Use lean() for faster read-only operations
-      
-      UserModel.countDocuments(query)
-    ]);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
 
-    // Calculate pagination metadata
-    const totalPages = Math.ceil(total / limitNum);
-    const hasNext = pageNum < totalPages;
-    const hasPrev = pageNum > 1;
+    if (!user.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: 'User is not deleted'
+      });
+    }
+
+    // Restore user
+    user.isDeleted = false;
+    user.deletedAt = undefined;
+    user.deletedBy = undefined;
+    await user.save();
+
+    // Log the activity
+    await user.logActivity(
+      'user_restored',
+      'User account restored',
+      {
+        resourceType: 'user',
+        resourceId: user._id,
+        performedBy: req.user?._id || 'system'
+      }
+    );
 
     res.status(200).json({
       success: true,
-      message: 'Users fetched successfully',
+      message: 'User restored successfully',
       data: {
-        users,
-        pagination: {
-          total,
-          page: pageNum,
-          limit: limitNum,
-          totalPages,
-          hasNext,
-          hasPrev
-        }
+        _id: user._id,
+        isDeleted: user.isDeleted
       }
     });
 
   } catch (error) {
-    console.error('Error fetching users:', error);
+    console.error('Error restoring user:', error);
     res.status(500).json({
       success: false,
-      message: 'An error occurred while fetching users.',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: 'An error occurred while restoring user.'
     });
   }
 };

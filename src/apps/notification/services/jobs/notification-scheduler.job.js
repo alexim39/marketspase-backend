@@ -9,6 +9,9 @@ import { sendEmail } from "../../../../services/email.service.js";
 import { promotionExpiringTemplate } from "../../../promotion/services/email/promotionExpiringTemplate.js";
 import { promotionAutoRejection } from "../../services/promotion-auto-reject.service.js";
 import { userBirthdayService } from '../user-birthday.service.js';
+import { activityLogCleaner } from './activity-log-cleaner.job.js'
+
+
 
 // 1. 20-HOUR SUBMISSION REMINDER - Every hour
 cron.schedule("0 * * * *", async () => {
@@ -505,7 +508,9 @@ cron.schedule("0 */5 * * *", promotionAutoRejection);
 cron.schedule("0 9 * * *", userBirthdayService);
 //cron.schedule('*/2 * * * *', userBirthdayService)
 
-
+// 9. ACTIVITY LOG CLEANUP – Every 14 days
+cron.schedule("0 3 */14 * *", activityLogCleaner);
+//cron.schedule('*/2 * * * *', activityLogCleaner)
 
 
 

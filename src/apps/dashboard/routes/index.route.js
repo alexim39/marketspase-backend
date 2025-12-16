@@ -1,14 +1,11 @@
 import express from 'express';
-//import { } from '../controllers/dashboard.controller.js'
-
 const DashboardRouter = express.Router();
-
-// Get random testimonials for specified users
-//DashboardRouter.get('/testimonials', getRandomTestimonials);
-
 import BannerMessageRouter from './banner-message.route.js';
+import StatsRouter from './stats.route.js';
 
-// Mount ProfileRouter under UserRouter
+// Mount ProfileRouter
 DashboardRouter.use('/banner-messages', BannerMessageRouter);
+// Mount StatsRouter
+DashboardRouter.use('/stats', StatsRouter);
 
 export default DashboardRouter;
