@@ -57,6 +57,10 @@ export const acceptCampaign = async (req, res) => {
         const marketer = await UserModel.findById(campaign.owner).session(session).select('_id');
         if (!marketer) throw { status: 404, message: 'Campaign owner not found' };
 
+        const promoter = await UserModel.findById(userId).session(session).select('_id role');
+        if (!promoter) throw { status: 404, message: 'Promoter user not found' };
+        if (promoter.role !== 'promoter') throw { status: 403, message: 'Only promoters can accept campaigns, switch user role to promoter' };
+
         const ok = await UserModel.updateOne(
           { _id: marketer._id, 'wallets.marketer.balance': { $gte: payout } },
           { $inc: { 'wallets.marketer.balance': -payout, 'wallets.marketer.reserved': +payout } },

@@ -153,11 +153,11 @@ const promotionSchema = new mongoose.Schema(
 
 // Remove/replace the old "pending-only" uniqueness with a stricter composite index.
 // Ensures at most one doc per (campaign, promoter) while status ∈ {pending, active}.
-promotionSchema.index(
-  { campaign: 1, promoter: 1, status: 1 },
+promotionSchema.index( 
+ { campaign: 1, promoter: 1, status: 1 },
   {
     unique: true,
-    partialFilterExpression: { status: { $in: ['pending', 'active'] } },
+    partialFilterExpression: { status: { $in: ['pending', 'submitted', 'validated'] } },
     name: 'uniq_campaign_promoter_status_partial'
   }
 );
