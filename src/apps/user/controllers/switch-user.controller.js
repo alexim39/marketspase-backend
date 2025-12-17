@@ -24,6 +24,7 @@ export const SwitchUser = async (req, res) => {
       description: `You switched user role to ${newRole}`,
       timestamp: new Date(),
     };
+    console.log(`User role switched successfully for user: ${user.username} to role: ${newRole}`);
 
     await UserModel.updateOne(
       { _id: user._id },

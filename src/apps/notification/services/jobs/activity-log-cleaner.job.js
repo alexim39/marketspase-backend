@@ -1,38 +1,36 @@
+
 import { UserModel } from "../../../user/models/user.model.js";
 
+/**
+ * Removes entries older than 14 days from users' activityLog arrays.
+ * Optimized to avoid scanning the entire collection.
+ */
 export const activityLogCleaner = async () => {
-    console.log(`Starting activity log clean up of more than 14 days`);
+  const start = Date.now();
+  console.log("🧹 Starting activity log cleanup for entries older than 14 days...");
 
-   try {
-    console.log("🧹 Running activity log cleanup job...");
+  try {
+    // Compute cutoff (UTC)
+    const now = new Date();
+    const cutoffDate = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    console.log(`Cutoff date (UTC): ${cutoffDate.toISOString()}`);
 
-    // Calculate cutoff date (14 days ago)
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 14);
-
-    console.log(
-      "Removing activity logs older than:",
-      cutoffDate.toISOString()
-    );
+    // Target only users with old entries
+    const filter = { "activityLog.timestamp": { $lt: cutoffDate } };
 
     const result = await UserModel.updateMany(
-      {},
-      {
-        $pull: {
-          activityLog: {
-            timestamp: { $lt: cutoffDate }
-          }
-        }
-      }
+      filter,
+      { $pull: { activityLog: { timestamp: { $lt: cutoffDate } } } }
     );
 
+    const durationMs = Date.now() - start;
     console.log("✅ Activity log cleanup completed");
     console.log({
-      matchedUsers: result.matchedCount,
-      modifiedUsers: result.modifiedCount
+      matchedUsers: result.matchedCount ?? result.nMatched,
+      modifiedUsers: result.modifiedCount ?? result.nModified,
+      durationMs
     });
-
   } catch (error) {
     console.error("❌ Error in activity log cleanup job:", error);
   }
-}
+};
