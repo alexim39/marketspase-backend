@@ -186,58 +186,125 @@ export const Authenticate = async (req, res) => {
   }
 };
 
+
 /**
- * Controller to get a user's record by their UID.
- * This function handles the incoming HTTP request and returns the user data,
- * but only if their account is active.
+ * GET /api/users/:uid?txLimit=20&campaignsLimit=10&promotionsLimit=10
+ * - txLimit is clamped to [15..30], default 20
  */
 export const GetUser = async (req, res) => {
   try {
-    // 1. Extract the UID from the URL parameters
+    // 1) Validate UID
     const { uid } = req.params;
-
-    // 2. Validate the incoming UID
     if (!uid) {
       return res.status(400).json({ success: false, message: "User ID (UID) is required." });
     }
 
-    // 3. Query the database for the user by their UID
-    // Use the `findOne` method on the `uid` field, which should be indexed for performance.
-    const user = await UserModel.findOne({ uid: uid }).exec();
+    // 2) Derive safe limits
+    const clamp = (num, min, max) =>
+      Number.isFinite(num) ? Math.max(min, Math.min(max, Math.trunc(num))) : undefined;
 
-    // 4. Handle the case where the user is not found
-    if (!user) {
+    const txLimit = clamp(Number(req.query.txLimit), 15, 30) ?? 20;
+    const campaignsLimit = clamp(Number(req.query.campaignsLimit), 5, 50) ?? 10;
+    const promotionsLimit = clamp(Number(req.query.promotionsLimit), 5, 50) ?? 10;
+
+    // 3) Aggregation: slice heavy arrays and include only required fields
+    const userAgg = await UserModel.aggregate([
+      { $match: { uid } },
+      // Early filter (optional)
+      { $match: { isDeleted: { $ne: true } } },
+
+      {
+        $project: {
+          // Identity / core
+          _id: 1,
+          uid: 1,
+          username: 1,
+          displayName: 1,
+          email: 1,
+          avatar: 1,
+          role: 1,
+          isActive: 1,
+          isVerified: 1,
+
+          // Profile info
+          personalInfo: 1,
+          professionalInfo: 1,
+
+          // Wallets with last-N transactions
+          'wallets.marketer.currency': 1,
+          'wallets.marketer.balance': 1,
+          'wallets.marketer.reserved': 1,
+          'wallets.marketer.transactions': { $slice: ['$wallets.marketer.transactions', -txLimit] },
+
+          'wallets.promoter.currency': 1,
+          'wallets.promoter.balance': 1,
+          'wallets.promoter.reserved': 1,
+          'wallets.promoter.transactions': { $slice: ['$wallets.promoter.transactions', -txLimit] },
+
+          // Saved payout accounts / notification settings (if needed in UI)
+          savedAccounts: 1,
+          notificationSettings: 1,
+
+          // Cap activityLog to keep payload light (optional)
+          activityLog: { $slice: ['$activityLog', 100] },
+
+          // DO NOT exclude fields here (no mixing); we'll $unset next.
+          // password: 0   <-- removed
+        }
+      },
+
+      // 4) Secure: remove sensitive fields AFTER inclusion projection
+      { $unset: ['password'] },
+    ]).exec();
+
+    if (!userAgg || userAgg.length === 0) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
-    
-    // 5. Check if the user's account is active
+
+    const user = userAgg[0];
+
     if (user.isActive === false) {
       return res.status(403).json({ success: false, message: "This user account is currently inactive or suspended." });
     }
 
-    // 6. Secure the response by removing sensitive data
-    // It's a best practice to never expose the password hash to the client.
-    const userObject = user.toObject();
-    delete userObject.password;
+    // 5) Relational fetches (paginate & lean)
+    // These can be heavy; return only the most recent items and selected fields.
+    const [campaigns, promotions] = await Promise.all([
+      CampaignModel.find({ owner: user._id })
+        .sort({ createdAt: -1 })
+        .limit(campaignsLimit)
+        .select('_id title status budget createdAt')
+        .lean()
+        .catch(() => []),
 
-    // Fetch campaigns where this user is the owner
-    // Make sure to await this operation
-    userObject.campaigns = await CampaignModel.find({ owner: user._id });
+      PromotionModel.find({ promoter: user._id })
+        .sort({ createdAt: -1 })
+        .limit(promotionsLimit)
+        .select('_id campaign status earnings createdAt')
+        .lean()
+        .catch(() => []),
+    ]);
 
-    // Fetch promotion where this user is the promoter
-    // Make sure to await this operation
-    userObject.promotion = await PromotionModel.find({ promoter: user._id });
-
-    // 7. Send a successful response with the user data
-    res.status(200).json({ 
-      success: true, 
-      data: userObject,
-      message: "User found successfully"
+    // 6) Response
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...user,
+        campaigns,
+        promotion: promotions,
+      },
+      meta: {
+        txLimit,
+        campaignsLimit,
+        promotionsLimit,
+        marketerTxCount: user.wallets?.marketer?.transactions?.length ?? 0,
+        promoterTxCount: user.wallets?.promoter?.transactions?.length ?? 0,
+      },
+      message: "User found successfully",
     });
-
   } catch (error) {
-    // 8. Handle any server-side errors
     console.error("Error in GetUser controller:", error);
-    res.status(500).json({ success: false, message: "Internal server error." });
+    return res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
+

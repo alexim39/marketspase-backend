@@ -33,8 +33,11 @@ export const createCampaign = async (req, res) => {
       requirements = "",
       targetLocations = [],
       hasEndDate = true,
-      minViewsPerPromotion = 40
+      minViewsPerPromotion = 40,
+      ageTarget
     } = req.body;
+
+   // console.log('Received campaign creation request:', req.body); return;
 
     // ✅ Handle uploaded file from Cloudinary
     let mediaUrl = '';
@@ -133,13 +136,14 @@ export const createCampaign = async (req, res) => {
       category: category.trim(),
       budget: numericBudget,
       enableTarget: Boolean(enableTarget),
+      ageTarget: ageTarget || 'all',
       targetLocations: targetLocationsArray,
       requirements: requirementsArray,
       minRating: Number(minRating),
       campaignType,
       priority,
       hasEndDate: Boolean(hasEndDate),
-      minViewsPerPromotion: Math.max(25, Number(minViewsPerPromotion)),
+      minViewsPerPromotion: Math.max(40, Number(minViewsPerPromotion)),
       payoutPerPromotion,
       maxPromoters,
       startDate: startDate ? new Date(startDate) : new Date(),

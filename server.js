@@ -22,6 +22,7 @@ import PromoterRouter from './src/apps/promotion/index.js';
 import NotificationRouter from './src/apps/notification/index.js';
 import FinancialRouter from './src/apps/financial/routes/index.route.js';
 import NewsletterRouter from './src/apps/newsletter/routes/index.js';
+import StoreIndexRouter from './src/apps/store/routes/index.route.js';
 
 // Port and Host
 const PORT = process.env.PORT || 8080;
@@ -75,6 +76,7 @@ app.use('/promotion', PromoterRouter);
 app.use('/notifications', NotificationRouter);
 app.use('/financial', FinancialRouter);
 app.use('/newsletter', NewsletterRouter);
+app.use('/stores', StoreIndexRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));

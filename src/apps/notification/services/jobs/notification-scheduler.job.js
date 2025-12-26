@@ -505,11 +505,12 @@ cron.schedule("0 */5 * * *", promotionAutoRejection);
 //cron.schedule('*/2 * * * *', promotionAutoRejection)
 
 // 8. AUTO BIRTHDAY NOTIFICATIONS - 9 AM daily
-cron.schedule("0 9 * * *", userBirthdayService);
+cron.schedule("0 9 * * *", userBirthdayService, { timezone: "Africa/Lagos" });
 //cron.schedule('*/2 * * * *', userBirthdayService)
 
-// 9. ACTIVITY LOG CLEANUP – Every 14 days
-cron.schedule("0 3 */14 * *", activityLogCleaner);
+// 9. ACTIVITY LOG CLEANUP - 3 AM daily
+cron.schedule("0 3 * * *", activityLogCleaner);
+// cron.schedule("0 3 */14 * *", activityLogCleaner);
 //cron.schedule('*/2 * * * *', activityLogCleaner)
 
 

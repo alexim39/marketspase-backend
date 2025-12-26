@@ -11,6 +11,7 @@ const productSchema = new mongoose.Schema({
   
   // Promoter tracking (as mentioned in requirements)
   promoterTracking: {
+    promoter: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     uniqueId: { type: String, unique: true }, // Auto-generated promoter ID per product
     viewCount: { type: Number, default: 0 },
     clickCount: { type: Number, default: 0 },

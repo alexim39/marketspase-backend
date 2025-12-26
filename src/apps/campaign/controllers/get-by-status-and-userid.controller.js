@@ -1,17 +1,25 @@
+
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
 import mongoose from "mongoose";
 
 /**
  * Get campaigns by status (e.g., active, paused, completed, etc.) with pagination.
- * If no status is provided, returns all campaigns.
+ * If no status is provided, returns active campaigns.
  * Campaigns are filtered based on user preferences if available.
  */
 export const getCampaignsByStatusAndUserId = async (req, res) => {
   try {
-    const { status, userId, page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+    const {
+      status,
+      userId,
+      page = 1,
+      limit = 20,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+    } = req.query;
 
-    // Validate userId
+    // -------- Validation --------
     if (!userId) {
       return res.status(400).json({
         success: false,
@@ -19,7 +27,6 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       });
     }
 
-    // Validate if userId is a valid ObjectId
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
         success: false,
@@ -27,21 +34,20 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       });
     }
 
-    // Validate pagination parameters
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const skip = (pageNum - 1) * limitNum;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
 
-    if (pageNum < 1 || limitNum < 1) {
+    if (!Number.isInteger(pageNum) || !Number.isInteger(limitNum) || pageNum < 1 || limitNum < 1) {
       return res.status(400).json({
         success: false,
         message: "Page and limit must be positive integers.",
       });
     }
 
-    // Find user and their preferences
-    const user = await UserModel.findById(userId).select('preferences personalInfo');
-    
+    const skip = (pageNum - 1) * limitNum;
+
+    // -------- User + preferences --------
+    const user = await UserModel.findById(userId).select("preferences personalInfo");
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -49,42 +55,57 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       });
     }
 
-    let baseQuery = { status: "active", isDeleted: { $ne: true } }; // Default: active campaigns not deleted
-    
-    if (status) {
-      baseQuery.status = status;
-    }
+    // -------- Base query (status omitted => 'active') --------
+    const baseQuery = {
+      status: status ? String(status).trim().toLowerCase() : "active",
+      isDeleted: { $ne: true },
+    };
 
-    // Build enhanced query with preference filters at database level
-    let enhancedQuery = { ...baseQuery };
+    // -------- Category target (DB-level) --------
+    const enhancedQuery = { ...baseQuery };
     let userPreferencesUsed = false;
 
     if (user.preferences) {
-      const { categoryBasedAds, locationBasedAds, adCategories } = user.preferences;
-      const userLocation = user.personalInfo?.address?.street || 
-                    user.personalInfo?.address?.city || 
-                    user.personalInfo?.address?.state || 
-                    user.personalInfo?.address?.country;
+      const { categoryBasedAds, adCategories } = user.preferences;
 
-      // Apply category filter at database level if enabled
-      if (categoryBasedAds && adCategories && adCategories.length > 0) {
-        // FIX: Use simple array $in for standard OR logic (match ANY category)
-        // This relies on the CampaignModel.category being a single string.
+      if (categoryBasedAds && Array.isArray(adCategories) && adCategories.length > 0) {
         enhancedQuery.category = { $in: adCategories };
-        userPreferencesUsed = true;
+        userPreferencesUsed = true; // category preference actively influenced the query
       }
-
-      // Note: Location filtering is complex and might need to be done in memory
-      // since it involves checking array fields and partial matches
     }
 
-    // Get total count for pagination metadata
-    // The count is based on the database-level filtering (status, category)
-    const totalCampaignsCount = await CampaignModel.countDocuments(enhancedQuery);
+    // -------- Age targeting with smart fallback --------
+    // For users 18+, try ageTarget ∈ ['all', <group>]; if no matches, drop age filter.
+    const userAge = calculateAge(user?.personalInfo?.dob);
+    const userAgeGroup = getAgeGroup(userAge);
+    const ageTargetingRequested = userAge !== null && userAge >= 18;
 
-    // Get paginated campaigns from database with enhanced query
-    let campaigns = await CampaignModel.find(enhancedQuery)
-      .sort({ createdAt: -1 })
+    let effectiveQuery = { ...enhancedQuery };
+    if (ageTargetingRequested) {
+      const ageQuery = { ...enhancedQuery, ageTarget: { $in: ["all", userAgeGroup] } };
+      const ageMatchCount = await CampaignModel.countDocuments(ageQuery);
+
+      if (ageMatchCount > 0) {
+        effectiveQuery = ageQuery;
+        // age targeting is effectively applied; we don't add extra flags to the response
+        // to keep the exact response contract your frontend expects.
+      } else {
+        // Fallback: drop age filter (keep status/category constraints)
+        effectiveQuery = enhancedQuery;
+      }
+    }
+
+    // -------- Count for pagination metadata (DB-level filters only) --------
+    const totalCampaignsCount = await CampaignModel.countDocuments(effectiveQuery);
+
+    // -------- Fetch current page from DB --------
+    const normalizedSortBy =
+      ["createdAt", "priority"].includes(String(sortBy)) ? String(sortBy) : "createdAt";
+    const normalizedSortOrder = String(sortOrder).toLowerCase() === "asc" ? 1 : -1;
+    const dbSort = { [normalizedSortBy]: normalizedSortOrder };
+
+    let campaigns = await CampaignModel.find(effectiveQuery)
+      .sort(dbSort) // initial DB sort (will be refined after location scoring/priority)
       .skip(skip)
       .limit(limitNum)
       .populate({
@@ -93,8 +114,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       })
       .exec();
 
-    // Check for campaigns *before* in-memory filtering. 
-    // If database returned zero results, we can stop here.
+    // If DB returned zero for this page window, stop here (maintain your current behavior)
     if (!campaigns || campaigns.length === 0) {
       return res.status(404).json({
         success: false,
@@ -104,67 +124,85 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       });
     }
 
-    // Apply location-based filtering in memory (if needed)
+    // -------- In-memory location filtering with granular priority --------
+    // Priority order: street (4) > city (3) > state (2) > country (1)
     let filteredCampaigns = [...campaigns];
-    
+
     if (user.preferences && user.preferences.locationBasedAds) {
-      const userLocation = user.personalInfo?.address?.street || 
-                    user.personalInfo?.address?.city || 
-                    user.personalInfo?.address?.state || 
-                    user.personalInfo?.address?.country;
-      
-      if (userLocation) {
-        filteredCampaigns = campaigns.filter(campaign => {
-          if (!campaign.targetLocations || campaign.targetLocations.length === 0) {
-            return true; // If campaign has no location restrictions, include it
-          }
-          
-          return campaign.targetLocations.some(location => {
-            // Adjust property name as needed (e.g., location.name or location.city)
-            const targetStr = (location.name || location.city || '').toString().toLowerCase(); 
-            const userStr = userLocation.toLowerCase();
-            return targetStr.includes(userStr) || userStr.includes(targetStr);
+      const { street, city, state, country } = extractUserLocation(user);
+      const hasAnyUserLocation = street || city || state || country;
+
+      if (hasAnyUserLocation) {
+        const withScores = campaigns.map((c) => ({
+          campaign: c,
+          score: locationMatchScore(c, { street, city, state, country }),
+        }));
+
+        // Keep only those with a positive score
+        const matched = withScores.filter((x) => x.score > 0);
+
+        if (matched.length > 0) {
+          // Sort primarily by location granularity, then by priority, then createdAt
+          matched.sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+
+            const priorityOrder = { high: 3, medium: 2, low: 1 };
+            const aPri = priorityOrder[a.campaign.priority] ?? 1;
+            const bPri = priorityOrder[b.campaign.priority] ?? 1;
+            if (bPri !== aPri) return bPri - aPri;
+
+            return new Date(b.campaign.createdAt) - new Date(a.campaign.createdAt);
           });
-        });
-        
-        // FIX: Remove the fallback to unfiltered campaigns. 
-        // We set the flag if the filter was applied and yielded results.
-        if (filteredCampaigns.length > 0) {
-          userPreferencesUsed = true;
+
+          filteredCampaigns = matched.map((x) => x.campaign);
+          userPreferencesUsed = true; // location preference influenced the result set
         } else {
-           console.log("No campaigns match user location preferences in this page. Respecting preference.");
+          // Respect the user's location preference strictly (no fallback to unfiltered)
+          filteredCampaigns = [];
+          console.log(
+            "No campaigns match user location preferences in this page. Respecting preference."
+          );
         }
       }
+      // If no address available and preference is ON, we keep campaigns as-is
+      // (maintains parity with your current behavior).
     }
 
-    // If both category and location preferences are disabled, we might want random selection
-    if (user.preferences && !user.preferences.categoryBasedAds && !user.preferences.locationBasedAds) {
-      // User has preferences but both are disabled - return random selection from paginated results
-      if (filteredCampaigns.length > 10) { // Adjust this number as needed
+    // -------- Optional random selection when both category & location OFF --------
+    if (
+      user.preferences &&
+      !user.preferences.categoryBasedAds &&
+      !user.preferences.locationBasedAds
+    ) {
+      if (filteredCampaigns.length > 10) {
         filteredCampaigns = getRandomCampaigns(filteredCampaigns, 10);
       }
     }
 
-    // Sort by priority (high, medium, low) and then by creation date
-    filteredCampaigns.sort((a, b) => {
-      const priorityOrder = { high: 3, medium: 2, low: 1 };
-      const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
-      
-      if (priorityDiff !== 0) return priorityDiff;
-      
-      return new Date(b.createdAt) - new Date(a.createdAt);
-    });
+    // -------- Final sort (maintain your pattern) --------
+    // If location preference is ON and we computed scores, we've already sorted by score, then priority, then createdAt.
+    // Otherwise, sort by priority, then createdAt (desc) to keep your current behavior consistent.
+    if (!user.preferences?.locationBasedAds) {
+      filteredCampaigns.sort((a, b) => {
+        const priorityOrder = { high: 3, medium: 2, low: 1 };
+        const priorityDiff = (priorityOrder[b.priority] ?? 1) - (priorityOrder[a.priority] ?? 1);
+        if (priorityDiff !== 0) return priorityDiff;
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      });
+    }
 
-    // Calculate pagination metadata
-    // Note: totalCampaignsCount only reflects DB filters (status, category), not in-memory location filter.
+    // -------- Pagination metadata (DB-level counts) --------
     const totalPages = Math.ceil(totalCampaignsCount / limitNum);
     const hasNextPage = pageNum < totalPages;
     const hasPrevPage = pageNum > 1;
 
-    console.log(`Pagination: Page ${pageNum}, Showing ${filteredCampaigns.length} of ${totalCampaignsCount} total campaigns`);
+    console.log(
+      `Pagination: Page ${pageNum}, Showing ${filteredCampaigns.length} of ${totalCampaignsCount} total campaigns`
+    );
     console.log(`Database query returned: ${campaigns.length} campaigns`);
 
-    res.status(200).json({
+    // -------- Response (exact same shape as your working code) --------
+    return res.status(200).json({
       success: true,
       data: filteredCampaigns,
       message: status
@@ -180,14 +218,14 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
           hasNextPage,
           hasPrevPage,
           nextPage: hasNextPage ? pageNum + 1 : null,
-          prevPage: hasPrevPage ? pageNum - 1 : null
+          prevPage: hasPrevPage ? pageNum - 1 : null,
         },
-        userPreferencesUsed
-      }
+        userPreferencesUsed,
+      },
     });
   } catch (error) {
     console.error("Error fetching campaigns by status:", error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch campaigns.",
       error: error.message,
@@ -195,18 +233,77 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
   }
 };
 
-/**
- * Helper function to get random campaigns from the array
- * @param {Array} campaigns - Array of campaigns
- * @param {number} maxCount - Maximum number of campaigns to return
- * @returns {Array} Randomly selected campaigns
- */
-function getRandomCampaigns(campaigns, maxCount) {
-  if (campaigns.length <= maxCount) {
-    return [...campaigns];
-  }
+/** ----------------- Helpers (kept local to avoid disruption) ----------------- **/
 
-  // Shuffle array and take first maxCount elements
+function getRandomCampaigns(campaigns, maxCount) {
+  if (campaigns.length <= maxCount) return [...campaigns];
   const shuffled = [...campaigns].sort(() => 0.5 - Math.random());
   return shuffled.slice(0, maxCount);
+}
+
+function calculateAge(dob) {
+  if (!dob) return null;
+  try {
+    const today = new Date();
+    const birthDate = new Date(dob);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+    return age;
+  } catch {
+    return null;
+  }
+}
+
+function getAgeGroup(age) {
+  if (age === null || age < 18) return "all";
+  if (age >= 18 && age <= 24) return "young";
+  if (age >= 25 && age <= 44) return "middle";
+  if (age >= 45) return "advanced";
+  return "all";
+}
+
+function extractUserLocation(user) {
+  const addr = user?.personalInfo?.address || {};
+  const norm = (v) => (typeof v === "string" ? v.trim().toLowerCase() : "");
+  return {
+    street: norm(addr.street),
+    city: norm(addr.city),
+    state: norm(addr.state),
+    country: norm(addr.country),
+  };
+}
+
+// 4 = street, 3 = city, 2 = state, 1 = country, 0 = no match
+function locationMatchScore(campaign, userLoc) {
+  const toStr = (v) => (v ?? "").toString().trim().toLowerCase();
+  const street = userLoc.street;
+  const city = userLoc.city;
+  const state = userLoc.state;
+  const country = userLoc.country;
+
+  if (!Array.isArray(campaign.targetLocations) || campaign.targetLocations.length === 0) return 0;
+
+  let best = 0;
+  for (const loc of campaign.targetLocations) {
+    const name = toStr(loc?.name);
+    const locCity = toStr(loc?.city);
+    const locState = toStr(loc?.state);
+    const locCountry = toStr(loc?.country);
+
+    if (street && (name.includes(street) || locCity.includes(street))) {
+      best = Math.max(best, 4);
+      break; // cannot beat street match
+    }
+    if (city && (name.includes(city) || locCity.includes(city))) {
+      best = Math.max(best, 3);
+    }
+    if (state && (name.includes(state) || locState.includes(state))) {
+      best = Math.max(best, 2);
+    }
+    if (country && (name.includes(country) || locCountry.includes(country))) {
+      best = Math.max(best, 1);
+    }
+  }
+  return best;
 }
