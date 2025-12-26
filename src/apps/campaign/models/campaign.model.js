@@ -43,6 +43,11 @@ const campaignSchema = new mongoose.Schema(
 
         // Targeting & Requirements
         enableTarget: { type: Boolean, default: false },
+        ageTarget: {
+            type: String,
+            enum: ['all', 'young', 'middle', 'advanced'],
+            default: 'all'
+        },
         targetLocations: [{
             id: { type: String, required: true },
             name: { type: String, required: true },
@@ -180,6 +185,10 @@ campaignSchema.index({ startDate: 1, endDate: 1 });
 campaignSchema.index({ status: 1, priority: -1 });
 campaignSchema.index({ 'notificationLog.sentAt': 1 });
 campaignSchema.index({ spentBudget: 1, budget: 1 });
+// targeting indexes   
+campaignSchema.index({ ageTarget: 1, status: 1 });
+campaignSchema.index({ category: 1, ageTarget: 1, status: 1 });
+campaignSchema.index({ priority: -1, createdAt: -1 });
 
 /* ------------------------------------------------------------
    🔥 PRE-SAVE HOOK: FUND FLOW LOGIC
