@@ -15,10 +15,11 @@ async function pushEmbeddedTx({ session, userId, path, entry }) {
   if (!res.modifiedCount) throw new Error(`Failed to append transaction to ${path}`);
 }
 
-/** VALIDATE (status & audit) */
+/** VALIDATE (status & audit) — promotion-only */
 async function validateOnly({ promotion, performedBy, session }) {
-  const fresh = await PromotionModel.findById(promotion._id).session(session);
-  if (!fresh || fresh.status === "paid" || fresh.hasBeenPaid === true) return; // already paid, do nothing
+  // Read as plain object to avoid hydration/casting
+  const fresh = await PromotionModel.findById(promotion._id).lean().session(session);
+  if (!fresh || fresh.status === "paid" || fresh.hasBeenPaid === true) return; // already paid, skip
 
   await PromotionModel.updateOne(
     { _id: promotion._id, status: { $in: ["submitted", "pending", "validated"] } },
@@ -26,19 +27,16 @@ async function validateOnly({ promotion, performedBy, session }) {
       $set: { status: "validated", validatedAt: new Date(), validatedBy: performedBy },
       $push: { activityLog: { action: "Promotion Validated", details: "Validated by admin", timestamp: new Date() } }
     },
-    { session }
+    { session, runValidators: true }
   );
 }
 
-
-/** PAY (payout: promoter.reserved -> promoter.balance) */
+/** PAY (payout: promoter.reserved -> promoter.balance) — no Campaign hydration */
 async function payPromotion({ promotion, campaign, promoter, payoutAmount, session, operationId }) {
-  // Idempotency: if already paid, skip
-  const fresh = await PromotionModel.findById(promotion._id).session(session);
+  // Idempotency (read lean)
+  const fresh = await PromotionModel.findById(promotion._id).lean().session(session);
   if (fresh?.status === "paid") return;
 
-  // Must have reserved funds on promoter side before paying
-  // (download step should have set hasReservedForPromoter and moved marketer.reserved -> promoter.reserved)
   if (!fresh?.hasReservedForPromoter) {
     throw new Error("Cannot pay: promotion funds were not reserved for the promoter.");
   }
@@ -69,52 +67,57 @@ async function payPromotion({ promotion, campaign, promoter, payoutAmount, sessi
     }
   });
 
-  // Promotion -> paid (also keep audit entries)
+  // Promotion -> paid
   await PromotionModel.updateOne(
     { _id: promotion._id },
     {
-      $set: { 
-        status: "paid", paidAt: new Date(),
-        hasBeenPaid: true, 
-      },
+      $set: { status: "paid", paidAt: new Date(), hasBeenPaid: true },
       $push: { activityLog: { action: "Promotion Paid", details: "Payment processed", timestamp: new Date() } }
     },
-    { session }
+    { session, runValidators: true }
   );
 
-  // Campaign counters: increment paid & validated; decrease reservedAmount (use your existing `reservedAmount` field)
+  /**
+   * Campaign counters: update atomically and recompute spentBudget/exhausted status
+   * IMPORTANT: We DO NOT load the Campaign as a hydrated document and DO NOT touch ageTarget.
+   */
+  // Get minimal fields needed (lean)
+  const c = await CampaignModel.findById(campaign._id, {
+    payoutPerPromotion: 1,
+    budget: 1,
+    paidPromotions: 1,
+    spentBudget: 1,
+    status: 1,
+    title: 1
+  }).lean().session(session);
+
+  if (!c) throw new Error("Campaign not found during payment");
+
+  // Compute new counters in memory (plain values)
+  const newPaidPromotions = (c.paidPromotions ?? 0) + 1;
+  const newSpentBudget = (newPaidPromotions * (c.payoutPerPromotion ?? 0));
+  const isExhausted = newSpentBudget >= (c.budget ?? 0);
+
+  // Apply atomic update — never includes ageTarget
   await CampaignModel.updateOne(
     { _id: campaign._id },
     {
-      $inc: {
-        paidPromotions: 1,
-        validatedPromotions: 1,
-        totalPromotions: 1,      // <-- Increment totalPromotions on payment
-        reservedAmount: -payoutAmount // <-- match your model/controller that uses `reservedAmount`
-      },
+      $inc: { paidPromotions: 1, validatedPromotions: 1, totalPromotions: 1, reservedAmount: -payoutAmount },
+      $set: { spentBudget: newSpentBudget, ...(isExhausted ? { status: "exhausted" } : {}) },
       $push: { activityLog: { action: "Promoter Paid", details: `Paid ${payoutAmount} NGN`, timestamp: new Date() } }
     },
-    { session }
+    { session, runValidators: true }
   );
-
-  
-  // Trigger pre-save hook to recalculate spentBudget
-  const updatedCampaign = await CampaignModel.findById(campaign._id).session(session);
-  if (updatedCampaign) await updatedCampaign.save({ session });
-
 }
 
-/** REJECT (refund scenarios) */
+/** REJECT (refund scenarios) — avoids Campaign hydration and ageTarget */
 async function rejectPromotionFlow({
   promotion, campaign, promoter, marketer, performedBy, rejectionReason, payoutAmount, session, operationId
 }) {
-
-  
- // Refresh latest flags inside the session for accurate branching
-  const fresh = await PromotionModel.findById(promotion._id).session(session);
+  // Fresh promotion (lean)
+  const fresh = await PromotionModel.findById(promotion._id).lean().session(session);
   if (!fresh) throw new Error("Promotion not found for rejection");
 
-  // Idempotency: if already rejected and refunded, skip
   if (fresh.status === "rejected" && fresh.hasBeenRefunded === true) {
     return;
   }
@@ -126,7 +129,7 @@ async function rejectPromotionFlow({
       $set: { status: "rejected", rejectionReason, validatedAt: new Date() },
       $push: { activityLog: { action: "Promotion Rejected", details: rejectionReason, timestamp: new Date() } }
     },
-    { session }
+    { session, runValidators: true }
   );
 
   if (!promotion.isDownloaded) {
@@ -155,24 +158,17 @@ async function rejectPromotionFlow({
       }
     });
 
-    
-    // Flags: reservation at marketer side is now released
     await PromotionModel.updateOne(
       { _id: promotion._id },
-      {
-        $set: {
-          hasBeenRefunded: true,           // <-- ✅ flip refund flag
-        }
-      },
-      { session }
+      { $set: { hasBeenRefunded: true } },
+      { session, runValidators: true }
     );
-
   } else {
     // Scenario B: downloaded but NOT submitted -> refund promoter.reserved -> marketer.balance
     await moveBetweenWallets({
       session,
       fromUserId: promoter._id, fromSide: 'promoter', fromField: 'reserved',
-      toUserId: marketer._id,   toSide: 'marketer',  toField: 'balance',
+      toUserId: marketer._id, toSide: 'marketer', toField: 'balance',
       amount: payoutAmount
     });
 
@@ -209,33 +205,35 @@ async function rejectPromotionFlow({
     });
   }
 
-  // Free up campaign slot and possibly reactivate
+  // Free up campaign slot and possibly reactivate — read minimal fields lean
+  const c = await CampaignModel.findById(campaign._id, {
+    budget: 1, spentBudget: 1, payoutPerPromotion: 1, status: 1
+  }).lean().session(session);
+
   const campaignUpdate = {
-    $inc: { 
-      currentPromoters: -1,
-      totalPromotions: -1
-    },
+    $inc: { currentPromoters: -1, totalPromotions: -1 },
     $push: { activityLog: { action: "Promotion Rejected", details: "Slot freed after rejection", timestamp: new Date() } }
   };
 
-  // Optional reactivation check (same as your existing logic)
-  if (campaign.status === "exhausted") {
-    const remaining = (campaign.budget ?? 0) - (campaign.spentBudget ?? 0);
-    if (remaining >= (campaign.payoutPerPromotion ?? payoutAmount)) {
+  if (c?.status === "exhausted") {
+    const remaining = (c.budget ?? 0) - (c.spentBudget ?? 0);
+    if (remaining >= (c.payoutPerPromotion ?? payoutAmount)) {
       campaignUpdate.$set = { status: "active" };
     }
   }
 
-  await CampaignModel.updateOne({ _id: campaign._id }, campaignUpdate, { session });
+  await CampaignModel.updateOne({ _id: campaign._id }, campaignUpdate, { session, runValidators: true });
 }
 
-/** Main handler (called from controller) */
+/** Main handler (called from controller) — no Campaign hydration anywhere */
 export async function handlePromotionStatusUpdate({
   promotionId, status, rejectionReason, performedBy, session, operationId
 }) {
+  // Load promotion with the necessary relations; keep campaign/promoter lean objects
   const promotion = await PromotionModel.findById(promotionId)
-    .populate({ path: 'campaign', populate: { path: 'owner', model: 'User' } })
-    .populate('promoter')
+    .populate({ path: 'campaign', select: 'title payoutPerPromotion budget paidPromotions spentBudget status owner', populate: { path: 'owner', model: 'User', select: '_id' } })
+    .populate('promoter', '_id')
+    .lean()
     .session(session);
 
   if (!promotion) throw new Error("Promotion not found");
@@ -243,21 +241,21 @@ export async function handlePromotionStatusUpdate({
     throw new Error(`Promotion is already ${promotion.status}.`);
   }
 
-  const campaign  = promotion.campaign;
-  const promoter  = promotion.promoter;
-  const marketer  = campaign.owner;
-  const payoutAmount = Number(promotion.payoutAmount ?? campaign.payoutPerPromotion ?? 0);
+  // Extract minimal fields from lean promotion
+  const campaign = promotion.campaign;     // plain object (no hydration, no casting)
+  const promoter = promotion.promoter;
+  const marketer = campaign?.owner;
+
+  const payoutAmount = Number(promotion.payoutAmount ?? campaign?.payoutPerPromotion ?? 0);
   if (!Number.isFinite(payoutAmount) || payoutAmount <= 0) throw new Error("Invalid payout amount");
 
   switch (status) {
     case "validated":
-      // NEW: validate AND pay in the same flow
       await validateOnly({ promotion, performedBy, session });
       await payPromotion({ promotion, campaign, promoter, payoutAmount, session, operationId });
       break;
 
     case "paid":
-      // Direct pay (kept for backward compatibility)
       await payPromotion({ promotion, campaign, promoter, payoutAmount, session, operationId });
       break;
 
@@ -272,7 +270,7 @@ export async function handlePromotionStatusUpdate({
       throw new Error(`Invalid status update: ${status}`);
   }
 
-  // Return the updated promotion document
-  const updated = await PromotionModel.findById(promotionId).session(session);
+  // Return updated promotion (lean)
+  const updated = await PromotionModel.findById(promotionId).lean().session(session);
   return { promotion: updated };
 }
