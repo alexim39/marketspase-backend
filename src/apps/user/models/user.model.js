@@ -238,7 +238,20 @@ const userSchema = new mongoose.Schema(
       hasGeneratedPromoterBonus: { type: Boolean, default: false }, // Track if this user generated promoter bonus for referrer
       firstCampaignFunded: { type: Boolean, default: false }, // Track if user funded their first campaign as marketer
       firstPromotionPaid: { type: Boolean, default: false } // Track if user completed first paid promotion as promoter
-    }
+    },
+
+    // Forum activity of user
+    forumActivity: {
+        threads: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Thread' }],
+        comments: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Comment' }],
+        likedThreads: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Thread' }],
+        likedComments: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Comment' }],
+        savedThreads: [{
+            thread: { type: mongoose.Schema.Types.ObjectId, ref: 'Thread' },
+            savedAt: { type: Date, default: Date.now }
+        }]
+    },
+
 
   },
   { timestamps: true }
