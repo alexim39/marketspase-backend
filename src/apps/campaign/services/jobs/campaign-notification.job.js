@@ -1,5 +1,4 @@
 // jobs/campaignNotification.job.js
-import cron from 'node-cron';
 import { CampaignModel } from '../../models/campaign.model.js';
 import { UserModel } from '../../../user/models/user.model.js';
 import { NotificationModel } from '../../../notification/models/notification.model.js';
@@ -9,8 +8,10 @@ import { newCampaignEmailTemplate } from '../email/newCampaignTemplate.js';
 const DAILY_LIMIT = 4; // per user per day
 const BATCH_SIZE = 500; // emails per run
 
-cron.schedule('*/15 * * * *', async () => {   // every 15 min
+//cron.schedule('*/15 * * * *', async () => {   // every 15 min
+export const campaignAvailabilityNotification = async () => {
   try {
+    console.log("🧹 Starting campaign availability notification job...");
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const campaigns = await CampaignModel.find({
       status: 'approved',
@@ -50,6 +51,8 @@ cron.schedule('*/15 * * * *', async () => {   // every 15 min
       const html = newCampaignEmailTemplate(promoter, newOnes.length);
       await sendEmail(promoter.email, 'New Campaigns Available', html);
 
+      console.log(`📧 Sent campaign availability email to ${promoter.email} for ${newOnes.length} new campaigns.`);
+
       // record sent notifications
       const docs = newOnes.map(c => ({
         userId: promoter._id,
@@ -61,7 +64,4 @@ cron.schedule('*/15 * * * *', async () => {   // every 15 min
   } catch (err) {
     console.error('Error in campaign notification cron:', err);
   }
-});
-
-// At the end of your file
-export default cron;
+};
