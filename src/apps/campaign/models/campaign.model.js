@@ -190,6 +190,15 @@ campaignSchema.index({ ageTarget: 1, status: 1 });
 campaignSchema.index({ category: 1, ageTarget: 1, status: 1 });
 campaignSchema.index({ priority: -1, createdAt: -1 });
 
+// New (recommended):
+campaignSchema.index({ enableTarget: 1, status: 1 });                        // gate + status
+campaignSchema.index({ minRating: 1, status: 1 });                            // rating filter
+campaignSchema.index({ 'targetLocations.name': 1, status: 1 });               // location name filter
+campaignSchema.index({ isDeleted: 1, status: 1 });                            // soft-delete gate
+// If you frequently query with category + enableTarget + status:
+campaignSchema.index({ category: 1, enableTarget: 1, status: 1 });
+
+
 /* ------------------------------------------------------------
    🔥 PRE-SAVE HOOK: FUND FLOW LOGIC
    1. Automatically recalculates spentBudget.
