@@ -10,7 +10,7 @@ import { promotionExpiringTemplate } from "../../../promotion/services/email/pro
 import { promotionAutoRejection } from "../../services/promotion-auto-reject.service.js";
 import { userBirthdayService } from '../user-birthday.service.js';
 import { activityLogCleaner } from './activity-log-cleaner.job.js'
-
+import { campaignAvailabilityNotification } from '../../../campaign/services/jobs/campaign-notification.job.js';
 
 
 // 1. 20-HOUR SUBMISSION REMINDER - Every hour
@@ -508,7 +508,11 @@ cron.schedule("0 */5 * * *", promotionAutoRejection);
 cron.schedule("0 9 * * *", userBirthdayService, { timezone: "Africa/Lagos" });
 //cron.schedule('*/2 * * * *', userBirthdayService)
 
-// 9. ACTIVITY LOG CLEANUP - 3 AM daily
+// 9. Promoter Campaign Availability Notification
+cron.schedule('*/25 * * * *', campaignAvailabilityNotification)  // every 25 min
+//cron.schedule('*/2 * * * *', campaignAvailabilityNotification)
+
+// 10. ACTIVITY LOG CLEANUP - 3 AM daily
 cron.schedule("0 3 * * *", activityLogCleaner);
 // cron.schedule("0 3 */14 * *", activityLogCleaner);
 //cron.schedule('*/2 * * * *', activityLogCleaner)

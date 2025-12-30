@@ -156,6 +156,8 @@ const userSchema = new mongoose.Schema(
       phone: { 
         type: String, 
         trim: true, 
+        unique: true, 
+        //required: true,
         default: null  // Explicit default
       },
       dob: { type: Date },
@@ -554,5 +556,16 @@ userSchema.pre('save', function(next) {
   });
   next();
 });
+
+
+// Enforce uniqueness for non-null phones (allows many nulls, forbids duplicate real numbers)
+userSchema.index(
+  { 'personalInfo.phone': 1 },
+  {
+    unique: true,
+    partialFilterExpression: { 'personalInfo.phone': { $exists: true, $ne: null } }
+  }
+);
+
 
 export const UserModel = mongoose.model('User', userSchema);
