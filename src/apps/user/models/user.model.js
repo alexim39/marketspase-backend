@@ -153,12 +153,26 @@ const userSchema = new mongoose.Schema(
         state: { type: String, trim: true },
         country: { type: String, trim: true }
       },
-      phone: { 
-        type: String, 
-        trim: true, 
-        unique: true, 
-        //required: true,
-        default: null  // Explicit default
+      // phone: { 
+      //   type: String, 
+      //   trim: true, 
+      //   unique: true, 
+      //   //required: true,
+      //   default: null  // Explicit default
+      // },
+      phone: {
+        type: String,
+        trim: true,
+        sparse: true, // Allows null/undefined values but still unique for non-null values
+        unique: true,
+        index: true,
+      },
+      phoneDetails: {
+        countryCode: String,
+        nationalNumber: String,
+        fullNumber: String,
+        iso2: String, // Country ISO code (e.g., "US", "NG")
+        lastUpdated: Date
       },
       dob: { type: Date },
       biography: { type: String, trim: true },

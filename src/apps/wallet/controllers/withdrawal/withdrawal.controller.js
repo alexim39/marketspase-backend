@@ -2,7 +2,7 @@ import { UserModel } from '../../../user/models/user.model.js';
 import { sendEmail } from "../../../../services/email.service.js";
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-
+import { assertAccountNotUsedByAnotherUser } from '../../services/account-ownership.service.js';
 import { withdrawalSuccessfulTemplate } from '../../services/email/withdrawalSuccessfulTemplate.js';
 import { withdrawalFailedTemplate } from '../../services/email/withdrawalFailedTemplate.js';
 import { accountVerifiedTemplate } from '../../services/email/accountVerifiedTemplate.js';
@@ -47,7 +47,8 @@ const requireAccountVerification = (amount, isNewAccount) => {
 export const withdrawRequest = async (req, res) => {
   const { bank, accountNumber, accountName, amount, payableAmount, userId, saveAccount, bankName } = req.body;
 
-  console.log('Withdraw request received:', req.body);
+  console.log('Withdraw request parameters:', { bank, accountNumber, accountName, amount, payableAmount, userId, saveAccount, bankName });
+
 
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -91,7 +92,30 @@ export const withdrawRequest = async (req, res) => {
       });
     }
 
-    // --- 2. Security & Verification ---
+    
+    // --- 2. Ownership guard: block re-used bank accounts across different users ---
+    const ownershipCheck = await assertAccountNotUsedByAnotherUser({
+      bankCode: bank,
+      accountNumber,
+      accountName,
+      userId,
+    });
+
+    if (ownershipCheck.conflict) {
+      await session.abortTransaction();
+      return res.status(409).json({
+        success: false,
+        code: "BANK_ACCOUNT_ALREADY_ASSOCIATED",
+        message:
+          "This bank account is associated with another MarketSpase account and cannot be used again.",
+        data: {
+          source: ownershipCheck.source, // 'savedAccount' | 'transaction'
+        },
+      });
+    }
+
+
+    // --- 3. Security & Verification ---
     const verificationLevel = getVerificationLevel(user, accountNumber, accountName);
     if (verificationLevel === "unverified") {
       await session.abortTransaction();
