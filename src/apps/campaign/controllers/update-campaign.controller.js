@@ -21,7 +21,6 @@ export const UpdateCampaignStatus = async (req, res) => {
     // 2. Extract the new status and optional details from the request body
     const { status, details = "", performedBy } = req.body;
     // 3. Get the user ID from the request (assuming it's set by authentication middleware)
-    //const performedBy = req.user?._id;
 
     console.log(`Updating campaign ID ${id} to status '${status}' by user ${performedBy}`);
 
