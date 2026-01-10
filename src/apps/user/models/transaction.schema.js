@@ -17,7 +17,7 @@ export const transactionSchema = new mongoose.Schema({
 
   type: { 
     type: String, 
-    enum: ['credit', 'debit', 'system_correction'], 
+    enum: ['credit', 'debit'], 
     required: true 
   }, // credit = money in, debit = money out
 
@@ -40,11 +40,6 @@ export const transactionSchema = new mongoose.Schema({
       'store_sale',          // Product sales revenue
       'store_promotion',      // Store-specific campaigns
       'reversal',
-      'system_correction',
-      'promoter_balance_reset',
-      'balance_recalculation',
-      'negative_reserved_fix',
-      'balance_reset',
       'birthday_bonus'
     ],
     required: true
@@ -75,8 +70,8 @@ export const transactionSchema = new mongoose.Schema({
       'declined',
       'rejected',
       'paid',
+      'refunded',
       'reserved_to_promoter'
-      
     ], 
     default: 'pending' 
   },

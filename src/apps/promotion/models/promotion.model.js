@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { NotificationService } from "../../notification/services/notification.service.js";
-import { generateUniqueUpi } from './../utils/generateUniqueUpi.js'
+import { generateUniqueUpi } from "./../utils/generateUniqueUpi.js";
 
 const promotionSchema = new mongoose.Schema(
   {
@@ -14,49 +14,62 @@ const promotionSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+
+    // 🔄 NEW LIFECYCLE
     status: {
       type: String,
-      //enum: ["accepted", 'downloaded', "submitted", "validated", "rejected", "paid"], 
-      enum: ["pending", "submitted", "validated", "rejected", "paid"],
-      default: "pending",
+      enum: ["accepted", "downloaded", "submitted", "validated", "rejected", "paid"],
+      default: "accepted",
     },
+
+    acceptedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    downloadedAt: Date,
     submittedAt: Date,
     validatedAt: Date,
+    rejectedAt: Date,
     paidAt: Date,
-    proofMedia: [String], // URLs to proof screenshots
+
+    proofMedia: [String],
+
     proofViews: {
       type: Number,
       min: 0,
       validate: {
         validator: function (value) {
-          // Only require proofViews when status is submitted or beyond
-          return this.status === "pending" || value !== undefined;
+          if (this.status !== "submitted" && this.status !== "validated") return true;
+          return Number.isFinite(value) && value >= 35;
         },
-        message: "Proof views are required when promotion is submitted",
+        message: "Valid submitted views (≥35) are required",
       },
     },
+
     payoutAmount: {
       type: Number,
       min: 0,
     },
+
+    viewsUsedForPayout: Number,
+
     rejectionReason: String,
     notes: String,
+
     isDownloaded: {
       type: Boolean,
       default: false,
     },
+
     upi: {
       type: String,
       unique: true,
       default: function () {
-        // Ensure we're generating a new UPI only for new documents
-        if (this.isNew) {
-          return generateUniqueUpi().toString();
-        }
+        if (this.isNew) return generateUniqueUpi().toString();
         return this.upi;
       },
     },
-    // Additional fields for better tracking
+
     validatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -66,21 +79,19 @@ const promotionSchema = new mongoose.Schema(
       ref: "User",
     },
 
-    // Notification tracking fields
     notificationLog: [
       {
         type: {
           type: String,
           enum: [
-            "promotion_pending",
+            "promotion_assigned",
+            "promotion_downloaded",
             "promotion_submitted",
             "promotion_validated",
             "promotion_rejected",
-            "submission_reminder",
             "payment_processed",
+            "submission_reminder",
             "deadline_reminder",
-            "promotion_apending",
-            "promotion_assigned",
           ],
           required: true,
         },
@@ -92,7 +103,6 @@ const promotionSchema = new mongoose.Schema(
       },
     ],
 
-    // Reminder tracking
     reminders: {
       submission: {
         lastSent: Date,
@@ -104,480 +114,190 @@ const promotionSchema = new mongoose.Schema(
       },
     },
 
-    // Activity log for tracking changes
     activityLog: [
       {
         action: String,
+        details: String,
         timestamp: {
           type: Date,
           default: Date.now,
         },
-        details: String,
         performedBy: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "User",
         },
       },
     ],
-    submissionReminderSent: {
-      type: Boolean,
-      default: false,
-    },
 
-    // bolean safety flag to prevent double-pay/double-refund
+    // 🛡️ SAFETY FLAGS
     hasReservedFromMarketer: { type: Boolean, default: false },
     hasReservedForPromoter: { type: Boolean, default: false },
     hasBeenPaid: { type: Boolean, default: false },
     hasBeenRefunded: { type: Boolean, default: false },
-
   },
   {
     timestamps: true,
-    // Virtuals for toJSON and toObject
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
   }
 );
 
-// // Index to prevent duplicate applications
-// promotionSchema.index(
-//   { campaign: 1, promoter: 1 },
-//   {
-//     unique: true,
-//     partialFilterExpression: { status: { $eq: "pending" } },
-//     name: "unique_campaign_promoter_pending",
-//   }
-// );
-
-
-
-// Remove/replace the old "pending-only" uniqueness with a stricter composite index.
-// Ensures at most one doc per (campaign, promoter) while status ∈ {pending, active}.
-promotionSchema.index( 
- { campaign: 1, promoter: 1, status: 1 },
+//
+// 🔐 INDEXES (UPDATED FOR NEW FLOW)
+//
+promotionSchema.index(
+  { campaign: 1, promoter: 1 },
   {
     unique: true,
-    partialFilterExpression: { status: { $in: ['pending', 'submitted', 'validated'] } },
-    name: 'uniq_campaign_promoter_status_partial'
+    partialFilterExpression: {
+      status: { $in: ["accepted", "downloaded", "submitted"] },
+    },
+    name: "uniq_campaign_promoter_active",
   }
 );
 
-
-
-// Index for better query performance
 promotionSchema.index({ status: 1 });
 promotionSchema.index({ promoter: 1, status: 1 });
 promotionSchema.index({ campaign: 1, status: 1 });
 promotionSchema.index({ upi: 1 }, { unique: true });
-promotionSchema.index({ "notificationLog.sentAt": 1 });
 promotionSchema.index({ submittedAt: 1 });
-promotionSchema.index({ "reminders.submission.lastSent": 1 });
 
-// Virtual for days since submission
+//
+// 🧠 VIRTUALS
+//
 promotionSchema.virtual("daysSinceSubmission").get(function () {
   if (!this.submittedAt) return null;
-  const now = new Date();
-  const diffTime = Math.abs(now - this.submittedAt);
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return Math.ceil((Date.now() - this.submittedAt) / 86400000);
 });
 
-// Virtual for days since assignment
-promotionSchema.virtual("daysSinceAssignment").get(function () {
-  if (!this.createdAt) return null;
-  const now = new Date();
-  const diffTime = Math.abs(now - this.createdAt);
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-});
-
-// Virtual for isOverdue (if not validated within 7 days)
 promotionSchema.virtual("isOverdue").get(function () {
-  if (
-    !this.submittedAt ||
-    this.status === "paid" ||
-    this.status === "rejected"
-  ) {
-    return false;
-  }
-  const now = new Date();
-  const diffTime = Math.abs(now - this.submittedAt);
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  return diffDays > 7;
+  if (!this.submittedAt) return false;
+  if (["paid", "rejected"].includes(this.status)) return false;
+  return this.daysSinceSubmission > 7;
 });
 
-// Virtual for needsSubmissionReminder - Check if 23 hours have passed
 promotionSchema.virtual("needsSubmissionReminder").get(function () {
-  if (this.status !== "pending") return false;
-
-  const now = new Date();
-  const assignmentTime = new Date(this.createdAt);
-  const hoursSinceAssignment = (now - assignmentTime) / (1000 * 60 * 60);
-
-  // Send reminder if assigned for exactly 23 hours (±1 hour tolerance)
-  // and no reminder sent in the last 24 hours
-  return (
-    hoursSinceAssignment >= 22 &&
-    hoursSinceAssignment <= 24 &&
-    (!this.reminders.submission.lastSent ||
-      (now - this.reminders.submission.lastSent) / (1000 * 60 * 60) > 24)
-  );
+  if (this.status !== "downloaded") return false;
+  const hours = (Date.now() - this.downloadedAt) / 3600000;
+  return hours >= 20 && hours <= 24;
 });
 
-// Pre-save middleware to update timestamps based on status changes
-promotionSchema.pre("save", async function (next) {
-  if (this.isModified("status")) {
-    const now = new Date();
+//
+// 🔄 PRE-SAVE STATUS HANDLING (IDEMPOTENT)
+//
+promotionSchema.pre("save", function (next) {
+  if (!this.isModified("status")) return next();
 
-    // Track if we need to send notifications (but don't save here)
-    let shouldSendNotification = false;
-    let notificationType = "";
-    let notificationData = {};
+  const now = new Date();
 
-    if (this.status === "pending") {
-      this.activityLog.push({
-        action: "Promotion Assigned",
-        details: "Promotion assigned to promoter",
-        timestamp: now,
-      });
+  switch (this.status) {
+    case "accepted":
+      this.activityLog.push({ action: "Promotion Accepted" });
+      this._pendingNotification = { type: "promotion_assigned", timestamp: now };
+      break;
 
-      // ✅ JUST SET FLAGS, DON'T SAVE OR SEND NOTIFICATIONS HERE
-      shouldSendNotification = true;
-      notificationType = "promotion_assigned";
-    } else if (this.status === "submitted" && !this.submittedAt) {
-      this.submittedAt = now;
-      this.activityLog.push({
-        action: "Promotion Submitted",
-        details: "Promoter submitted proof for validation",
-        timestamp: now,
-      });
+    case "downloaded":
+      if (!this.downloadedAt) this.downloadedAt = now;
+      this.isDownloaded = true;
+      this.activityLog.push({ action: "Promotion Downloaded" });
+      this._pendingNotification = { type: "promotion_downloaded", timestamp: now };
+      break;
 
-      shouldSendNotification = true;
-      notificationType = "promotion_submitted";
-    } else if (this.status === "validated" && !this.validatedAt) {
-      this.validatedAt = now;
-      this.activityLog.push({
-        action: "Promotion Validated",
-        details: "Promotion validated and approved for payment",
-        timestamp: now,
-      });
+    case "submitted":
+      if (!this.submittedAt) this.submittedAt = now;
+      this.activityLog.push({ action: "Promotion Submitted" });
+      this._pendingNotification = { type: "promotion_submitted", timestamp: now };
+      break;
 
-      shouldSendNotification = true;
-      notificationType = "promotion_validated";
-    } else if (this.status === "paid" && !this.paidAt) {
+    case "validated":
+      if (!this.validatedAt) this.validatedAt = now;
+      this.activityLog.push({ action: "Promotion Validated" });
+      this._pendingNotification = { type: "promotion_validated", timestamp: now };
+      break;
+
+    case "paid":
+      if (this.hasBeenPaid) return next(new Error("Already paid"));
       this.paidAt = now;
-      this.activityLog.push({
-        action: "Promotion Paid",
-        details: "Payment processed successfully",
-        timestamp: now,
-      });
+      this.hasBeenPaid = true;
+      this.activityLog.push({ action: "Promotion Paid" });
+      this._pendingNotification = { type: "payment_processed", timestamp: now };
+      break;
 
-      shouldSendNotification = true;
-      notificationType = "payment_processed";
-    } else if (this.status === "rejected") {
+    case "rejected":
       this.activityLog.push({
         action: "Promotion Rejected",
-        details: this.rejectionReason
-          ? `Rejected: ${this.rejectionReason}`
-          : "Promotion rejected",
-        timestamp: now,
+        details: this.rejectionReason,
       });
-
-      shouldSendNotification = true;
-      notificationType = "promotion_rejected";
-    }
-
-    // ✅ Store notification data for post-save handling
-    if (shouldSendNotification) {
-      this._pendingNotification = {
-        type: notificationType,
-        timestamp: now,
-      };
-    }
+      this._pendingNotification = { type: "promotion_rejected", timestamp: now };
+      break;
   }
+
   next();
 });
 
-// Notification-related methods
-promotionSchema.methods = {
-  ...promotionSchema.methods,
-
-  // Log a notification sent for this promotion
-  async logNotification(notificationType, metadata = {}) {
-    this.notificationLog.push({
-      type: notificationType,
-      metadata: metadata,
-    });
-    return this.save();
-  },
-
-  // Check if a notification was recently sent
-  wasNotificationRecentlySent(notificationType, hours = 24) {
-    const cutoffTime = new Date(Date.now() - hours * 60 * 60 * 1000);
-
-    return this.notificationLog.some(
-      (notification) =>
-        notification.type === notificationType &&
-        notification.sentAt > cutoffTime
-    );
-  },
-
-  // Record submission reminder sent
-  async recordSubmissionReminder() {
-    this.reminders.submission.lastSent = new Date();
-    this.reminders.submission.sentCount += 1;
-    this.submissionReminderSent = true;
-    await this.logNotification("submission_reminder", {
-      reminderCount: this.reminders.submission.sentCount,
-    });
-    return this.save();
-  },
-
-  // Check if submission reminder should be sent - ~20 hours after assignment
-  shouldSendSubmissionReminder() {
-    if (this.status !== "pending") return false;
-    const now = new Date();
-    const assignmentTime = new Date(this.createdAt);
-    const hoursSinceAssignment = (now - assignmentTime) / (1000 * 60 * 60); // Send reminder if: // - Assigned for ~20 hours (e.g., between 19 and 21 hours) // - No reminder sent in the last 24 hours (or ever) // - Status is still pending
-    return (
-      hoursSinceAssignment >= 19 &&
-      hoursSinceAssignment <= 21 &&
-      (!this.reminders.submission.lastSent ||
-        (now - this.reminders.submission.lastSent) / (1000 * 60 * 60) > 24) &&
-      this.status === "pending"
-    );
-  },
-
-  // Record validation reminder sent (for campaign owners)
-  async recordValidationReminder() {
-    this.reminders.validation.lastSent = new Date();
-    this.reminders.validation.sentCount += 1;
-    return this.save();
-  },
-
-  // Get promotion summary for notifications
-  getNotificationSummary() {
-    return {
-      promotionId: this._id,
-      campaignId: this.campaign,
-      promoterId: this.promoter,
-      status: this.status,
-      payoutAmount: this.payoutAmount,
-      proofViews: this.proofViews,
-      submittedAt: this.submittedAt,
-      daysSinceSubmission: this.daysSinceSubmission,
-    };
-  },
-};
-
-// Static methods for promotion notifications
-promotionSchema.statics = {
-  // Find promotions needing submission reminders (~20 hours after assignment)
-  async findPromotionsNeedingSubmissionReminders() {
-    // Target: Promotions assigned between 19 and 21 hours ago (a 2-hour window centered at 20 hours)
-    const twentyOneHoursAgo = new Date(Date.now() - 21 * 60 * 60 * 1000);
-    const nineteenHoursAgo = new Date(Date.now() - 19 * 60 * 60 * 1000);
-
-    // This value is used to check if a reminder was already sent
-    // (We can use a very old date or a value slightly less than 24 hours ago)
-    const oldReminderCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-    return this.find({
-      status: "pending",
-      createdAt: {
-        // Assigned no earlier than 21 hours ago
-        $gte: twentyOneHoursAgo,
-        // Assigned no later than 19 hours ago
-        $lte: nineteenHoursAgo,
-      },
-      // Check if a submission reminder was sent, and if it was, ensure it was before
-      // the 24-hour mark (or a suitable period before the *next* reminder,
-      // though typically you just want to send the first one here).
-      // For simplicity, we keep the original logic, assuming 'lastSent' should be checked
-      // against a point that ensures no *recent* reminder has gone out.
-      $or: [
-        { "reminders.submission.lastSent": { $lt: oldReminderCutoff } },
-        { "reminders.submission.lastSent": { $exists: false } },
-      ],
-    }).populate("promoter campaign");
-  },
-
-  // Find submitted promotions needing validation reminders
-  async findPromotionsNeedingValidationReminders(daysThreshold = 3) {
-    const thresholdDate = new Date(
-      Date.now() - daysThreshold * 24 * 60 * 60 * 1000
-    );
-
-    return this.find({
-      status: "submitted",
-      submittedAt: { $lt: thresholdDate },
-      $or: [
-        { "reminders.validation.lastSent": { $lt: thresholdDate } },
-        { "reminders.validation.lastSent": { $exists: false } },
-      ],
-    }).populate("campaign");
-  },
-
-  // Find promotions by status with notification info
-  async findByStatusWithNotifications(status) {
-    return this.find({ status })
-      .populate("promoter campaign")
-      .select("+notificationLog +reminders");
-  },
-
-  // Get promoter's promotion statistics for notifications
-  async getPromoterStats(promoterId) {
-    const stats = await this.aggregate([
-      { $match: { promoter: promoterId } },
-      {
-        $group: {
-          _id: "$status",
-          count: { $sum: 1 },
-          totalEarnings: {
-            $sum: {
-              $cond: ["$payoutAmount", "$payoutAmount", 0],
-            },
-          },
-        },
-      },
-    ]);
-
-    return stats.reduce((acc, stat) => {
-      acc[stat._id] = {
-        count: stat.count,
-        earnings: stat.totalEarnings,
-      };
-      return acc;
-    }, {});
-  },
-};
-
-// Instance method to validate promotion
-promotionSchema.methods.validatePromotion = function (validatedByUserId) {
-  this.status = "validated";
-  this.validatedAt = new Date();
-  this.validatedBy = validatedByUserId;
-  return this;
-};
-
-// Instance method to reject promotion
-promotionSchema.methods.rejectPromotion = function (reason, rejectedByUserId) {
-  this.status = "rejected";
-  this.rejectionReason = reason;
-  this.activityLog.push({
-    action: "Promotion Rejected",
-    details: reason,
-    performedBy: rejectedByUserId,
-    timestamp: new Date(),
-  });
-  return this;
-};
-
-// Instance method to mark as paid
-promotionSchema.methods.markAsPaid = function (paidByUserId) {
-  this.status = "paid";
-  this.paidAt = new Date();
-  this.paidBy = paidByUserId;
-  return this;
-};
-
-// ✅ ADD POST-SAVE MIDDLEWARE FOR NOTIFICATIONS
+//
+// 🔔 POST-SAVE NOTIFICATIONS (SAFE & DEDUPED)
+//
 promotionSchema.post("save", async function (doc) {
-  // Handle pending notifications outside the save operation
-  if (doc._pendingNotification) {
-    const { type, timestamp } = doc._pendingNotification;
+  if (!doc._pendingNotification) return;
 
-    try {
-      const campaign = await mongoose.model("Campaign").findById(doc.campaign);
-      if (campaign) {
-        let notificationSent = false;
+  const { type, timestamp } = doc._pendingNotification;
 
-        switch (type) {
-          case "promotion_assigned":
-            await NotificationService.createPromotionAssignedNotification(
-              doc.promoter,
-              campaign,
-              doc
-            );
-            notificationSent = true;
-            break;
+  const alreadyLogged = await PromotionModel.exists({
+    _id: doc._id,
+    "notificationLog.type": type,
+  });
 
-          case "promotion_submitted":
-            await NotificationService.createPromotionSubmittedNotification(
-              campaign.owner,
-              doc,
-              campaign
-            );
-            notificationSent = true;
-            break;
+  if (alreadyLogged) return;
 
-          case "promotion_validated":
-            await NotificationService.createPromotionValidatedNotification(
-              doc.promoter,
-              doc,
-              campaign
-            );
-            notificationSent = true;
-            break;
+  try {
+    const campaign = await mongoose.model("Campaign").findById(doc.campaign);
+    if (!campaign) return;
 
-          case "payment_processed":
-            await NotificationService.createPaymentProcessedNotification(
-              doc.promoter,
-              doc.payoutAmount,
-              doc,
-              "promoter"
-            );
-            notificationSent = true;
-            break;
-
-          case "promotion_rejected":
-            await NotificationService.createPromotionRejectedNotification(
-              doc.promoter,
-              doc,
-              campaign,
-              doc.rejectionReason
-            );
-            notificationSent = true;
-            break;
-        }
-
-        // Log notification if sent successfully
-        if (notificationSent) {
-          // Use updateOne to avoid version conflicts
-          await PromotionModel.updateOne(
-            { _id: doc._id },
-            {
-              $push: {
-                notificationLog: {
-                  type: type,
-                  sentAt: timestamp,
-                  metadata: {
-                    campaignId: campaign._id,
-                    ...(type === "promotion_submitted" && {
-                      proofViews: doc.proofViews,
-                    }),
-                    ...(type === "promotion_validated" && {
-                      payoutAmount: doc.payoutAmount,
-                    }),
-                    ...(type === "payment_processed" && {
-                      amount: doc.payoutAmount,
-                    }),
-                    ...(type === "promotion_rejected" && {
-                      rejectionReason: doc.rejectionReason,
-                    }),
-                  },
-                },
-              },
-            }
-          );
-        }
-      }
-    } catch (error) {
-      console.error(`Error sending ${type} notification:`, error.message);
-      // Don't fail the main operation if notification fails
+    switch (type) {
+      case "promotion_assigned":
+        await NotificationService.createPromotionAssignedNotification(doc.promoter, campaign, doc);
+        break;
+      case "promotion_submitted":
+        await NotificationService.createPromotionSubmittedNotification(campaign.owner, doc, campaign);
+        break;
+      case "promotion_validated":
+        await NotificationService.createPromotionValidatedNotification(doc.promoter, doc, campaign);
+        break;
+      case "payment_processed":
+        await NotificationService.createPaymentProcessedNotification(
+          doc.promoter,
+          doc.payoutAmount,
+          doc,
+          "promoter"
+        );
+        break;
+      case "promotion_rejected":
+        await NotificationService.createPromotionRejectedNotification(
+          doc.promoter,
+          doc,
+          campaign,
+          doc.rejectionReason
+        );
+        break;
     }
 
-    // Clear the pending notification
-    delete doc._pendingNotification;
+    await PromotionModel.updateOne(
+      { _id: doc._id },
+      {
+        $push: {
+          notificationLog: {
+            type,
+            sentAt: timestamp,
+          },
+        },
+      }
+    );
+  } catch (err) {
+    console.error("Notification error:", err.message);
   }
+
+  delete doc._pendingNotification;
 });
 
 export const PromotionModel = mongoose.model("Promotion", promotionSchema);

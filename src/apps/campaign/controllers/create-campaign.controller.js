@@ -1,16 +1,12 @@
-// create-campaign.controller.js
+// apps/campaign/controllers/create-campaign.controller.js
+
+import mongoose from "mongoose";
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
-import mongoose from "mongoose";
 import { sendEmail } from "../../../services/email.service.js";
-import { adminCampaignApprovalTemplate } from '../services/email/adminCampaignApprovalTemplate.js';
-import { GenerateVideoThumbnail } from '../services/thumbnail-generator.service.js';
+import { adminCampaignApprovalTemplate } from "../services/email/adminCampaignApprovalTemplate.js";
+import { GenerateVideoThumbnail } from "../services/thumbnail-generator.service.js";
 
-
-/**
- * @description Creates a new campaign with media uploaded to Cloudinary.
- * Generates thumbnails for videos and stores them in Cloudinary.
- */
 export const createCampaign = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -23,252 +19,201 @@ export const createCampaign = async (req, res) => {
       link,
       category,
       budget,
+
+      payoutTierId,
+      payoutPerPromotion,
+      minViewsPerPromotion,
+      maxViewsPerPromotion,
+
       startDate,
       endDate,
-      currency,
-      enableTarget,
+      currency = "NGN",
+      enableTarget = false,
       campaignType = "standard",
       priority = "medium",
       minRating = 0,
-      requirements = "",
+      requirements = [],
       targetLocations = [],
       hasEndDate = true,
-      minViewsPerPromotion = 40,
-      ageTarget
+      ageTarget = "all",
     } = req.body;
 
-   // console.log('Received campaign creation request:', req.body); return;
-
-    // ✅ Handle uploaded file from Cloudinary
-    let mediaUrl = '';
-    let mediaType = '';
-    let cloudinaryPublicId = '';
-    let thumbnailUrl = ''; // New: Store thumbnail URL
-
-    if (req.file) {
-      mediaUrl = req.file.path; // Cloudinary URL
-      cloudinaryPublicId = req.file.filename; // Cloudinary public ID
-
-      if (req.file.mimetype.startsWith('image/')) {
-        mediaType = 'image';
-        // For images, use the same URL as thumbnail
-        thumbnailUrl = mediaUrl;
-      } else if (req.file.mimetype.startsWith('video/')) {
-        mediaType = 'video';
-        // Generate thumbnail for video
-        thumbnailUrl = await GenerateVideoThumbnail(cloudinaryPublicId);
-      }
-    }
-
-    const payoutPerPromotion = 200;
-    const numericBudget = Number(budget);
-    const maxPromoters = Math.floor(numericBudget / payoutPerPromotion);
-
-    // ✅ Validate required fields
+    /* ----------------------------------------
+       1️⃣ BASIC VALIDATION
+    ----------------------------------------- */
     if (!owner || !title || !budget || !category) {
-      await session.abortTransaction();
-      session.endSession();
       return res.status(400).json({
-        message: "Missing required fields: owner, title, budget, and category are required.",
         success: false,
+        message: "Missing required fields."
       });
     }
 
-    if (!mediaUrl) {
-      await session.abortTransaction();
-      session.endSession();
+    const numericBudget = Number(budget);
+    if (!Number.isFinite(numericBudget) || numericBudget < 1000) {
       return res.status(400).json({
-        message: "Campaign media (image or video) is required.",
         success: false,
+        message: "Minimum campaign budget is ₦1000."
       });
     }
 
-    if (numericBudget < 500) {
-      await session.abortTransaction();
-      session.endSession();
+    if (!payoutTierId || !payoutPerPromotion || !minViewsPerPromotion) {
       return res.status(400).json({
-        message: "Minimum campaign budget is 500 NGN.",
         success: false,
+        message: "Payout tier selection is required."
       });
     }
 
-    const user = await UserModel.findById(owner).session(session);
-    if (!user) {
-      await session.abortTransaction();
-      session.endSession();
+    const numericPayout = Number(payoutPerPromotion);
+    if (!Number.isFinite(numericPayout) || numericPayout <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payout amount."
+      });
+    }
+
+    /* ----------------------------------------
+       2️⃣ LOAD MARKETER & WALLET CHECK (NEW)
+    ----------------------------------------- */
+    const marketer = await UserModel.findById(owner)
+      .session(session)
+      .select("email wallets.marketer.balance");
+
+    if (!marketer) {
       return res.status(404).json({
-        message: "User not found.",
         success: false,
+        message: "Campaign owner not found."
       });
     }
 
-    // ✅ Validate wallet balance
-    const marketerWallet = user.wallets.marketer;
-    if (marketerWallet.balance < numericBudget) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(402).json({
-        message: `Insufficient funds. Available: ${marketerWallet.balance} NGN, Required: ${numericBudget} NGN. Please fund your wallet to create this campaign.`,
+    if (marketer.wallets.marketer.balance < numericBudget) {
+      return res.status(400).json({
         success: false,
-        availableBalance: marketerWallet.balance,
-        requiredAmount: numericBudget
+        message: "Insufficient wallet balance to create this campaign."
       });
     }
 
-    // ✅ Process requirements
-    const requirementsArray = requirements
-      ? requirements.split(',').map(req => req.trim()).filter(req => req.length > 0)
-      : [];
+    /* ----------------------------------------
+       3️⃣ MEDIA HANDLING
+    ----------------------------------------- */
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Campaign media (image or video) is required."
+      });
+    }
 
-    // ✅ Process target locations
-    const targetLocationsArray = Array.isArray(targetLocations)
-      ? targetLocations
-      : (typeof targetLocations === 'string'
-        ? targetLocations.split(',').map(loc => loc.trim())
-        : []);
+    let mediaUrl = req.file.path;
+    let mediaType = "";
+    let thumbnailUrl = "";
 
-    // ✅ Create campaign
-    const newCampaign = new CampaignModel({
+    if (req.file.mimetype.startsWith("image/")) {
+      mediaType = "image";
+      thumbnailUrl = mediaUrl;
+    } else if (req.file.mimetype.startsWith("video/")) {
+      mediaType = "video";
+      thumbnailUrl = await GenerateVideoThumbnail(req.file.filename);
+    } else {
+      throw new Error("Unsupported media type");
+    }
+
+    /* ----------------------------------------
+       4️⃣ MAX PROMOTERS & VIEW ESTIMATION
+    ----------------------------------------- */
+    const maxPromoters = Math.floor(numericBudget / numericPayout);
+    if (maxPromoters < 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Budget too low for selected payout tier."
+      });
+    }
+
+    const estimatedViews = maxPromoters * Number(minViewsPerPromotion);
+
+    /* ----------------------------------------
+       5️⃣ CREATE CAMPAIGN (NO FUND MOVEMENT)
+    ----------------------------------------- */
+    const campaign = new CampaignModel({
       owner,
-      title: title.trim(),
-      caption: caption ? caption.trim() : "",
-      link: link ? link.trim() : "",
-      category: category.trim(),
+      title,
+      caption,
+      link,
+      category,
+      mediaUrl,
+      mediaType,
+      thumbnailUrl,
+
       budget: numericBudget,
-      enableTarget: Boolean(enableTarget),
-      ageTarget: ageTarget || 'all',
-      targetLocations: targetLocationsArray,
-      requirements: requirementsArray,
-      minRating: Number(minRating),
+      currency,
+
+      maxPromoters,
+      currentPromoters: 0,
+
+      payoutModel: "fixed_per_promoter",
+      payoutTierId,
+      payoutPerPromotion: numericPayout,
+      minViewsPerPromotion,
+      maxViewsPerPromotion,
+
+      estimatedViews,
+
+      enableTarget,
+      ageTarget,
+      targetLocations,
+      requirements,
+      minRating,
+
       campaignType,
       priority,
-      hasEndDate: Boolean(hasEndDate),
-      minViewsPerPromotion: Math.max(40, Number(minViewsPerPromotion)),
-      payoutPerPromotion,
-      maxPromoters,
+
       startDate: startDate ? new Date(startDate) : new Date(),
-      endDate: endDate ? new Date(endDate) : undefined,
-      mediaUrl, // Cloudinary URL
-      mediaType,
-      thumbnailUrl, // New: Store thumbnail URL
-      currency: currency || "NGN",
-      status: "pending",
+      endDate: hasEndDate && endDate ? new Date(endDate) : null,
+      hasEndDate,
+
+      status: "pending", // Admin approval still required
       createdBy: owner,
-      availableBudget: numericBudget,
-      cloudinaryPublicId, // store for potential deletion later
+
       activityLog: [{
-        action: 'Campaign Created',
-        details: `Campaign created with budget: ${numericBudget} NGN. Funds validated but not reserved.`,
-        performedBy: owner,
-        timestamp: new Date()
-      }],
+        action: "Campaign Created",
+        details: `Campaign created with budget ₦${numericBudget}`,
+        timestamp: new Date(),
+        performedBy: owner
+      }]
     });
 
-    await newCampaign.save({ session });
+    await campaign.save({ session });
+
+    /* ----------------------------------------
+       6️⃣ ADMIN NOTIFICATION
+    ----------------------------------------- */
+    await sendEmail({
+      to: process.env.ADMIN_EMAIL,
+      subject: "New Campaign Pending Approval",
+      html: adminCampaignApprovalTemplate({
+        title: campaign.title,
+        budget: campaign.budget,
+        owner: marketer.email,
+        category: campaign.category
+      })
+    });
+
     await session.commitTransaction();
     session.endSession();
 
-    // ✅ Log user activity
-    try {
-      await user.logActivity(
-        'campaign_created',
-        `Created campaign: "${title}" with budget ${numericBudget} NGN`,
-        {
-          resourceType: 'campaign',
-          resourceId: newCampaign._id,
-          metadata: {
-            budget: numericBudget,
-            maxPromoters,
-            payoutPerPromotion,
-            availableBudget: numericBudget,
-            hasThumbnail: !!thumbnailUrl
-          }
-        }
-      );
-    } catch (logError) {
-      console.error('Failed to log activity:', logError);
-    }
-
-    // ✅ Send success response
-    res.status(201).json({
-      message: "Campaign created successfully and is awaiting admin approval. Funds will be reserved per promotion when accepted by promoters.",
+    return res.status(201).json({
       success: true,
-      campaignId: newCampaign._id,
-      mediaUrl,
-      thumbnailUrl, // Include thumbnail in response
-      mediaType,
-      budget: numericBudget,
-      maxPromoters,
-      payoutPerPromotion,
-      availableBudget: numericBudget
+      message: "Campaign created successfully and pending approval",
+      data: campaign.toJSON()
     });
 
-    // ✅ Notify admin (after response)
-    try {
-      const marketer = await UserModel.findById(owner);
-      const adminEmails = ['schooltraz@gmail.com'];
-
-      const emailContent = adminCampaignApprovalTemplate({
-        title: newCampaign.title,
-        campaignId: newCampaign._id,
-        marketerName: marketer?.displayName || 'Unknown Marketer',
-        budget: newCampaign.budget,
-        category: newCampaign.category,
-        maxPromoters: newCampaign.maxPromoters,
-        payoutPerPromotion: newCampaign.payoutPerPromotion,
-        mediaType: newCampaign.mediaType,
-        caption: newCampaign.caption,
-        requirements: newCampaign.requirements,
-        targetLocations: newCampaign.targetLocations,
-        availableBudget: newCampaign.availableBudget
-      });
-
-      await Promise.all(
-        adminEmails.map(email =>
-          sendEmail(
-            email.trim(),
-            `New Campaign Pending Approval: ${newCampaign.title}`,
-            emailContent
-          )
-        )
-      );
-
-      console.log(`Admin notification sent for campaign: ${newCampaign._id}`);
-    } catch (emailError) {
-      console.error('Failed to send admin notification email:', emailError);
-    }
-
   } catch (error) {
-    try {
-      if (session.inTransaction()) {
-        await session.abortTransaction();
-      }
-    } catch (abortError) {
-      console.error("Error aborting transaction:", abortError.message);
-    } finally {
-      session.endSession();
-    }
+    await session.abortTransaction();
+    session.endSession();
 
-    console.error("Error creating campaign:", error.message);
+    console.error("Create campaign error:", error);
 
-    let userMessage = "Error occurred while creating campaign.";
-    let statusCode = 500;
-
-    if (error.name === 'ValidationError') {
-      userMessage = "Data validation failed. Please check the provided information.";
-      statusCode = 400;
-    } else if (error.name === 'CastError') {
-      userMessage = "Invalid data format provided.";
-      statusCode = 400;
-    } else if (error.code === 'EAI_AGAIN') {
-      userMessage = "Database connection error. Please try again later.";
-      statusCode = 503;
-    }
-
-    res.status(statusCode).json({
-      message: userMessage,
+    return res.status(400).json({
       success: false,
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: error.message || "Failed to create campaign"
     });
   }
 };

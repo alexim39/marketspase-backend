@@ -1,7 +1,6 @@
 import mongoose from "mongoose";
 
 // A utility constant for enums
-//const CAMPAIGN_STATUSES = ["pending", "active", "paused", "rejected", "completed", "exhausted", "expired", "draft", "archived"];
 const CAMPAIGN_STATUSES = ["active", "paused", "rejected", "completed", "exhausted", "expired", "pending", "draft", "archived"];
 
 // Define the schema
@@ -23,23 +22,40 @@ const campaignSchema = new mongoose.Schema(
         thumbnailUrl: { type: String },
 
         // Budgeting
-        budget: { type: Number, required: true, min: 500 }, // Min 500 NGN
-        payoutPerPromotion: { type: Number, required: true, min: 200 },
+        budget: { type: Number, required: true, min: 1000 }, // Min 1000 NGN
         currency: { type: String, default: "NGN" },
 
         // Promotion & Tracking
         maxPromoters: { type: Number, required: true, min: 1 },
         currentPromoters: { type: Number, required: true, min: 0, default: 0 },
-        minViewsPerPromotion: { type: Number, required: true, min: 40, default: 40 }, // Min 40 added back
         totalPromotions: { type: Number, default: 0 },
         validatedPromotions: { type: Number, default: 0 },
         paidPromotions: { type: Number, default: 0 },
         
         /**
-         * 🔥 FUND FLOW LOGIC: This value is AUTOMATICALLY calculated via pre('save')
-         * and should NOT be manually set in controllers (except perhaps initial creation).
+         * 🔥 FUND FLOW LOGIC:
+        * spentBudget is ONLY mutated via transactional services.
+        * Models must NEVER recalculate it automatically.
          */
         spentBudget: { type: Number, default: 0 },
+
+        totalPayouts: { type: Number, default: 0 },
+
+        reservedBudget: { type: Number, default: 0 },
+
+        payoutModel: {
+            type: String,
+            enum: ['fixed_per_promoter'],
+            default: 'fixed_per_promoter'
+        },
+
+        payoutTierId: { type: String, required: true },
+        payoutPerPromotion: { type: Number, required: true },
+        minViewsPerPromotion: { type: Number, required: true },
+        maxViewsPerPromotion: { type: Number },
+        rejectedPromotions: { type: Number, default: 0 },
+
+
 
         // Targeting & Requirements
         enableTarget: { type: Boolean, default: false },
@@ -200,24 +216,14 @@ campaignSchema.index({ category: 1, enableTarget: 1, status: 1 });
 
 
 /* ------------------------------------------------------------
-   🔥 PRE-SAVE HOOK: FUND FLOW LOGIC
-   1. Automatically recalculates spentBudget.
-   2. Sets estimated views and duration.
+   🔥 PRE-SAVE HOOK (NON-FINANCIAL)
+   - NEVER recalculates spentBudget
+   - Handles expiry + duration display ONLY
+   - All fund flow is handled in transactional services
 ------------------------------------------------------------- */
+
 campaignSchema.pre('save', function(next) {
     // 1. FUND FLOW: spentBudget is derived from paidPromotions
-    this.spentBudget = (this.paidPromotions * this.payoutPerPromotion) || 0;
-    
-    // 2. Estimate Views & Duration (from old model)
-    if (this.isModified('maxPromoters') || this.isNew) {
-        // Estimate 45 views per promoter on average
-        this.estimatedViews = this.maxPromoters * 45;
-    }
-
-    // Check if budget is exhausted
-    if (this.spentBudget >= this.budget) {
-        this.status = 'exhausted';
-    }
 
     // Check if campaign is expired
     if (this.hasEndDate && this.endDate) {
@@ -247,12 +253,12 @@ campaignSchema.pre('save', function(next) {
 
 // Use calculatedSpentBudget for runtime consistency
 campaignSchema.virtual('calculatedSpentBudget').get(function() {
-    return (this.payoutPerPromotion * this.paidPromotions) || 0;
+    return this.spentBudget || 0;
 });
 
 // Virtual for remaining budget
 campaignSchema.virtual('remainingBudget').get(function() {
-    return this.budget - this.spentBudget;
+    return this.budget - (this.spentBudget + (this.reservedBudget || 0));
 });
 
 // Virtual for budget utilization percentage
@@ -295,55 +301,33 @@ campaignSchema.virtual('promotions', {
 
 // Method to assign a promoter (used during acceptance)
 campaignSchema.methods.assignPromoter = function () {
-    // 1. FUND FLOW CHECK (Stage 1/2 Gate): Check if the next payout exceeds the budget
-    const potentialSpentBudget = (this.currentPromoters * this.payoutPerPromotion);
-    //const potentialSpentBudget = (this.paidPromotions * this.payoutPerPromotion || this.currentPromoters * this.payoutPerPromotion);
-    const potentialSpend = potentialSpentBudget + this.payoutPerPromotion;
+  // 🚫 Campaign must be active
+  if (this.status !== "active") return false;
 
-    if (potentialSpend > this.budget) {
-        this.status = "exhausted";
-        return false;
-    }
+  // 🚫 Slot limit reached
+  if (this.currentPromoters >= this.maxPromoters) return false;
 
-    // 2. Campaign Limits Check
-    if (this.currentPromoters >= this.maxPromoters || this.status !== "active") {
-        return false;
-    }
+  // 🚫 Budget logically exhausted
+  const available = this.budget - (this.spentBudget + this.reservedBudget);
+  if (available < this.payoutPerPromotion) {
+    this.status = "exhausted";
+    this._justExhausted = true;
+    return false;
+  }
 
-    this.totalPromotions += 1;
-    this.currentPromoters += 1;
+  // ✅ Slot allocation ONLY (no money yet)
+  this.currentPromoters += 1;
+  this.totalPromotions += 1;
 
-    // Add to activity log
-    this.activityLog.push({
-        action: "Promoter Assigned",
-        details: `New promoter assigned. Total promoters: ${this.totalPromotions}`,
-        timestamp: new Date()
-    });
+  this.activityLog.push({
+    action: "Promoter Accepted",
+    details: `Promoter accepted. Slots used: ${this.currentPromoters}/${this.maxPromoters}`,
+    timestamp: new Date()
+  });
 
-    return true; // Return true on successful assignment
+  return true;
 };
 
-// Method to record payment to a promoter (used during validation/payment - Stage 4)
-campaignSchema.methods.recordPromoterPayment = function () {
-    // FUND FLOW LOGIC: ONLY increment paidPromotions.
-    // spentBudget is handled automatically by the pre('save') hook.
-    this.paidPromotions += 1;
-    
-    // Check if budget is exhausted (for immediate status update)
-    const newSpentBudget = (this.paidPromotions * this.payoutPerPromotion);
-    if (newSpentBudget >= this.budget) {
-        this.status = "exhausted";
-    }
-
-    // Add to activity log
-    this.activityLog.push({
-        action: "Promoter Paid",
-        details: `Promoter paid ${this.payoutPerPromotion} ${this.currency}. Total paid: ${this.paidPromotions}`,
-        timestamp: new Date()
-    });
-
-    return this;
-};
 
 // Method to validate a promotion
 campaignSchema.methods.validatePromotion = function () {
@@ -365,16 +349,25 @@ campaignSchema.methods.updateStatus = function(newStatus, performedBy, details =
     const oldStatus = this.status;
     if (CAMPAIGN_STATUSES.includes(newStatus)) {
         this.status = newStatus;
-        this.createdBy = performedBy; // Track who performed the status change
-        
-        this.activityLog.push({
+
+        // Only set ObjectId fields if a valid id was provided
+        if (performedBy && mongoose.Types.ObjectId.isValid(performedBy)) {
+            this.createdBy = performedBy; // Track who performed the status change
+        }
+
+        const activityEntry = {
             action: "Status Changed",
             details: `Status changed from ${oldStatus} to ${newStatus}. ${details}`,
-            timestamp: new Date(),
-            performedBy: performedBy
-        });
+            timestamp: new Date()
+        };
+
+        if (performedBy && mongoose.Types.ObjectId.isValid(performedBy)) {
+            activityEntry.performedBy = performedBy;
+        }
+
+        this.activityLog.push(activityEntry);
     }
-    
+
     return this;
 };
 
@@ -513,32 +506,16 @@ campaignSchema.set('toJSON', { virtuals: true });
    POST-SAVE HOOK
    Handles post-save actions like budget exhaustion notifications.
 ------------------------------------------------------------- */
+
 campaignSchema.post('save', async function(doc) {
-    // Check if budget just got exhausted
-    if (doc.status === 'exhausted' && doc.isModified('status')) {
-        try {
-            // NOTE: In a modular environment, you would import NotificationService here.
-            // For this self-contained model, we assume access to the service or a dedicated notification handler.
-            const Campaign = mongoose.model('Campaign');
-            const previousDoc = await Campaign.findById(doc._id);
-            
-            // Check if status truly changed to exhausted (to avoid double-notifying)
-            if (previousDoc && previousDoc.status !== 'exhausted') {
-                // Assuming NotificationService.createBudgetExhaustedNotification exists
-                // const NotificationService = require('../services/notification.service').NotificationService;
-                // await NotificationService.createBudgetExhaustedNotification(doc.owner, doc);
-                
-                // Log the notification
-                await doc.logNotification('budget_exhausted', doc.owner, {
-                    spentBudget: doc.spentBudget,
-                    budget: doc.budget
-                });
-                await doc.save();
-            }
-        } catch (error) {
-            console.error('Error handling budget exhaustion notification in post-save:', error);
-        }
+    if (doc._justExhausted) {
+        await doc.logNotification('budget_exhausted', doc.owner, {
+            spentBudget: doc.spentBudget,
+            budget: doc.budget
+        });
+        await doc.save();
     }
 });
+
 
 export const CampaignModel = mongoose.model("Campaign", campaignSchema);

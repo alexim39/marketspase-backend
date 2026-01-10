@@ -46,10 +46,6 @@ export const promotionExpiringTemplate = (promotionData) => {
             <td style="padding:8px 0;color:#2d3748;text-align:right;">${promotionData.promotionId}</td>
           </tr>
           <tr>
-            <td style="padding:8px 0;color:#4a5568;"><strong>Earnings:</strong></td>
-            <td style="padding:8px 0;color:#38a169;text-align:right;font-weight:bold;">₦${promotionData.payoutAmount.toLocaleString()}</td>
-          </tr>
-          <tr>
             <td style="padding:8px 0;color:#4a5568;"><strong>Expires At:</strong></td>
             <td style="padding:8px 0;color:#c53030;text-align:right;font-weight:bold;">${formattedTime}</td>
           </tr>

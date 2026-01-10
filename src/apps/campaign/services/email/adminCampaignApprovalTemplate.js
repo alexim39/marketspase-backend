@@ -49,10 +49,6 @@ export const adminCampaignApprovalTemplate = (campaignData) => {
             <td style="padding:8px 0;color:#2d3748;text-align:right;">${campaignData.maxPromoters}</td>
           </tr>
           <tr>
-            <td style="padding:8px 0;color:#4a5568;"><strong>Payout per Promotion:</strong></td>
-            <td style="padding:8px 0;color:#2d3748;text-align:right;">₦${campaignData.payoutPerPromotion.toLocaleString()}</td>
-          </tr>
-          <tr>
             <td style="padding:8px 0;color:#4a5568;"><strong>Media Type:</strong></td>
             <td style="padding:8px 0;color:#2d3748;text-align:right;text-transform:capitalize;">${campaignData.mediaType}</td>
           </tr>

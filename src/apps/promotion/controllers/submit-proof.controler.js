@@ -29,9 +29,9 @@ export const submitProof = async (req, res) => {
         message: "Promotion ID, views count, and proof images are required",
       });
     }
-    if (viewsCount < 25) {
+    if (viewsCount < 35) {
       await session.abortTransaction(); session.endSession();
-      return res.status(400).json({ success: false, message: "Minimum 25 views required for submission" });
+      return res.status(400).json({ success: false, message: "Minimum 35 views required for submission" });
     }
 
     // Load promotion + campaign + promoter as LEAN (no hydration -> no casting)
@@ -49,7 +49,7 @@ export const submitProof = async (req, res) => {
       await session.abortTransaction(); session.endSession();
       return res.status(403).json({ success: false, message: "You are not authorized to submit proof for this promotion" });
     }
-    if (promotion.status !== "pending") {
+    if (promotion.status !== "downloaded") {
       await session.abortTransaction(); session.endSession();
       return res.status(400).json({ success: false, message: `Cannot submit proof for promotion with status: ${promotion.status}` });
     }
@@ -59,7 +59,7 @@ export const submitProof = async (req, res) => {
     }
 
     const campaign = promotion.campaign;
-    const minViews = campaign?.minViewsPerPromotion ?? 40;
+    const minViews = campaign?.minViewsPerPromotion ?? 35;
     if (parseInt(viewsCount, 10) < minViews) {
       await session.abortTransaction(); session.endSession();
       return res.status(400).json({
