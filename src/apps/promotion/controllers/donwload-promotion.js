@@ -60,7 +60,7 @@ export const downloadPromotion = async (req, res) => {
             hasReservedForPromoter: false,
             hasReservedFromMarketer: true
           },
-          { $set: { isDownloaded: true, downloadedAt: now, notes: "Campaign materials downloaded by promoter" } },
+          { $set: { isDownloaded: true, status: "downloaded", downloadedAt: now, notes: "Campaign materials downloaded by promoter" } },
           { new: true, session }
         );
 

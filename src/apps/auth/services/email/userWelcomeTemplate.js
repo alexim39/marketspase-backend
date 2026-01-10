@@ -68,6 +68,10 @@ export const userWelcomeEmailTemplate = (user) => {
         <p style="font-size:14px;line-height:1.5;margin:0;color:#c53030;"><strong>💡 Pro Tip:</strong> Promoters with higher engagement rates and reliability scores get access to premium campaigns with better payouts!</p>
       </div>
 
+      <div style="background:#fffaf0;border-left:4px solid #f6ad55;padding:16px;margin:12px 0 24px;border-radius:4px;">
+        <p style="font-size:14px;line-height:1.5;margin:0;color:#744210;"><strong>Important:</strong> Creating multiple accounts is against MarketSpase policy. Users found to have more than one account may face suspension — including indefinite suspension of all accounts associated with them. If you believe there's a legitimate need for multiple accounts, please contact <a href="mailto:contact@marketspase.com" style="color:#673ab7;text-decoration:none;">support</a> before registering another account.</p>
+      </div>
+
       <p style="font-size:15px;line-height:1.6;">Questions? Check our <a href="https://marketspase.com/resources/faqs" style="color:#673ab7;font-weight:600;text-decoration:none;">FAQ</a> or reach out at <a href="mailto:contact@marketspase.com" style="color:#673ab7;text-decoration:none;">contact@marketspase.com</a></p>
 
       <p style="font-size:15px;margin-top:30px;">Welcome aboard!<br><strong>The MarketSpase Team</strong></p>

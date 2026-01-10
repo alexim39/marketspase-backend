@@ -1,192 +1,218 @@
+import mongoose from "mongoose";
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
-import mongoose from "mongoose";
-// ADD THESE IMPORTS:
+
 import { sendEmail } from "../../../services/email.service.js";
-import { campaignApprovedTemplate } from '../services/email/campaignApprovedTemplate.js';
-import { campaignRejectedTemplate } from '../services/email/campaignRejectedTemplate.js';
+import { campaignApprovedTemplate } from "../services/email/campaignApprovedTemplate.js";
+import { campaignRejectedTemplate } from "../services/email/campaignRejectedTemplate.js";
 import { NotificationService } from "../../notification/services/notification.service.js";
 
 /**
- * Controller to change the status of a campaign.
- * This function allows an admin or campaign owner to update the campaign's status.
+ * Admin / Owner controller to update campaign status
+ * Aligned with performance-based budget consumption
  */
 export const UpdateCampaignStatus = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    // 1. Extract the campaign ID from the request parameters
     const { id } = req.params;
-    // 2. Extract the new status and optional details from the request body
     const { status, details = "", performedBy } = req.body;
-    // 3. Get the user ID from the request (assuming it's set by authentication middleware)
-    //const performedBy = req.user?._id;
 
-    console.log(`Updating campaign ID ${id} to status '${status}' by user ${performedBy}`);
+    // Normalize/sanitize performer id (avoid passing empty string)
+    const performerId = (performedBy && mongoose.Types.ObjectId.isValid(performedBy))
+      ? performedBy
+      : undefined;
 
-    // 4. Validate that both ID and status are provided
+    console.log(`UpdateCampaignStatus called by ${performedBy} for campaign ${id} to status ${status}`);
+
     if (!id || !status) {
       await session.abortTransaction();
-      session.endSession();
       return res.status(400).json({
         success: false,
-        message: "Campaign ID and new status are required.",
+        message: "Campaign ID and status are required"
       });
     }
 
-    // 5. Validate that the new status is a valid enum value
     const validStatuses = [
-      "active", "paused", "rejected", "completed", 
-      "exhausted", "expired", "pending", "draft", "validated"
+      "pending",
+      "active",
+      "paused",
+      "rejected",
+      "completed",
+      "expired",
+      "exhausted",
+      "draft",
+      "validated"
     ];
+
     if (!validStatuses.includes(status)) {
       await session.abortTransaction();
-      session.endSession();
       return res.status(400).json({
         success: false,
-        message: "Invalid status provided.",
+        message: "Invalid campaign status"
       });
     }
 
-    // 6. Find the campaign by ID within the transaction
     const campaign = await CampaignModel.findById(id).session(session);
 
-    // 7. Handle the case where the campaign is not found
     if (!campaign) {
       await session.abortTransaction();
-      session.endSession();
       return res.status(404).json({
         success: false,
-        message: "Campaign not found.",
+        message: "Campaign not found"
       });
     }
 
-    // 8. Check if the status is actually changing
+    /**
+     * ✅ IDEMPOTENCY GUARD
+     * Prevents double-activation, double-rejection, etc.
+     */
     if (campaign.status === status) {
       await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
-        message: `Campaign is already in '${status}' status.`,
+        message: `Campaign already in '${status}' state`
       });
     }
 
-    // 9. Use the model's updateStatus method for consistency
-    campaign.updateStatus(status, performedBy, details);
+    /**
+     * 🔒 ACTIVATION RULES
+     * When campaign becomes ACTIVE, we freeze its payout model
+     */
+    if (status === "active") {
+      // Allow activation from `pending` or `paused` states
+      if (!["pending", "paused"].includes(campaign.status)) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          success: false,
+          message: "Campaign can only be activated from pending or paused states"
+        });
+      }
 
-    // 10. Special handling for status changes that might affect wallet balances
-   /*  if (status === "rejected" || status === "cancelled") {
-      // If campaign is rejected/cancelled, refund reserved funds to marketer
-      const marketer = await UserModel.findById(campaign.owner).session(session);
-      // if (marketer) {
-      //   const refundAmount = campaign.budget - campaign.spentBudget;
-      //   if (refundAmount > 0) {
-      //     marketer.wallets.marketer.reserved -= refundAmount;
-      //     marketer.wallets.marketer.balance += refundAmount;
-          
-      //     marketer.wallets.marketer.transactions.push({
-      //       amount: refundAmount,
-      //       type: "credit",
-      //       category: "campaign_refund",
-      //       description: `Funds refunded for ${status} campaign: "${campaign.title}"`,
-      //       relatedCampaign: campaign._id,
-      //       status: "successful",
-      //     });
-          
-      //     await marketer.save({ session });
-      //   }
-      // }
-    } */
+      if (!campaign.budget || campaign.budget < 500) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          success: false,
+          message: "Campaign budget is invalid"
+        });
+      }
 
-    // 11. Save the updated campaign document within the transaction
+      /**
+       * ✅ SNAPSHOT PAYOUT RULES
+       * This protects historical correctness if tiers change later
+       */
+      // Only snapshot payout rules on the first activation (protect historical data)
+      if (!campaign.payoutRulesSnapshot) {
+        campaign.payoutRulesSnapshot = {
+          model: "performance_based_views",
+          tiers: [
+            { min: 35, max: 65, payout: 100 },
+            { min: 66, max: 101, payout: 200 },
+            { min: 102, max: 150, payout: 300 },
+            { min: 151, max: 310, payout: 400 },
+            { min: 311, max: null, payout: 500 }
+          ],
+          lockedAt: new Date()
+        };
+      }
+
+      if (!campaign.activatedAt) {
+        campaign.activatedAt = new Date();
+      }
+    }
+
+    /**
+     * ❌ NO WALLET RESERVATION
+     * Budget is spent dynamically as views are validated
+     */
+
+    campaign.updateStatus(status, performerId, details);
     await campaign.save({ session });
 
-    // 12. Commit the transaction
     await session.commitTransaction();
     session.endSession();
 
-    // 13. Send email notification based on status change
+    /**
+     * 📣 POST-COMMIT NOTIFICATIONS
+     */
     try {
-        const marketer = await UserModel.findById(campaign.owner);
-        if (marketer && marketer.email) {
-            if (status === 'active') {
-                // Send campaign approved email
-                const emailContent = campaignApprovedTemplate({
-                    userName: marketer.displayName,
-                    campaignTitle: campaign.title,
-                    campaignId: campaign._id,
-                    budget: campaign.budget
-                });
-                
-              //Send welcome email to the user
-              await sendEmail(marketer.email, 'Campaign Approved - MarketSpase', emailContent);
+      const marketer = await UserModel.findById(campaign.owner);
 
-              // Send appropriate notification based on status change
-              await NotificationService.createCampaignApprovedNotification(
-                campaign.owner._id,
-                campaign
-              );
-                
-            } else if (status === 'rejected') {
-                // Send campaign rejected email
-                const refundAmount = campaign.budget - campaign.spentBudget;
-                const emailContent = campaignRejectedTemplate({
-                    userName: marketer.displayName,
-                    campaignTitle: campaign.title,
-                    budget: campaign.budget,
-                    refundAmount: refundAmount,
-                    rejectionReason: details || "Please review our campaign guidelines and try again."
-                });
-                
-              //Send welcome email to the user
-              await sendEmail(marketer.email, 'Campaign Not Approved - MarketSpase', emailContent);
+      if (marketer?.email) {
+        if (status === "active") {
+          const emailContent = campaignApprovedTemplate({
+            userName: marketer.displayName,
+            campaignTitle: campaign.title,
+            campaignId: campaign._id,
+            budget: campaign.budget
+          });
 
-              // Send appropriate notification based on status change
-              await NotificationService.createCampaignRejectedNotification(
-                campaign.owner._id,
-                campaign,
-                reason
-              );
-              //await campaign.logNotification('campaign_rejected', campaign.owner._id, { reason });
-            }
+          await sendEmail(
+            marketer.email,
+            "Your Campaign Is Live 🚀 - MarketSpase",
+            emailContent
+          );
+
+          await NotificationService.createCampaignApprovedNotification(
+            campaign.owner,
+            campaign
+          );
         }
-    } catch (emailError) {
-        console.error('Failed to send campaign status email:', emailError);
-        // Don't fail the main request if email fails
+
+        if (status === "rejected") {
+          const emailContent = campaignRejectedTemplate({
+            userName: marketer.displayName,
+            campaignTitle: campaign.title,
+            budget: campaign.budget,
+            refundAmount: campaign.budget - campaign.spentBudget,
+            rejectionReason:
+              details || "Your campaign did not meet our guidelines."
+          });
+
+          await sendEmail(
+            marketer.email,
+            "Campaign Not Approved - MarketSpase",
+            emailContent
+          );
+
+          await NotificationService.createCampaignRejectedNotification(
+            campaign.owner,
+            campaign,
+            details
+          );
+        }
+      }
+    } catch (notifyError) {
+      console.error("Notification failure:", notifyError);
+      // Intentionally non-blocking
     }
 
-
-    // 13. Send a success response
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: `Campaign status updated to '${status}' successfully.`,
+      message: `Campaign status updated to '${status}'`,
       data: {
-        _id: campaign._id,
+        id: campaign._id,
         title: campaign.title,
         status: campaign.status,
-        remainingBudget: campaign.remainingBudget,
-        spentBudget: campaign.spentBudget
-      },
+        budget: campaign.budget,
+        spentBudget: campaign.spentBudget,
+        remainingBudget: campaign.remainingBudget
+      }
     });
   } catch (error) {
-    // 14. Rollback transaction on error
     await session.abortTransaction();
     session.endSession();
-    
-    // 15. Handle errors, such as invalid ID format
-    console.error("Error updating campaign status:", error);
-    if (error.name === "CastError") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid campaign ID format.",
-      });
-    }
-    // 16. Handle other generic server errors
-    res.status(500).json({
+
+    console.error("UpdateCampaignStatus error:", error);
+
+    return res.status(500).json({
       success: false,
-      message: "An error occurred while updating the campaign status.",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Failed to update campaign status",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined
     });
   }
 };

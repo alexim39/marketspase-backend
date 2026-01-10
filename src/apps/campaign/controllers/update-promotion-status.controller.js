@@ -1,11 +1,12 @@
 import mongoose from "mongoose";
-import { handlePromotionStatusUpdate } from '../services/promotion-status.service.js';
+import { handlePromotionValidation } from "../services/promotion-validator.service.js";
 
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 100;
 
 /**
- * Updates promotion status: validated, rejected, or paid
+ * Admin updates promotion status
+ * VALIDATED ➜ AUTO PAID
  */
 export const UpdatePromotionStatus = async (req, res) => {
   let retryCount = 0;
@@ -33,7 +34,8 @@ export const UpdatePromotionStatus = async (req, res) => {
         });
       }
 
-      const validStatuses = ["validated", "rejected", "paid"];
+      // ❗ Paid removed – handled automatically
+      const validStatuses = ["validated", "rejected"];
       if (!validStatuses.includes(status)) {
         return res.status(400).json({
           success: false,
@@ -41,28 +43,26 @@ export const UpdatePromotionStatus = async (req, res) => {
         });
       }
 
-
-      
-      // optional idempotency key per operation
       const operationId = `${status}:${id}`;
 
-      const promotionUpdateInput = {
+      const result = await handlePromotionValidation({
         promotionId: id,
         status,
         rejectionReason,
         performedBy,
         session,
         operationId
-      };
-
-      const result = await handlePromotionStatusUpdate(promotionUpdateInput);
+      });
 
       await session.commitTransaction();
       session.endSession();
 
       return res.status(200).json({
         success: true,
-        message: `Promotion updated to '${status}'.`,
+        message:
+          status === "validated"
+            ? "Promotion validated and paid successfully."
+            : "Promotion rejected successfully.",
         data: result.promotion
       });
 
@@ -82,8 +82,8 @@ export const UpdatePromotionStatus = async (req, res) => {
 
       return res.status(500).json({
         success: false,
-        message: "Error updating promotion.",
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: error.message || "Error updating promotion.",
+        error: process.env.NODE_ENV === "development" ? error.stack : undefined
       });
     }
   }
