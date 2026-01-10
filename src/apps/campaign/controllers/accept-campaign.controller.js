@@ -124,7 +124,7 @@ export const acceptCampaign = async (req, res) => {
         await logUserActivity({
           session,
           userId: promoter._id,
-          action: "campaign_accept",
+          action: "campaign_accepted",
           description: `Accepted campaign "${campaign.title}"`,
           resourceType: "campaign",
           resourceId: campaign._id,
