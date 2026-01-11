@@ -15,7 +15,7 @@ export const UpdatePromotionStatus = async (req, res) => {
     const session = await mongoose.startSession();
 
     try {
-      await session.startTransaction();
+      session.startTransaction();
 
       const { id, performedBy } = req.params;
       const { status, rejectionReason } = req.body;
@@ -34,7 +34,6 @@ export const UpdatePromotionStatus = async (req, res) => {
         });
       }
 
-      // ❗ Paid removed – handled automatically
       const validStatuses = ["validated", "rejected"];
       if (!validStatuses.includes(status)) {
         return res.status(400).json({
@@ -43,18 +42,19 @@ export const UpdatePromotionStatus = async (req, res) => {
         });
       }
 
-      const operationId = `${status}:${id}`;
-
       const result = await handlePromotionValidation({
         promotionId: id,
         status,
         rejectionReason,
         performedBy,
-        session,
-        operationId
+        session
       });
 
-      await session.commitTransaction();
+      // ✅ Commit ONLY if still active
+      if (session.inTransaction()) {
+        await session.commitTransaction();
+      }
+
       session.endSession();
 
       return res.status(200).json({
@@ -67,10 +67,18 @@ export const UpdatePromotionStatus = async (req, res) => {
       });
 
     } catch (error) {
-      await session.abortTransaction();
+      // ✅ Abort ONLY if still active
+      if (session.inTransaction()) {
+        await session.abortTransaction();
+      }
+
       session.endSession();
 
-      if (error.code === 112 && retryCount < MAX_RETRY_ATTEMPTS - 1) {
+      // 🔁 Retry ONLY when MongoDB allows it
+      if (
+        error?.errorLabels?.includes("TransientTransactionError") &&
+        retryCount < MAX_RETRY_ATTEMPTS - 1
+      ) {
         retryCount++;
         await new Promise(resolve =>
           setTimeout(resolve, RETRY_DELAY_MS * Math.pow(2, retryCount))
