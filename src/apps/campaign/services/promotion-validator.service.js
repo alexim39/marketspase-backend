@@ -5,6 +5,8 @@ import {
   moveWithinWallet,
   moveBetweenWallets
 } from "../../wallet/services/wallet-move.service.js";
+import { applyValidationAccounting } from "./../../notification/services/promotion-accounting.service.js";
+
 
 /**
  * HANDLE PROMOTION VALIDATION
@@ -98,6 +100,8 @@ export async function validatePromotion({
   if (!promoterHasReserved) {
     throw new Error("Reserved funds missing");
   }
+
+  await applyValidationAccounting(promotion._id);
 
   // 💸 Wallet movement
   await moveWithinWallet({

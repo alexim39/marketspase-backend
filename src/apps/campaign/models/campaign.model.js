@@ -55,8 +55,6 @@ const campaignSchema = new mongoose.Schema(
         maxViewsPerPromotion: { type: Number },
         rejectedPromotions: { type: Number, default: 0 },
 
-
-
         // Targeting & Requirements
         enableTarget: { type: Boolean, default: false },
         ageTarget: {
