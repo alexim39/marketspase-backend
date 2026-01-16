@@ -12,6 +12,7 @@ import { promotionSubmissionReminder } from "../../services/promotion-submission
 import { userBirthdayService } from '../user-birthday.service.js';
 import { activityLogCleaner } from './activity-log-cleaner.job.js'
 import { campaignAvailabilityNotification } from '../../../campaign/services/jobs/campaign-notification.job.js';
+import { promotionAutoPayService } from "../../services/promotion-auto-pay.service.js";
 
 
 // 1. 20-HOUR SUBMISSION REMINDER - Every hour
@@ -421,8 +422,9 @@ cron.schedule("0 3 * * *", activityLogCleaner);
 // cron.schedule("0 3 */14 * *", activityLogCleaner);
 //cron.schedule('*/2 * * * *', activityLogCleaner)
 
-
-
+// 11. AUTO-PAY VALIDATED PROMOTIONS - Every hour
+cron.schedule("0 * * * *", promotionAutoPayService, { timezone: "Africa/Lagos" })
+//cron.schedule('*/2 * * * *', promotionAutoPayService)
 
 /* For Admin */
 

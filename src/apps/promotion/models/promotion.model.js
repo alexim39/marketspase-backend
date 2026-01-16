@@ -134,6 +134,12 @@ const promotionSchema = new mongoose.Schema(
     hasReservedForPromoter: { type: Boolean, default: false },
     hasBeenPaid: { type: Boolean, default: false },
     hasBeenRefunded: { type: Boolean, default: false },
+
+    accounting: {
+      validatedCounted: { type: Boolean, default: false },
+      paidCounted: { type: Boolean, default: false },
+    },
+
   },
   {
     timestamps: true,
@@ -216,12 +222,20 @@ promotionSchema.pre("save", function (next) {
       break;
 
     case "paid":
-      if (this.hasBeenPaid) return next(new Error("Already paid"));
+      // ✅ Idempotent paid transition
+      if (this.hasBeenPaid) {
+        // Already marked paid previously — ensure status/payload consistency, then no-op
+        this.status = "paid";
+        return next();
+      }
+      // First time entering "paid"
       this.paidAt = now;
       this.hasBeenPaid = true;
+      this.status = "paid";
       this.activityLog.push({ action: "Promotion Paid" });
       this._pendingNotification = { type: "payment_processed", timestamp: now };
       break;
+
 
     case "rejected":
       this.activityLog.push({

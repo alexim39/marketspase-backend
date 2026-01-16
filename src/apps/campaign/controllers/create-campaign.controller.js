@@ -1,11 +1,11 @@
-// apps/campaign/controllers/create-campaign.controller.js
+ // apps/campaign/controllers/create-campaign.controller.js
 
 import mongoose from "mongoose";
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
 import { sendEmail } from "../../../services/email.service.js";
 import { adminCampaignApprovalTemplate } from "../services/email/adminCampaignApprovalTemplate.js";
-import { GenerateVideoThumbnail } from "../services/thumbnail-generator.service.js";
+import { GenerateVideoThumbnail, buildVideoThumbnailUrl } from "../services/thumbnail-generator.service.js";
 
 export const createCampaign = async (req, res) => {
   const session = await mongoose.startSession();
@@ -38,9 +38,7 @@ export const createCampaign = async (req, res) => {
       ageTarget = "all",
     } = req.body;
 
-    /* ----------------------------------------
-       1️⃣ BASIC VALIDATION
-    ----------------------------------------- */
+     //  1️⃣ BASIC VALIDATION
     if (!owner || !title || !budget || !category) {
       return res.status(400).json({
         success: false,
@@ -71,9 +69,7 @@ export const createCampaign = async (req, res) => {
       });
     }
 
-    /* ----------------------------------------
-       2️⃣ LOAD MARKETER & WALLET CHECK (NEW)
-    ----------------------------------------- */
+     //  2️⃣ LOAD MARKETER & WALLET CHECK (NEW)
     const marketer = await UserModel.findById(owner)
       .session(session)
       .select("email wallets.marketer.balance");
@@ -92,9 +88,7 @@ export const createCampaign = async (req, res) => {
       });
     }
 
-    /* ----------------------------------------
-       3️⃣ MEDIA HANDLING
-    ----------------------------------------- */
+     //  3️⃣ MEDIA HANDLING
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -109,16 +103,37 @@ export const createCampaign = async (req, res) => {
     if (req.file.mimetype.startsWith("image/")) {
       mediaType = "image";
       thumbnailUrl = mediaUrl;
+        
     } else if (req.file.mimetype.startsWith("video/")) {
       mediaType = "video";
-      thumbnailUrl = await GenerateVideoThumbnail(req.file.filename);
+
+      // Try to use Multer-Cloudinary's .filename as the public_id first
+      let publicId = req.file.filename;
+
+      // Fallback: extract public_id from a Cloudinary URL if path is a secure_url
+      if ((!publicId || typeof publicId !== "string") && typeof req.file.path === "string" && req.file.path.includes("res.cloudinary.com")) {
+        try {
+          const url = new URL(req.file.path);
+          // /<cloud>/<resource_type>/upload/v<ver>/<folder>/<id>.<ext>
+          const parts = url.pathname.split("/").filter(Boolean);
+          const uploadIdx = parts.findIndex(p => p === "upload");
+          // if a version segment (starting with 'v') exists, skip it
+          const afterUpload = parts.slice(uploadIdx + 1);
+          const versionIdx = afterUpload[0]?.startsWith("v") ? 1 : 0;
+          const publicPath = afterUpload.slice(versionIdx + 0).join("/");
+          publicId = publicPath.replace(/\.[^/.]+$/, "");
+        } catch (_) { /* ignore; we'll use a placeholder below */ }
+      }
+
+      // Build the thumbnail URL without blocking
+      thumbnailUrl = publicId
+        ? buildVideoThumbnailUrl(publicId)
+        : "/static/placeholders/video-thumb.png";
     } else {
       throw new Error("Unsupported media type");
     }
 
-    /* ----------------------------------------
-       4️⃣ MAX PROMOTERS & VIEW ESTIMATION
-    ----------------------------------------- */
+      // 4️⃣ MAX PROMOTERS & VIEW ESTIMATION
     const maxPromoters = Math.floor(numericBudget / numericPayout);
     if (maxPromoters < 1) {
       return res.status(400).json({
@@ -129,9 +144,7 @@ export const createCampaign = async (req, res) => {
 
     const estimatedViews = maxPromoters * Number(minViewsPerPromotion);
 
-    /* ----------------------------------------
-       5️⃣ CREATE CAMPAIGN (NO FUND MOVEMENT)
-    ----------------------------------------- */
+     //  5️⃣ CREATE CAMPAIGN (NO FUND MOVEMENT)
     const campaign = new CampaignModel({
       owner,
       title,
@@ -182,11 +195,15 @@ export const createCampaign = async (req, res) => {
 
     await campaign.save({ session });
 
-    /* ----------------------------------------
-       6️⃣ ADMIN NOTIFICATION
-    ----------------------------------------- */
+    
+
+    await session.commitTransaction();
+    session.endSession();
+
+    //  6️⃣ ADMIN NOTIFICATION
     await sendEmail({
-      to: process.env.ADMIN_EMAIL,
+      to: ['schooltraz@gmail.com'],
+      // to: process.env.ADMIN_EMAIL,
       subject: "New Campaign Pending Approval",
       html: adminCampaignApprovalTemplate({
         title: campaign.title,
@@ -194,10 +211,7 @@ export const createCampaign = async (req, res) => {
         owner: marketer.email,
         category: campaign.category
       })
-    });
-
-    await session.commitTransaction();
-    session.endSession();
+    }).catch(err => console.error("Email send failed:", err));
 
     return res.status(201).json({
       success: true,

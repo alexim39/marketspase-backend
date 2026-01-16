@@ -55,8 +55,6 @@ const campaignSchema = new mongoose.Schema(
         maxViewsPerPromotion: { type: Number },
         rejectedPromotions: { type: Number, default: 0 },
 
-
-
         // Targeting & Requirements
         enableTarget: { type: Boolean, default: false },
         ageTarget: {
@@ -223,7 +221,6 @@ campaignSchema.index({ category: 1, enableTarget: 1, status: 1 });
 ------------------------------------------------------------- */
 
 campaignSchema.pre('save', function(next) {
-    // 1. FUND FLOW: spentBudget is derived from paidPromotions
 
     // Check if campaign is expired
     if (this.hasEndDate && this.endDate) {
@@ -495,6 +492,52 @@ campaignSchema.statics = {
             endDate: { $lte: thresholdDate, $gte: new Date() }
         }).populate('owner');
     },
+
+    
+    // Mark campaigns as expired when endDate has passed
+    async markExpiredCampaigns() {
+        const now = new Date();
+
+        // Find campaigns with:
+        // - hasEndDate = true
+        // - endDate already passed
+        // - status is still NOT expired, archived, or completed (you can adjust)
+
+        const campaigns = await this.find({
+            hasEndDate: true,
+            endDate: { $lt: now },
+            status: 'active'
+            // status: { $nin: ['expired', 'archived', 'completed'] }
+        });
+
+        if (!campaigns.length) {
+            return { matched: 0, modified: 0 };
+        }
+
+        console.log(`Found ${campaigns.length} campaigns already expired`)
+
+        const ids = campaigns.map((c) => c._id);
+
+        const result = await this.updateMany(
+            { _id: { $in: ids } },
+            {
+            $set: { status: 'expired' },
+            $push: {
+                activityLog: {
+                action: 'Status Changed',
+                details: 'Auto-expired by scheduler: endDate passed.',
+                timestamp: new Date()
+                }
+            }
+            }
+        );
+
+        return {
+            matched: result.matchedCount ?? result.n,
+            modified: result.modifiedCount ?? result.nModified
+        };
+    }
+
 };
 
 
