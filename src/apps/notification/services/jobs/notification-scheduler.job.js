@@ -414,7 +414,7 @@ cron.schedule("0 9 * * *", userBirthdayService, { timezone: "Africa/Lagos" });
 //cron.schedule('*/2 * * * *', userBirthdayService)
 
 // 9. Promoter Campaign Availability Notification
-cron.schedule('*/25 * * * *', campaignAvailabilityNotification)  // every 25 min
+//cron.schedule('*/25 * * * *', campaignAvailabilityNotification)  // every 25 min - to be enabled later in the feature when email sending size is increased.
 //cron.schedule('*/2 * * * *', campaignAvailabilityNotification)
 
 // 10. ACTIVITY LOG CLEANUP - 3 AM daily
