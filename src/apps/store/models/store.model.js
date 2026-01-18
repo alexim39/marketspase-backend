@@ -7,6 +7,7 @@ const storeSchema = new mongoose.Schema({
   logo: String,
   category: String,
   isVerified: { type: Boolean, default: false },
+  isDefaultStore: { type: Boolean, default: false },
   verificationTier: { type: String, enum: ["basic", "premium"], default: "basic" },
   
   // Store Analytics
@@ -26,5 +27,30 @@ const storeSchema = new mongoose.Schema({
   whatsappTemplates: [String]
 }, { timestamps: true });
 
+
+// This prevents any manual DB edits from creating a second default store
+storeSchema.index(
+  { owner: 1, isDefaultStore: 1 }, 
+  { 
+    unique: true, 
+    partialFilterExpression: { isDefaultStore: true } 
+  }
+);
+
+// Automatically unset previous store my the owner and default and set new store as default
+storeSchema.pre("save", async function (next) {
+  // Check if this is a newly created document
+  if (this.isNew) {
+    // 1. Force the new store to be the default
+    this.isDefaultStore = true;
+
+    // 2. Unset isDefaultStore for all other stores owned by this user
+    await mongoose.model("store").updateMany(
+      { owner: this.owner, _id: { $ne: this._id } },
+      { $set: { isDefaultStore: false } }
+    );
+  }
+  next();
+});
 
 export const StoreModel = mongoose.model("store", storeSchema);

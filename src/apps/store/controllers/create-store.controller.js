@@ -1,16 +1,11 @@
-// controllers/store.controller.js
 import { StoreModel } from '../models/store.model.js';
 import { StoreAnalyticsModel } from '../models/store-analytics.model.js';
 import { WhatsAppIntegrationModel } from '../models/whatsapp-integration.model.js';
 import { uploadToCloudinary } from '../utils/cloudinary.js';
 import { generateUniqueStoreSlug } from '../utils/slugGenerator.js';
 
-export class StoreController {
-  /**
-   * Create a new store
-   */
-  async createStore(req, res) {
-    try {
+export const createStore = async (req, res) => {
+        try {
 
       console.log('Create store request body:', req.body);
         
@@ -193,66 +188,4 @@ export class StoreController {
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
-  }
-
-  /**
-   * Get all stores for a user
-   */
-  async getUserStores(req, res) {
-    try {
-      //console.log('Get user stores request query:', req.query);
-      const userId = req.query.userId;
-      
-      const stores = await StoreModel.find({ owner: userId })
-        .select('-__v')
-        .sort({ createdAt: -1 });
-
-      return res.status(200).json({
-        success: true,
-        data: stores,
-        count: stores.length
-      });
-
-    } catch (error) {
-      console.error('Get stores error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to fetch stores'
-      });
-    }
-  }
-
-  /**
-   * Get single store by ID
-   */
-  async getStoreById(req, res) {
-    try {
-      const { storeId } = req.params;
-      const userId = req.user?._id;
-
-      const store = await StoreModel.findOne({
-        _id: storeId,
-        owner: userId
-      }).select('-__v');
-
-      if (!store) {
-        return res.status(404).json({
-          success: false,
-          message: 'Store not found'
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        data: store
-      });
-
-    } catch (error) {
-      console.error('Get store error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to fetch store'
-      });
-    }
-  }
 }
