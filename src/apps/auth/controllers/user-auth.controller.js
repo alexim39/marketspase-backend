@@ -225,7 +225,7 @@ export const GetUser = async (req, res) => {
           role: 1,
           isActive: 1,
           isVerified: 1,
-
+          isMarketingRep: 1,
           // Profile info
           personalInfo: 1,
           professionalInfo: 1,
