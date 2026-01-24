@@ -100,9 +100,11 @@ const userSchema = new mongoose.Schema(
 
     role: {
       type: String,
-      enum: ['marketer', 'promoter', 'admin'],
+      enum: ['marketer', 'promoter', 'admin', 'marketing_rep'],
       default: 'marketer',
     },
+    
+    isMarketingRep: { type: Boolean, default: false },
 
     avatar: { type: String, default: '/img/avatar.png' },
 

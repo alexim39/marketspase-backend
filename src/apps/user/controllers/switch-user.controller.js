@@ -8,33 +8,33 @@ import { UserModel } from './../models/user.model.js';
 // switch-user.controller.js
 export const SwitchUser = async (req, res) => {
   try {
-    const { userId } = req.body;
+    const { userId, role } = req.body;
     if (!userId) return res.status(400).json({ success: false, message: 'userId is required in the request body.' });
 
     const user = await UserModel.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
-    if (user.role !== 'promoter' && user.role !== 'marketer') {
+    if (user.role !== 'promoter' && user.role !== 'marketer' && user.role !== 'marketing_rep') {
       return res.status(400).json({ success: false, message: `User's current role '${user.role}' cannot be switched.` });
     }
 
-    const newRole = user.role === 'promoter' ? 'marketer' : 'promoter';
+    //const newRole = user.role === 'promoter' ? 'marketer' : 'promoter';
 
     const activity = {
       action: 'role_change',
-      description: `You switched user role to ${newRole}`,
+      description: `You switched user role to ${role}`,
       timestamp: new Date(),
     };
-    console.log(`User role switched successfully for user: ${user.username} to role: ${newRole}`);
+    console.log(`User role switched successfully for user: ${user.username} to role: ${role}`);
 
     await UserModel.updateOne(
       { _id: user._id },
       {
-        $set: { role: newRole },
+        $set: { role },
         $push: { activityLog: { $each: [activity], $position: 0, $slice: 1000 } },
       }
     );
 
-    return res.status(200).json({ success: true, message: `User role successfully switched to '${newRole}'.` });
+    return res.status(200).json({ success: true, message: `User role successfully switched to '${role}'.` });
   } catch (error) {
     console.error('Error switching user role:', error);
     return res.status(500).json({ success: false, message: 'Server error. Failed to switch user role.' });

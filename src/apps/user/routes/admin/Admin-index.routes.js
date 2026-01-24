@@ -12,6 +12,7 @@ import { streamUsers } from '../../controllers/admin/stream-users.controller.js'
 import { deleteUser } from '../../controllers/admin/delete-soft-user.controller.js'
 import { restoreUser } from '../../controllers/admin/restore-user-soft.controller.js'
 import { updateUserDisplayName } from '../../controllers/admin/update-user-displayname.controller.js'
+import { markMarketingRep } from '../../controllers/admin/make-marketing-rep.controller.js'
 
 
 const AdminIndexRouter = express.Router();
@@ -47,6 +48,9 @@ AdminIndexRouter.get('/stream', streamUsers);
 AdminIndexRouter.patch('/admin/:id/restore', restoreUser); 
 
 AdminIndexRouter.delete('/admin/:id', deleteUser);
+
+// update user displayname
+AdminIndexRouter.patch('/make-marketing-rep', markMarketingRep);
 
 
 export default AdminIndexRouter;
