@@ -9,7 +9,7 @@ const storeSchema = new mongoose.Schema({
   isVerified: { type: Boolean, default: false },
   isDefaultStore: { type: Boolean, default: false },
   verificationTier: { type: String, enum: ["basic", "premium"], default: "basic" },
-  
+  storeLink: { type: String, unique: true, required: true, trim: true },
   // Store Analytics
   analytics: {
     totalViews: { type: Number, default: 0 },

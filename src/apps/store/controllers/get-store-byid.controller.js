@@ -4,12 +4,16 @@ import { StoreModel } from '../models/store.model.js';
 export const getStoreById = async (req, res) => {
     try {
       const { storeId } = req.params;
-      const userId = req.user?._id;
+      //const userId = req.user?._id;
 
-      const store = await StoreModel.findOne({
+      const store = await StoreModel.findById({
         _id: storeId,
-        owner: userId
       }).select('-__v');
+
+      // const store = await StoreModel.findOne({
+      //   _id: storeId,
+      //   owner: userId
+      // }).select('-__v');
 
       if (!store) {
         return res.status(404).json({
