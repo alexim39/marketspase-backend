@@ -53,4 +53,4 @@ storeSchema.pre("save", async function (next) {
   next();
 });
 
-export const StoreModel = mongoose.model("store", storeSchema);
+export const StoreModel = mongoose.model("Store", storeSchema);

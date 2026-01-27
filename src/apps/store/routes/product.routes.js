@@ -2,17 +2,15 @@
 import express from 'express';
 import multer from 'multer';
 import { createProduct } from '../controllers/product/create-product.controller.js';
-/* import { getProduct } from '../controllers/product/get-product.controller.js';
-import { updateProduct } from '../controllers/product/update-product.controller.js';
-import { deleteProduct } from '../controllers/product/delete-product.controller.js';
-import { getStoreProducts } from '../controllers/product/get-store-products.controller.js';
-import { searchProducts } from '../controllers/product/search-products.controller.js';
-import { updateInventory } from '../controllers/product/update-inventory.controller.js';
-import { updatePrice } from '../controllers/product/update-price.controller.js';
-import { uploadImages } from '../controllers/product/upload-images.controller.js';
-import { setMainImage } from '../controllers/product/set-main-image.controller.js';
-import { deleteImage } from '../controllers/product/delete-image.controller.js';
-import { reorderImages } from '../controllers/product/reorder-images.controller.js'; */
+import {getPromoterProducts } from '../controllers/product/get-promoter-products.controller.js';
+import {getPromoterProductDetails } from '../controllers/product/get-promoter-product-details.controller.js';
+import {getProductPromotionStatsController } from '../controllers/product/get-product-promo-stats.controller.js';
+import {trackProductView } from '../controllers/product/track-product-view.controller.js';
+import {getTrendingProducts } from '../controllers/product/get-trending-products.controller.js';
+import {getHighCommissionProducts } from '../controllers/product/get-high-comm-products.controller.js';
+import {getRecommendedProducts } from '../controllers/product/get-recomm-product.controller.js';
+import {generatePromotionLink } from '../controllers/product/generate-product-link.controller.js';
+
 
 const router = express.Router();
 
@@ -44,24 +42,28 @@ router.post('/:storeId/:userId/create',
   createProduct
 );
 
+// Get all products in product collection for promoter to browse
+//router.get('/', getPromoterProducts);
 
-/* router.get('/:storeId/products/:productId', getProduct);
-router.put('/:storeId/products/:productId', updateProduct);
-router.delete('/:storeId/products/:productId', deleteProduct);
-router.get('/:storeId/products', getStoreProducts);
-router.get('/:storeId/products/search', searchProducts);
 
-// Product management routes
-router.patch('/:storeId/products/:productId/inventory', updateInventory);
-router.patch('/:storeId/products/:productId/price', updatePrice);
 
-// Image management routes
-router.post('/:storeId/products/:productId/images', 
-  upload.array('images', 10), 
-  uploadImages
-);
-router.patch('/:storeId/products/:productId/images/main', setMainImage);
-router.delete('/:storeId/products/:productId/images/:imageIndex', deleteImage);
-router.patch('/:storeId/products/:productId/images/reorder', reorderImages); */
+
+router.route('/list').get(getPromoterProducts);
+
+router.route('/trending').get(getTrendingProducts);
+
+router.route('/high-commission').get(getHighCommissionProducts);
+
+router.route('/recommended').get(getRecommendedProducts);
+
+// Single product routes
+router.route('/:id').get(getPromoterProductDetails);
+
+router.route('/:id/stats').get(getProductPromotionStatsController);
+
+router.route('/:id/view').post(trackProductView);
+
+router.route('/:id/generate-link').post(generatePromotionLink);
+
 
 export default router;
