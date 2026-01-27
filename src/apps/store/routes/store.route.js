@@ -7,6 +7,7 @@ import { getUserStores } from '../controllers/get-stores.controller.js'
 import { getStoreById } from '../controllers/get-store-byid.controller.js'
 import { setDefaultStore } from '../controllers/set-default-store.controller.js'
 import { getStoreProducts } from '../controllers/store-products.controller.js'
+import { getStoreProduct } from '../controllers/store-product.controller.js'
 
 const router = express.Router();
 
@@ -21,6 +22,9 @@ router.get('/:storeId', getStoreById);
 
 // Get specific store products
 router.get('/:storeId/products', getStoreProducts);
+
+// Get specific store product
+router.get('/:storeId/products/:productId', getStoreProduct);
 
 // Update store
 router.patch('/:id', upload.single('logo'), updateStore);
