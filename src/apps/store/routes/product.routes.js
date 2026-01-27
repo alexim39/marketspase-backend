@@ -47,9 +47,9 @@ router.post('/:storeId/:userId/create',
 
 
 
-
+// Product listing routes
 router.route('/list').get(getPromoterProducts);
-
+//
 router.route('/trending').get(getTrendingProducts);
 
 router.route('/high-commission').get(getHighCommissionProducts);

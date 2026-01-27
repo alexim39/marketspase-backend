@@ -20,10 +20,10 @@ router.get('/', getUserStores);
 // Get specific store
 router.get('/:storeId', getStoreById);
 
-// Get specific store products
+// Get specific store products (product listing)
 router.get('/:storeId/products', getStoreProducts);
 
-// Get specific store product
+// Get specific store product (single product)
 router.get('/:storeId/products/:productId', getStoreProduct);
 
 // Update store

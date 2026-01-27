@@ -10,7 +10,6 @@ async function getProductPromotionStats(productId) {
       $match: {
         product: new mongoose.Types.ObjectId(productId),
         isActive: true,
-        isApproved: true
       }
     },
     {
@@ -59,7 +58,9 @@ async function getProductPromotionStats(productId) {
 export const getPromoterProductDetails = async (req, res) => {
   try {
     const { id } = req.params;
-    const promoterId = req.user?._id;
+    const { promoterId } = req.query;
+
+    console.log('Fetching product details for ID:', id, 'by promoter:', promoterId);
 
     // Validate product ID
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -82,22 +83,23 @@ export const getPromoterProductDetails = async (req, res) => {
       });
     }
 
+    console.log('Product fetched from DB:', product);
+
     // Get promotion details
     const promotion = await PromotionTrackingModel.findOne({
       product: id,
       isActive: true,
-      isApproved: true
     }).sort({ commissionRate: -1 });
 
     if (!promotion) {
-      return res.status(404).json({
-        success: false,
-        message: 'No active promotion found for this product'
-      });
+      console.warn('No active promotion found for this product');
     }
+
+    console.log('Promotion details fetched from DB:', promotion);
 
     // Get product statistics
     const stats = await getProductPromotionStats(id);
+    console.log('Product stats:', stats);
 
     // If promoter is logged in, check if they have tracked this product
     let userPromotion = null;
@@ -107,6 +109,7 @@ export const getPromoterProductDetails = async (req, res) => {
         promoter: promoterId,
         isActive: true
       });
+      console.log('User promotion details:', userPromotion);
     }
 
     // Format response
@@ -134,7 +137,7 @@ export const getPromoterProductDetails = async (req, res) => {
         verificationTier: product.store.verificationTier,
         storeLink: product.store.storeLink
       },
-      promotion: {
+      promotion: promotion ? {
         commissionRate: promotion.commissionRate,
         commissionType: promotion.commissionType,
         fixedCommission: promotion.fixedCommission,
@@ -148,7 +151,7 @@ export const getPromoterProductDetails = async (req, res) => {
         clickThroughRate: stats.clickThroughRate,
         conversionRate: stats.conversionRate,
         averageOrderValue: stats.averageOrderValue
-      },
+      } : null,
       stats,
       userPromotion: userPromotion ? {
         trackingCode: userPromotion.uniqueCode,
