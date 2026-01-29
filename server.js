@@ -7,7 +7,7 @@ import path from 'path';
 
 // Cron Jobs
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
-import { registerCampaignExpiryCron } from './src/apps/campaign/services/jobs/campaign-expiry-checker.job.js';
+import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
 
 import './src/apps/campaign/services/jobs/campaign-notification.job.js'; 
 import './src/apps/notification/services/jobs/notification-scheduler.job.js'; 
@@ -92,7 +92,9 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
 
     // Start the cron jobs after a successful database connection
     PromotionExpirationCheckerCronJobs();
-    registerCampaignExpiryCron();
+    // Call the methods to start the cron jobs
+    CampaignSchedulerService.registerCampaignExpiryCron();
+    CampaignSchedulerService.registerCampaignExhaustionCron();
 
     app.listen(PORT, HOST, () => {
         console.log(`Server listening on port ${PORT} at host ${HOST}`);
