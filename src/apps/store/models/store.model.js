@@ -45,7 +45,7 @@ storeSchema.pre("save", async function (next) {
     this.isDefaultStore = true;
 
     // 2. Unset isDefaultStore for all other stores owned by this user
-    await mongoose.model("store").updateMany(
+    await mongoose.model("Store").updateMany(
       { owner: this.owner, _id: { $ne: this._id } },
       { $set: { isDefaultStore: false } }
     );

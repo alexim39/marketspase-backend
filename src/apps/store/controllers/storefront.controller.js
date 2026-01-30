@@ -24,7 +24,7 @@ export const getStoreByLink = async (req, res) => {
     const store = await StoreModel.findOne({ 
       storeLink,
       isDeleted: { $ne: true }
-    }).populate('owner', 'name email profilePicture');
+    }).populate('owner', 'displayName email personalInfo.phone avatar');
 
     if (!store) {
       return res.status(404).json({
