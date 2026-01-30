@@ -24,4 +24,4 @@ const storeAnalyticsSchema = {
     commissionEarned: Number
   }]
 };
-export const StoreAnalyticsModel = mongoose.model("storeAnalytics", new mongoose.Schema(storeAnalyticsSchema));
+export const StoreAnalyticsModel = mongoose.model("StoreAnalytics", new mongoose.Schema(storeAnalyticsSchema));

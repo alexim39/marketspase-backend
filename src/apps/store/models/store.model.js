@@ -9,7 +9,7 @@ const storeSchema = new mongoose.Schema({
   isVerified: { type: Boolean, default: false },
   isDefaultStore: { type: Boolean, default: false },
   verificationTier: { type: String, enum: ["basic", "premium"], default: "basic" },
-  
+  storeLink: { type: String, unique: true, required: true, trim: true },
   // Store Analytics
   analytics: {
     totalViews: { type: Number, default: 0 },
@@ -45,7 +45,7 @@ storeSchema.pre("save", async function (next) {
     this.isDefaultStore = true;
 
     // 2. Unset isDefaultStore for all other stores owned by this user
-    await mongoose.model("store").updateMany(
+    await mongoose.model("Store").updateMany(
       { owner: this.owner, _id: { $ne: this._id } },
       { $set: { isDefaultStore: false } }
     );
@@ -53,4 +53,4 @@ storeSchema.pre("save", async function (next) {
   next();
 });
 
-export const StoreModel = mongoose.model("store", storeSchema);
+export const StoreModel = mongoose.model("Store", storeSchema);

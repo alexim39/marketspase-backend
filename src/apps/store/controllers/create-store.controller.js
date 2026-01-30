@@ -3,6 +3,7 @@ import { StoreAnalyticsModel } from '../models/store-analytics.model.js';
 import { WhatsAppIntegrationModel } from '../models/whatsapp-integration.model.js';
 import { uploadToCloudinary } from '../utils/cloudinary.js';
 import { generateUniqueStoreSlug } from '../utils/slugGenerator.js';
+import { generateUniqueStoreLink } from '../utils/storeLinkGenerator.js';
 
 export const createStore = async (req, res) => {
         try {
@@ -57,6 +58,8 @@ export const createStore = async (req, res) => {
 
       // Generate unique store slug
       const slug = await generateUniqueStoreSlug(name);
+      // Generate unique store link
+      const storeLink = await generateUniqueStoreLink(name);
 
       // Create new store
       const newStore = new StoreModel({
@@ -67,6 +70,7 @@ export const createStore = async (req, res) => {
         logo: logoUrl,
         whatsappNumber: whatsappNumber,
         verificationTier: 'basic',
+        storeLink: storeLink,
         isVerified: false,
         analytics: {
           totalViews: 0,

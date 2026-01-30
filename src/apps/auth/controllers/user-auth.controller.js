@@ -273,7 +273,7 @@ export const GetUser = async (req, res) => {
       CampaignModel.find({ owner: user._id })
         .sort({ createdAt: -1 })
         .limit(campaignsLimit)
-        .select('_id title status budget createdAt')
+        .select('_id title status budget spentBudget currentPromoters createdAt')
         .lean()
         .catch(() => []),
 

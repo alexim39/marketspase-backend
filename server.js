@@ -7,7 +7,7 @@ import path from 'path';
 
 // Cron Jobs
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
-import { registerCampaignExpiryCron } from './src/apps/campaign/services/jobs/campaign-expiry-checker.job.js';
+import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
 
 import './src/apps/campaign/services/jobs/campaign-notification.job.js'; 
 import './src/apps/notification/services/jobs/notification-scheduler.job.js'; 
@@ -18,7 +18,7 @@ import WalletRouter from './src/apps/wallet/index.js';
 import webhookRoutes from './src/apps/wallet/routes/webhook.routes.js';
 import CampaignRouter from './src/apps/campaign/index.js';
 import SettingsRouter from './src/apps/settings/routes/index.route.js';
-import ContactRouter from './src/apps/contact/index.js';
+import ContactRouter from './src/apps/contact/routes/index.js';
 import DashboardRouter from './src/apps/dashboard/routes/index.route.js';
 import PromoterRouter from './src/apps/promotion/index.js';
 import NotificationRouter from './src/apps/notification/index.js';
@@ -92,7 +92,9 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
 
     // Start the cron jobs after a successful database connection
     PromotionExpirationCheckerCronJobs();
-    registerCampaignExpiryCron();
+    // Call the methods to start the cron jobs
+    CampaignSchedulerService.registerCampaignExpiryCron();
+    CampaignSchedulerService.registerCampaignExhaustionCron();
 
     app.listen(PORT, HOST, () => {
         console.log(`Server listening on port ${PORT} at host ${HOST}`);

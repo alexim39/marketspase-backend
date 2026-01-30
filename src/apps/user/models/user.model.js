@@ -270,6 +270,13 @@ const userSchema = new mongoose.Schema(
         }]
     },
 
+    // Promotion statistics
+    // stats: {
+    //   totalEarnings: { type: Number, default: 0 },
+    //   totalConversions: { type: Number, default: 0 },
+    //   totalClicks: { type: Number, default: 0 },
+    //   totalViews: { type: Number, default: 0 }
+    // },
 
   },
   { timestamps: true }

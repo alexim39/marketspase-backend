@@ -15,4 +15,4 @@ const whatsAppIntegrationSchema = {
   }]
 };
 
-export const WhatsAppIntegrationModel = mongoose.model("whatsappIntegration", new mongoose.Schema(whatsAppIntegrationSchema));
+export const WhatsAppIntegrationModel = mongoose.model("WhatsappIntegration", new mongoose.Schema(whatsAppIntegrationSchema));

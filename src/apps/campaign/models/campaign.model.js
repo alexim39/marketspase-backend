@@ -536,6 +536,55 @@ campaignSchema.statics = {
             matched: result.matchedCount ?? result.n,
             modified: result.modifiedCount ?? result.nModified
         };
+    },
+
+    // Mark campaigns as exhausted when all budget has been paid out and campaign has no end date
+    async markExhaustedCampaigns() {
+        // Find campaigns with:
+        // - hasEndDate = false
+        // - endDate is not set
+        // - Remaining budget is less than or equal to 0
+        // - Status is still active
+        // - spentBudget equals budget
+
+        const campaigns = await this.find({
+            hasEndDate: false,
+            endDate: { $exists: false },
+            status: 'active',
+            $expr: {
+                $and: [
+                    { $lte: [{ $subtract: ['$budget', { $add: ['$spentBudget', '$reservedBudget'] }] }, 0] },
+                    { $eq: ['$spentBudget', '$budget'] }
+                ]
+            }
+        });
+
+        if (!campaigns.length) {
+            return { matched: 0, modified: 0 };
+        }
+
+        console.log(`Found ${campaigns.length} campaigns with exhausted budgets`);
+
+        const ids = campaigns.map((c) => c._id);
+
+        const result = await this.updateMany(
+            { _id: { $in: ids } },
+            {
+                $set: { status: 'exhausted' },
+                $push: {
+                    activityLog: {
+                        action: 'Status Changed',
+                        details: 'Auto-exhausted by scheduler: budget fully paid out.',
+                        timestamp: new Date()
+                    }
+                }
+            }
+        );
+
+        return {
+            matched: result.matchedCount ?? result.n,
+            modified: result.modifiedCount ?? result.nModified
+        };
     }
 
 };
