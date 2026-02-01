@@ -1,15 +1,15 @@
 // routes/product.routes.js
 import express from 'express';
 import multer from 'multer';
-import { createProduct } from '../controllers/product/create-product.controller.js';
-import {getPromoterProducts } from '../controllers/product/get-promoter-products.controller.js';
-import {getPromoterProductDetails } from '../controllers/product/get-promoter-product-details.controller.js';
-import {getProductPromotionStatsController } from '../controllers/product/get-product-promo-stats.controller.js';
-import {trackProductView } from '../controllers/product/track-product-view.controller.js';
-import {getTrendingProducts } from '../controllers/product/get-trending-products.controller.js';
-import {getHighCommissionProducts } from '../controllers/product/get-high-comm-products.controller.js';
-import {getRecommendedProducts } from '../controllers/product/get-recomm-product.controller.js';
-import {generatePromotionLink } from '../controllers/product/generate-product-link.controller.js';
+import { createProduct } from '../../controllers/product/create-product.controller.js';
+import {getPromoterProducts } from '../../controllers/product/get-promoter-products.controller.js';
+import {getPromoterProductDetails } from '../../controllers/product/get-promoter-product-details.controller.js';
+import {getProductPromotionStatsController } from '../../controllers/product/get-product-promo-stats.controller.js';
+import {trackProductView } from '../../controllers/product/track-product-view.controller.js';
+import {getTrendingProducts } from '../../controllers/product/get-trending-products.controller.js';
+import {getHighCommissionProducts } from '../../controllers/product/get-high-comm-products.controller.js';
+import {getRecommendedProducts } from '../../controllers/product/get-recomm-product.controller.js';
+import {generatePromotionLink } from '../../controllers/product/generate-product-link.controller.js';
 
 
 const router = express.Router();

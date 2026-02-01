@@ -11,7 +11,7 @@ import {
   checkStoreLinkAvailability,
   trackStoreInteraction,
   getStoreVerificationStatus
-} from '../controllers/storefront.controller.js';
+} from '../../controllers/storefront/storefront.controller.js';
 
 const router = express.Router();
 
