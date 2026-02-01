@@ -1,6 +1,6 @@
-import { StoreModel } from '../models/store.model.js';
-import { ProductModel, PromotionTrackingModel } from '../models/product.model.js';
-import { StoreAnalyticsModel } from '../models/store-analytics.model.js';
+import { StoreModel } from '../../models/store.model.js';
+import { ProductModel, PromotionTrackingModel } from '../../models/product.model.js';
+import { StoreAnalyticsModel } from '../../models/store-analytics.model.js';
 import mongoose from 'mongoose';
 
 /**
