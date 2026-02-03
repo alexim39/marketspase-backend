@@ -105,7 +105,7 @@ export const toggleUserActiveStatus = async (req, res) => {
 
     // Log the activity
     await user.logActivity(
-      'status_update',
+      'account_suspend',
       `User status changed to ${isActive ? 'active' : 'inactive'}`,
       {
         resourceType: 'user',
