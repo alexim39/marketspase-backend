@@ -168,6 +168,8 @@ promotionSchema.index({ campaign: 1, status: 1 });
 promotionSchema.index({ upi: 1 }, { unique: true });
 promotionSchema.index({ submittedAt: 1 });
 
+promotionSchema.index({ campaign: 1, promoter: 1 }, { name: "ix_campaign_promoter_all_statuses" });
+
 //
 // 🧠 VIRTUALS
 //
