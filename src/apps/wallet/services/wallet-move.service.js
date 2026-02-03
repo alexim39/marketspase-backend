@@ -44,7 +44,36 @@ export async function moveBetweenWallets({
   // 1) debit fromUser (guarded)
   const res1 = await UserModel.updateOne(
     { _id: fromUserId, [`wallets.${fromSide}.${fromField}`]: { $gte: amount } },
-    { $inc: { [`wallets.${fromSide}.${fromField}`]: -amount } },
+    { $inc: { [`wallets.${fromSide}.${fromField}`]: -amount },
+      $push: {
+        [`wallets.${fromSide}.transactions`]: {
+          $each: [{
+            amount: amount,
+            type: "debit",
+            category: "transfer",
+            description: `Funds moved to ${toSide} wallet`,
+            //relatedCampaign: '',
+            //relatedPromotion: promotionId,
+            status: "completed",
+            createdAt: new Date()
+          }],
+          $position: 0,
+          $slice: 500
+        },
+        // activityLog: {
+        //   $each: [{
+        //     action: 'promotion_downloaded',
+        //     description: `You downloaded campaign materials: "${campaign.title}"`,
+        //     resourceType: 'campaign',
+        //     resourceId: campaignId,
+        //     metadata: { campaignTitle: campaign.title, payoutAmount, downloadTime: now },
+        //     timestamp: now
+        //   }],
+        //   $position: 0,
+        //   $slice: 1000
+        // }
+      }
+    },
     { session }
   );
   if (!res1.modifiedCount) {
