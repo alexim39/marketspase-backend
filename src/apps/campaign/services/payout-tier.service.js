@@ -16,7 +16,7 @@ export function getPayoutForViews(views, policy = 'default') {
 }
 
 // Default tier snapshot mapping for campaigns (range => payout)
-export const DEFAULT_TIER_SNAPSHOT = {
+/* export const DEFAULT_TIER_SNAPSHOT = {
   '35-65': 100,
   '66-101': 200,
   '102-150': 300,
@@ -25,3 +25,4 @@ export const DEFAULT_TIER_SNAPSHOT = {
   '451-600': 600,
   '601+': 700,
 };
+ */

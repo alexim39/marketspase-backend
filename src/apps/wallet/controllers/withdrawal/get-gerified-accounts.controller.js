@@ -1,7 +1,4 @@
 import { UserModel } from '../../../user/models/user.model.js';
-import { sendEmail } from "../../../../services/email.service.js";
-import mongoose from 'mongoose';
-import dotenv from 'dotenv';
 
 // Get user's verified accounts
 export const getVerifiedAccounts = async (req, res) => {

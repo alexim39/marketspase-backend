@@ -590,5 +590,9 @@ userSchema.index(
   }
 );
 
+// In user.model.js (create carefully after de-duplication)
+// app-level caution: ensure no duplicates before enabling
+userSchema.index({ 'wallets.promoter.transactions.reference': 1 }, { unique: true, sparse: true });
+userSchema.index({ 'wallets.marketer.transactions.reference': 1 }, { unique: true, sparse: true });
 
 export const UserModel = mongoose.model('User', userSchema);
