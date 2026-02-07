@@ -11,7 +11,7 @@ import { promotionAutoRejection } from "../../services/promotion-auto-reject.ser
 import { promotionSubmissionReminder } from "../../services/promotion-submission-reminder.service.js";
 import { userBirthdayService } from '../user-birthday.service.js';
 import { activityLogCleaner } from './activity-log-cleaner.job.js'
-import { campaignAvailabilityNotification } from '../../../campaign/services/jobs/campaign-notification.job.js';
+import { campaignAvailabilityNotification } from '../../../campaign/services/jobs/campaign-notification.job.js'; // do not remove this import as it will be needed for the job to run when resources are upgraded later
 import { promotionAutoPayService } from "../../services/promotion-auto-pay.service.js";
 
 

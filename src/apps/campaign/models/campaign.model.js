@@ -91,7 +91,7 @@ const campaignSchema = new mongoose.Schema(
         // Campaign timeline
         startDate: { type: Date, required: true, default: Date.now },
         endDate: { type: Date },
-        hasEndDate: { type: Boolean, default: true },
+        hasEndDate: { type: Boolean, default: false },
 
         // Status
         status: {
@@ -549,14 +549,17 @@ campaignSchema.statics = {
 
         const campaigns = await this.find({
             hasEndDate: false,
-            endDate: { $exists: false },
+            endDate: null,
             status: 'active',
             $expr: {
                 $and: [
-                    { $lte: [{ $subtract: ['$budget', { $add: ['$spentBudget', '$reservedBudget'] }] }, 0] },
+                    // 1. Checks if Remaining Budget (budget - (spent + reserved)) <= 0
+                    //{ $lte: [{ $subtract: ['$budget', { $add: ['$spentBudget', '$reservedBudget'] }] }, 0] },
+                    // 2. Explicitly checks if spentBudget is equal to budget
                     { $eq: ['$spentBudget', '$budget'] }
                 ]
             }
+
         });
 
         if (!campaigns.length) {

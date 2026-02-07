@@ -2,7 +2,7 @@ import { CampaignModel } from "../models/campaign.model.js";
 import mongoose from "mongoose";
 
 /**
- * @description Update an existing campaign
+ * @description Update campaign general details (excluding targeting)
  * @param {object} req - The request object
  * @param {object} res - The response object
  * @returns {Promise<void>}
@@ -19,14 +19,12 @@ export const EditCampaign = async (req, res) => {
       category,
       link,
       campaignType,
-      enableTarget,
       startDate,
       endDate,
       hasEndDate,
       requirements,
       minRating,
       priority,
-      targetLocations,
     } = req.body;
 
     // Validate required fields
@@ -70,39 +68,12 @@ export const EditCampaign = async (req, res) => {
       ? requirements.split(",").map((req) => req.trim()).filter(Boolean)
       : campaign.requirements;
 
-    // Process target locations - store the entire object
-    let targetLocationsArray = [];
-    
-    if (Array.isArray(targetLocations)) {
-      targetLocationsArray = targetLocations.map(location => {
-        // If it's already an object with the expected structure, use it as-is
-        if (typeof location === 'object' && location !== null) {
-          return {
-            id: location.id || '',
-            name: location.name || '',
-            type: location.type || 'place',
-            place_id: location.place_id || '',
-            coordinates: {
-              lat: location.coordinates?.lat || 0,
-              lng: location.coordinates?.lng || 0
-            },
-            precision: location.precision || 'medium'
-          };
-        }
-        return null;
-      }).filter(Boolean); // Remove any null values
-    } else {
-      targetLocationsArray = campaign.targetLocations || [];
-    }
-
-    // Update campaign fields
+    // Update campaign fields (excluding targeting)
     campaign.title = title;
     campaign.caption = caption || "";
     campaign.category = category;
     campaign.link = link || "";
     campaign.campaignType = campaignType || "standard";
-    campaign.enableTarget = Boolean(enableTarget);
-    campaign.targetLocations = targetLocationsArray;
     campaign.requirements = requirementsArray;
     campaign.minRating = Number(minRating) || 0;
     campaign.priority = priority || "medium";
@@ -121,7 +92,7 @@ export const EditCampaign = async (req, res) => {
     // Update activity log
     campaign.activityLog.push({
       action: "Campaign Updated",
-      details: "Campaign details were modified",
+      details: "Campaign general details were modified",
       timestamp: new Date(),
       performedBy,
     });
@@ -142,13 +113,16 @@ export const EditCampaign = async (req, res) => {
       data: {
         _id: campaign._id,
         title: campaign.title,
+        category: campaign.category,
         status: campaign.status,
         budget: campaign.budget,
         spentBudget: campaign.spentBudget,
         remainingBudget: campaign.remainingBudget,
         maxPromoters: campaign.maxPromoters,
         currentPromoters: campaign.currentPromoters,
-        targetLocations: campaign.targetLocations, // Include full objects in response
+        startDate: campaign.startDate,
+        endDate: campaign.endDate,
+        updatedAt: campaign.updatedAt,
       },
     });
   } catch (error) {
@@ -157,6 +131,127 @@ export const EditCampaign = async (req, res) => {
     session.endSession();
 
     console.error("Error updating campaign:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "An error occurred while updating the campaign.",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * @description Update campaign with partial data (for selective updates)
+ * @param {object} req - The request object
+ * @param {object} res - The response object
+ * @returns {Promise<void>}
+ */
+export const UpdateCampaignPartial = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { campaignId, performedBy } = req.params;
+    const updateData = req.body;
+
+    // Validate required fields
+    if (!campaignId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: "Campaign ID is required.",
+      });
+    }
+
+    // Remove targeting fields from general update
+    const { enableTarget, targetLocations, ...generalUpdateData } = updateData;
+
+    // Find the campaign
+    const campaign = await CampaignModel.findById(campaignId).session(session);
+    if (!campaign) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({
+        success: false,
+        message: "Campaign not found.",
+      });
+    }
+
+    // Check user permissions
+    if (
+      campaign.owner.toString() !== performedBy?.toString() &&
+      req.user?.role !== "admin"
+    ) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to update this campaign.",
+      });
+    }
+
+    // Process requirements if provided
+    if (generalUpdateData.requirements !== undefined) {
+      const requirementsArray = Array.isArray(generalUpdateData.requirements)
+        ? generalUpdateData.requirements
+        : typeof generalUpdateData.requirements === "string"
+        ? generalUpdateData.requirements.split(",").map((req) => req.trim()).filter(Boolean)
+        : campaign.requirements;
+      
+      generalUpdateData.requirements = requirementsArray;
+    }
+
+    // Handle dates
+    if (generalUpdateData.startDate) {
+      generalUpdateData.startDate = new Date(generalUpdateData.startDate);
+    }
+    if (generalUpdateData.endDate && generalUpdateData.hasEndDate !== false) {
+      generalUpdateData.endDate = new Date(generalUpdateData.endDate);
+    } else if (generalUpdateData.hasEndDate === false) {
+      generalUpdateData.endDate = undefined;
+    }
+
+    // Update only provided fields
+    Object.keys(generalUpdateData).forEach(key => {
+      if (generalUpdateData[key] !== undefined && campaign[key] !== undefined) {
+        campaign[key] = generalUpdateData[key];
+      }
+    });
+
+    // Update activity log
+    campaign.activityLog.push({
+      action: "Campaign Partially Updated",
+      details: `Campaign fields updated: ${Object.keys(generalUpdateData).join(", ")}`,
+      timestamp: new Date(),
+      performedBy,
+    });
+
+    // Update updatedBy field
+    campaign.updatedBy = performedBy;
+
+    // Save the updated campaign
+    await campaign.save({ session });
+
+    // Commit transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(200).json({
+      success: true,
+      message: "Campaign updated successfully.",
+      data: {
+        _id: campaign._id,
+        updatedFields: Object.keys(generalUpdateData),
+        updatedAt: campaign.updatedAt,
+      },
+    });
+  } catch (error) {
+    // Rollback transaction on error
+    await session.abortTransaction();
+    session.endSession();
+
+    console.error("Error partially updating campaign:", error);
 
     res.status(500).json({
       success: false,

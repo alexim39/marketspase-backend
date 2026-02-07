@@ -1,11 +1,7 @@
 import { UserModel } from '../../../user/models/user.model.js';
 import { sendEmail } from "../../../../services/email.service.js";
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
-
 import { accountVerifiedTemplate } from '../../services/email/accountVerifiedTemplate.js';
-
-import { handleTransferWebhook } from '../../services/transfer-webhook.js';
 import { getVerificationLevel } from '../../services/get-verify-level.service.js';
 
 /**

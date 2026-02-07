@@ -34,9 +34,10 @@ export const createCampaign = async (req, res) => {
       minRating = 0,
       requirements = [],
       targetLocations = [],
-      hasEndDate = true,
+      hasEndDate,
       ageTarget = "all",
     } = req.body;
+
 
      //  1️⃣ BASIC VALIDATION
     if (!owner || !title || !budget || !category) {
@@ -179,8 +180,8 @@ export const createCampaign = async (req, res) => {
       priority,
 
       startDate: startDate ? new Date(startDate) : new Date(),
-      endDate: hasEndDate && endDate ? new Date(endDate) : null,
-      hasEndDate,
+      endDate: endDate ? new Date(endDate) : null,
+      hasEndDate: endDate ? true : false,
 
       status: "pending", // Admin approval still required
       createdBy: owner,
