@@ -91,7 +91,7 @@ const campaignSchema = new mongoose.Schema(
         // Campaign timeline
         startDate: { type: Date, required: true, default: Date.now },
         endDate: { type: Date },
-        hasEndDate: { type: Boolean, default: true },
+        hasEndDate: { type: Boolean, default: false },
 
         // Status
         status: {
@@ -548,6 +548,7 @@ campaignSchema.statics = {
         // - spentBudget equals budget
 
         const campaigns = await this.find({
+            hasEndDate: false,
             endDate: null,
             status: 'active',
             $expr: {

@@ -17,7 +17,7 @@ import AuthRouter from './src/apps/auth/routes/index.route.js';
 import UserRouter from './src/apps/user/routes/index.route.js';
 import WalletRouter from './src/apps/wallet/routes/index.js';
 import webhookRoutes from './src/apps/wallet/routes/webhook.routes.js';
-import CampaignRouter from './src/apps/campaign/index.js';
+import CampaignRouter from './src/apps/campaign/routes/index.js';
 import SettingsRouter from './src/apps/settings/routes/index.route.js';
 import ContactRouter from './src/apps/contact/routes/index.js';
 import DashboardRouter from './src/apps/dashboard/routes/index.route.js';
