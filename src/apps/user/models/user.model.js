@@ -270,6 +270,11 @@ const userSchema = new mongoose.Schema(
         }]
     },
 
+    lastSeenAt: {
+      type: Date,
+      index: true
+    }
+
     // Promotion statistics
     // stats: {
     //   totalEarnings: { type: Number, default: 0 },

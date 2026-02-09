@@ -87,6 +87,11 @@ export const Authenticate = async (req, res) => {
 
       user = await UserModel.create(newUser);
 
+      await UserModel.updateOne(
+        { _id: user._id },
+        { $set: { lastSeenAt: new Date() } }
+      );
+
     // Process referral if provided
     if (referralCode) {
       try {
@@ -162,6 +167,11 @@ export const Authenticate = async (req, res) => {
         metadata: { referrerUsername: referralCode }
       });
       console.log(`User ${user.username} logged in via ${authProvider}.`);
+
+      await UserModel.updateOne(
+        { _id: user._id },
+        { $set: { lastSeenAt: new Date() } }
+      );
       
     }
 
