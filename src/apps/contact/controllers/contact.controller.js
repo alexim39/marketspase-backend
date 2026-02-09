@@ -30,6 +30,11 @@ export const ContactController = async (req, res) => {
       });
     }
 
+    await UserModel.updateOne(
+      { _id: user._id },
+      { $set: { lastSeenAt: new Date() } }
+    );
+
     const contactObject = await ContactModel.create({
       user: user._id, // Use the user's ObjectId
       reason,

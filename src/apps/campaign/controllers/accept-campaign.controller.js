@@ -141,6 +141,11 @@ export const acceptCampaign = async (req, res) => {
           },
         });
 
+        await UserModel.updateOne(
+          { _id: campaign.owner },
+          { $set: { lastSeenAt: new Date() } }
+        );
+
         return promotion;
       });
 

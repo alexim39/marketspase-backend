@@ -33,6 +33,11 @@ export const GetUserPromotions = async (req, res) => {
       });
     }
 
+    await UserModel.updateOne(
+      { _id: user._id },
+      { $set: { lastSeenAt: new Date() } }
+    );
+
     if (user.role !== "promoter") {
       return res.status(400).json({
         success: false,

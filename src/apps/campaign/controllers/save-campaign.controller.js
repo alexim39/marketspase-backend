@@ -169,6 +169,11 @@ export const saveCampaign = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
+    await UserModel.updateOne(
+      { _id: user._id },
+      { $set: { lastSeenAt: new Date() } }
+    );
+
     res.status(201).json({
       message: "Campaign saved successfully to draft.",
       success: true,

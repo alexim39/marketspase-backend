@@ -99,6 +99,11 @@ export const withdrawRequest = async (req, res) => {
       return res.status(403).json({ message: "Account is inactive or deleted.", success: false });
     }
 
+    await UserModel.updateOne(
+      { _id: user._id },
+      { $set: { lastSeenAt: new Date() } }
+    );
+
     // 2) Ownership guard: disallow shared accounts across users (unchanged)
     const ownershipCheck = await assertAccountNotUsedByAnotherUser({
       bankCode: bank,
