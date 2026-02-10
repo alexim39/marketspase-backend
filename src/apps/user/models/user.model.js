@@ -273,7 +273,13 @@ const userSchema = new mongoose.Schema(
     lastSeenAt: {
       type: Date,
       index: true
-    }
+    },
+
+    userDevice: {
+        type: String,
+        //unique: true,
+        //required: [true, "Please enter surname"]
+    },
 
     // Promotion statistics
     // stats: {

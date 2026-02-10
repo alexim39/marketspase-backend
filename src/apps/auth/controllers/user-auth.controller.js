@@ -29,7 +29,7 @@ const logActivitySafe = async (userId, activity) => {
 };
 
 
-// Authenticate/Verify User
+// Authenticate/Verify Usery
 export const Authenticate = async (req, res) => {
   try {
     const { firebaseUser } = req.body;
@@ -46,7 +46,8 @@ export const Authenticate = async (req, res) => {
       email,
       photoURL,
       providerData,
-      referralCode = null
+      referralCode = null,
+      userDevice,
     } = firebaseUser;
 
     // Determine authentication method from providerData
@@ -75,6 +76,7 @@ export const Authenticate = async (req, res) => {
         username: username,
         authenticationMethod: authProvider,
         avatar: photoURL || 'img/avatar.png',
+        userDevice,
         // Set a placeholder password for social logins to prevent local password authentication.
         // The value should be secure and identifiable.
         //password: `__SOCIAL_${authProvider.toUpperCase().replace(/\./g, '_')}__`,
@@ -144,17 +146,20 @@ export const Authenticate = async (req, res) => {
       // We'll update the `displayName` and `avatar` if they've changed.
       const updateFields = {};
 
-      if (displayName && user.displayName !== displayName) {
+      if (user.userDevice != userDevice) {
+        updateFields.userDevice = userDevice;
+      }
+      if (user.displayName != displayName) {
         updateFields.displayName = displayName;
       }
-      if (photoURL && user.avatar !== photoURL) {
+      if (user.avatar != photoURL) {
         updateFields.avatar = photoURL;
       }
-      if (authProvider && user.authenticationMethod !== authProvider) {
+      if (user.authenticationMethod != authProvider) {
         updateFields.authenticationMethod = authProvider;
       }
       if (Object.keys(updateFields).length > 0) {
-      await UserModel.updateOne({ _id: user._id }, { $set: updateFields });
+        await UserModel.updateOne({ _id: user._id }, { $set: updateFields });
         // Re-fetch the user to get the updated document, or update the `user` object in memory.
         Object.assign(user, updateFields);
       }
@@ -195,6 +200,8 @@ export const Authenticate = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error during authentication." });
   }
 };
+
+
 
 
 /**
