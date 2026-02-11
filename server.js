@@ -11,12 +11,10 @@ import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/camp
 
 import './src/apps/campaign/services/jobs/campaign-notification.job.js'; 
 import './src/apps/notification/services/jobs/notification-scheduler.job.js'; 
-import "./src/apps/wallet/jobs/wallet-cron-index.js";
 
 import AuthRouter from './src/apps/auth/routes/index.route.js';
 import UserRouter from './src/apps/user/routes/index.route.js';
 import WalletRouter from './src/apps/wallet/routes/index.js';
-import webhookRoutes from './src/apps/wallet/routes/webhook.routes.js';
 import CampaignRouter from './src/apps/campaign/routes/index.js';
 import SettingsRouter from './src/apps/settings/routes/index.route.js';
 import ContactRouter from './src/apps/contact/routes/index.js';
@@ -28,11 +26,19 @@ import NewsletterRouter from './src/apps/newsletter/routes/index.js';
 import StoreIndexRouter from './src/apps/store/routes/index.route.js';
 import ForumIndexRouter from './src/apps/forum/routes/index.js';
 
+import { registerPaymentEngine } from "./src/apps/payments/index.js";
+
 // Port and Host
 const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0'; // Essential for container deployment
 const app = express();
 dotenv.config();
+
+// Mount webhooks BEFORE body parsers
+registerPaymentEngine(app, {
+  // enableCron: true, // default
+});
+
 
 // Middleware
 app.use(express.json({ limit: '50mb' })); // Increase JSON payload limit
@@ -63,9 +69,6 @@ app.use((req, res, next) => {
     console.log('Request Origin:', req.headers.origin);
     next();
 });
-
-// Webhook routes (must be before express.json() middleware)
-app.use('/api/webhook', webhookRoutes);
 
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));
