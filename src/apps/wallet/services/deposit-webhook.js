@@ -2,7 +2,7 @@
 import { UserModel } from "../../user/models/user.model.js";
 import crypto from "crypto";
 
-const PAYSTACK_SECRET = process.env.PAYSTACK_WEBHOOK_SECRET || process.env.PAYSTACK_SECRET_KEY;
+const PAYSTACK_SECRET = process.env.PAYSTACK_WEBHOOK_SECRET || process.env.PAYSTACKTOKEN;
 
 export const handleDepositWebhook = async (req, res) => {
   try {
