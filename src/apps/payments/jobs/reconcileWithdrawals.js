@@ -33,17 +33,18 @@ export async function reconcileWithdrawals() {
         const data = await paystackClient.verifyTransfer(tx.reference);
         if (!data) continue;
 
-        const status = data.status;
+        const status = data.status; // 'success' | 'failed' | 'reversed' | 'pending' | 'blocked'
         const amountKobo = Number(data.amount || 0);
+        const reference = tx.reference;
 
         if (status === "success") {
-          await finalizeTransfer(tx.reference, "success", amountKobo, { ...data, event: "recon" });
-        } else if (status === "failed") {
-          await finalizeTransfer(tx.reference, "failed", amountKobo, { ...data, event: "recon" });
+          await finalizeTransfer(reference, "success", amountKobo, { ...data, event: "recon" });
+        } else if (status === "failed" || status === "blocked") {
+          await finalizeTransfer(reference, "failed", amountKobo, { ...data, event: "recon" });
         } else if (status === "reversed") {
-          await finalizeTransfer(tx.reference, "reversed", amountKobo, { ...data, event: "recon" });
+          await finalizeTransfer(reference, "reversed", amountKobo, { ...data, event: "recon" });
         } else {
-          await finalizeTransfer(tx.reference, "pending", amountKobo, { ...data, event: "recon" });
+          await finalizeTransfer(reference, "pending", amountKobo, { ...data, event: "recon" });
         }
       } catch (err) {
         console.error(`❗ Withdrawal recon error for ${tx.reference}:`, err?.response?.data || err.message);
