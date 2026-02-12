@@ -198,6 +198,12 @@ export const downloadPromotion = async (req, res) => {
           currentPromoters: txResult.campaign.currentPromoters
         });
       }
+
+      await UserModel.updateOne(
+        { _id: creditRes._id },
+        { $set: { lastSeenAt: new Date() } }
+      );
+
       return res.status(200).json({
         message: "Campaign materials downloaded successfully. Funds have been reserved for your promotion.",
         success: true,

@@ -6,6 +6,7 @@ import {
   getEngagementStats
 } from '../controllers/stats.controller.js';
 import { catchAsync } from '../services/catch-async.middleware.js'; // Optional error handling middleware
+import { getUsersOnlineCount } from './../controllers/online-count.controller.js'
 
 const StatsRouter = express.Router();
 
@@ -143,5 +144,7 @@ StatsRouter.get('/engagement', catchAsync(async (req, res) => {
     }
   });
 }));
+
+StatsRouter.get('/online-count', catchAsync(getUsersOnlineCount))
 
 export default StatsRouter;

@@ -29,8 +29,129 @@ const logActivitySafe = async (userId, activity) => {
 };
 
 
-// Authenticate/Verify User
+// Authenticate/Verify Usery
 export const Authenticate = async (req, res) => {
+  try {
+    const { firebaseUser } = req.body;
+
+    // 1. Validate Input
+    if (!firebaseUser || !firebaseUser.uid) {
+      return res.status(400).json({ success: false, message: "Missing Firebase user data" });
+    }
+
+    const {
+      uid,
+      displayName,
+      email,
+      photoURL,
+      providerData,
+      referralCode = null,
+      userDevice = null,
+    } = firebaseUser;
+
+    const authProvider = providerData?.[0]?.providerId || 'local';
+
+    // 2. Atomic Find or Update
+    // Using findOneAndUpdate with upsert:true simplifies the logic and ensures the 'else' logic (updates) always runs.
+    const updateData = {
+      uid,
+      displayName: displayName || 'User',
+      avatar: photoURL || 'img/avatar.png',
+      userDevice,
+      authenticationMethod: authProvider,
+      lastSeenAt: new Date(),
+    };
+
+    if (email) updateData.email = email;
+
+    // findOneAndUpdate returns a 'raw' result if includeResultMetadata is true, 
+    // allowing us to see if a new document was created (upserted).
+    const result = await UserModel.findOneAndUpdate(
+      { $or: [{ uid }, { email: email || '____NO_EMAIL____' }] },
+      { $set: updateData },
+      { 
+        upsert: true, 
+        new: true, 
+        runValidators: true, 
+        setDefaultsOnInsert: true,
+        includeResultMetadata: true 
+      }
+    );
+
+   
+
+    const user = result.value;
+    const isNewUser = !result.lastErrorObject.updatedExisting;
+
+    // 3. Post-Auth Logic (New User vs Returning User)
+    if (isNewUser) {
+      // NEW USER LOGIC
+      const username = await generateUniqueUsername(displayName);
+      await UserModel.updateOne({ _id: user._id }, { $set: { username } });
+      user.username = username; // Update local object for response/emails
+
+      // Process Referral
+      if (referralCode) {
+        try {
+          await referralService.processReferral(user._id, referralCode, user.role);
+          await logActivitySafe(user._id, {
+            action: 'referred_signup',
+            description: `Joined using referral from ${referralCode}`,
+            metadata: { referralCode }
+          });
+        } catch (err) {
+          console.error('Referral failed:', err);
+        }
+      }
+
+      // Send Welcome Emails
+      try {
+        const ownerEmails = ['schooltraz@gmail.com'];
+        const ownerMsg = adminWelcomeEmailTemplate(user);
+        const userMsg = userWelcomeEmailTemplate(user);
+        
+        await Promise.all([
+          ...ownerEmails.map(m => sendEmail(m, 'New Sign Up', ownerMsg)),
+          user.email ? sendEmail(user.email, 'Welcome to MarketSpase', userMsg) : Promise.resolve()
+        ]);
+      } catch (err) {
+        console.error('Email delivery failed:', err);
+      }
+
+      await logActivitySafe(user._id, { action: 'signup', description: 'New account created' });
+      console.log(`New user: ${user.username} via ${authProvider}`);
+
+    } else {
+      // RETURNING USER LOGIC
+      await logActivitySafe(user._id, { 
+        action: 'login', 
+        description: 'User logged in',
+        metadata: { userDevice } 
+      });
+      console.log(`User logged in: ${user.username}`);
+    }
+
+    // 4. Final Response
+    const userObject = user.toObject();
+    delete userObject.password;
+
+    return res.status(200).json({
+      success: true,
+      message: isNewUser ? "Account created" : "Signed in successfully",
+      user: userObject // Re-enable if you need the data on frontend
+    });
+
+  } catch (error) {
+    console.error("Auth Error:", error);
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, message: "Duplicate email or username." });
+    }
+    return res.status(500).json({ success: false, message: "Internal server error." });
+  }
+};
+
+
+/* export const Authenticate = async (req, res) => {
   try {
     const { firebaseUser } = req.body;
 
@@ -46,7 +167,8 @@ export const Authenticate = async (req, res) => {
       email,
       photoURL,
       providerData,
-      referralCode = null
+      referralCode = null,
+      userDevice,
     } = firebaseUser;
 
     // Determine authentication method from providerData
@@ -75,6 +197,7 @@ export const Authenticate = async (req, res) => {
         username: username,
         authenticationMethod: authProvider,
         avatar: photoURL || 'img/avatar.png',
+        userDevice,
         // Set a placeholder password for social logins to prevent local password authentication.
         // The value should be secure and identifiable.
         //password: `__SOCIAL_${authProvider.toUpperCase().replace(/\./g, '_')}__`,
@@ -86,6 +209,11 @@ export const Authenticate = async (req, res) => {
       }
 
       user = await UserModel.create(newUser);
+
+      await UserModel.updateOne(
+        { _id: user._id },
+        { $set: { lastSeenAt: new Date() } }
+      );
 
     // Process referral if provided
     if (referralCode) {
@@ -139,17 +267,20 @@ export const Authenticate = async (req, res) => {
       // We'll update the `displayName` and `avatar` if they've changed.
       const updateFields = {};
 
-      if (displayName && user.displayName !== displayName) {
+      if (user.userDevice != userDevice) {
+        updateFields.userDevice = userDevice;
+      }
+      if (user.displayName != displayName) {
         updateFields.displayName = displayName;
       }
-      if (photoURL && user.avatar !== photoURL) {
+      if (user.avatar != photoURL) {
         updateFields.avatar = photoURL;
       }
-      if (authProvider && user.authenticationMethod !== authProvider) {
+      if (user.authenticationMethod != authProvider) {
         updateFields.authenticationMethod = authProvider;
       }
       if (Object.keys(updateFields).length > 0) {
-      await UserModel.updateOne({ _id: user._id }, { $set: updateFields });
+        await UserModel.updateOne({ _id: user._id }, { $set: updateFields });
         // Re-fetch the user to get the updated document, or update the `user` object in memory.
         Object.assign(user, updateFields);
       }
@@ -162,6 +293,11 @@ export const Authenticate = async (req, res) => {
         metadata: { referrerUsername: referralCode }
       });
       console.log(`User ${user.username} logged in via ${authProvider}.`);
+
+      await UserModel.updateOne(
+        { _id: user._id },
+        { $set: { lastSeenAt: new Date() } }
+      );
       
     }
 
@@ -184,7 +320,9 @@ export const Authenticate = async (req, res) => {
     }
     res.status(500).json({ success: false, message: "Internal server error during authentication." });
   }
-};
+}; */
+
+
 
 
 /**
@@ -262,6 +400,11 @@ export const GetUser = async (req, res) => {
     }
 
     const user = userAgg[0];
+
+    await UserModel.updateOne(
+      { _id: user._id },
+      { $set: { lastSeenAt: new Date() } }
+    );
 
     if (user.isActive === false) {
       return res.status(403).json({ success: false, message: "This user account is currently inactive or suspended." });

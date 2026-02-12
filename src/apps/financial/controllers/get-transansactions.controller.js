@@ -61,6 +61,11 @@ export const getTransactions = async (req, res) => {
       { $limit: limitNum }
     ]);
 
+    await UserModel.updateOne(
+      { _id: user._id },
+      { $set: { lastSeenAt: new Date() } }
+    );
+
     // Transform transactions
     const transactions = [];
     
