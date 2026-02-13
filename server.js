@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
-import axios from "axios";
+//import axios from "axios";
 // Cron Jobs
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
 import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';

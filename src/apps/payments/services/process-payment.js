@@ -39,6 +39,7 @@ export async function processPayment(bankCode, accountNumber, accountName, amoun
       success: res.ok,
       status,
       reference: res.reference,
+      transferCode: res.transfer_code, 
       requiresApproval: false,          // OTP flow not used
       insufficientBalance: isInsufficient,
       message: res.message || (isBlocked ? "Transfer blocked" : ""),
