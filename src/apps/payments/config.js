@@ -5,7 +5,8 @@ export const PAYMENT_CONFIG = {
   withdrawalFeePercent: 0.18,   // 18% service fee on promoter withdrawals (deducted only on success)
 
   // Webhook mount path (mount before express.json())
-  webhookMountPath: "/api/webhook/paystack",
+  //webhookMountPath: "https://marketspase-96hm2qxb.b4a.run/api/webhook/paystack",
+   webhookMountPath: "/api/webhook/paystack",
 
   // Reconciliation schedule (cron expression)
   reconCron: "*/10 * * * *",

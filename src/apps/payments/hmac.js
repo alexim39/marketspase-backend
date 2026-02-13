@@ -1,7 +1,8 @@
 // src/payments/hmac.js
 import crypto from "crypto";
 
-const SECRET = process.env.PAYSTACK_WEBHOOK_SECRET || process.env.PAYSTACKTOKEN;
+const SECRET = process.env.PAYSTACKTOKEN;
+// const SECRET = process.env.PAYSTACK_WEBHOOK_SECRET || process.env.PAYSTACKTOKEN;
 
 export function verifyPaystackSignature(req, res, next) {
   try {
