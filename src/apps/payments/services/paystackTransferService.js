@@ -3,7 +3,7 @@ import axios from "axios";
 import { UserModel } from "../../user/models/user.model.js";
 
 const PAYSTACK_BASE = "https://api.paystack.co";
-const SECRET = process.env.PAYSTACKTOKEN;
+const SECRET = process.env.PAYSTACK_SECRET_KEY;
 const headers = { Authorization: `Bearer ${SECRET}` };
 
 if (!SECRET) {
