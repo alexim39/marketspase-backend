@@ -80,10 +80,10 @@ app.get('/my-ip', async (req, res) => {
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));
 
-app.get('/my-ip', async (req, res) => {
-    const response = await axios.get('https://api.ipify.org');
-    res.json({ outboundIp: response.data.ip });
-});
+// app.get('/my-ip', async (req, res) => {
+//     const response = await axios.get('https://api.ipify.org');
+//     res.json({ outboundIp: response.data.ip });
+// });
 
 app.use('/auth', AuthRouter);
 app.use('/user', UserRouter);
