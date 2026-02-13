@@ -123,6 +123,8 @@ export const withdrawRequest = async (req, res) => {
       createdAt: new Date(),
       processedAt: null,
 
+      providerReference: undefined, // Paystack's reference (not always same as ours)
+
       bankDetails: { bank: bankName, bankCode: bank, accountNumber, accountName },
       meta: { createdBy: "withdrawRequest", verifyLevel: verificationLevel },
     };
@@ -141,6 +143,16 @@ export const withdrawRequest = async (req, res) => {
       amountPayable,                          // KOBO
       { userId, reason: "Withdrawal Payment - MarketSpase", reference: safeRef }
     );
+
+    
+ // 🔴 CRITICAL: persist provider identifiers for recon
+    if (paymentResponse.reference) {
+      txRef.providerReference = paymentResponse.reference; // Paystack's reference
+    }
+    if (paymentResponse.transferCode) {
+      txRef.transferCode = paymentResponse.transferCode;   // Paystack's transfer_code (if you pipe it up)
+    }
+
 
     txRef.meta.processPayment = {
       success: paymentResponse.success,

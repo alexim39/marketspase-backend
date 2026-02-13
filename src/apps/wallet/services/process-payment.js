@@ -2,7 +2,7 @@ import axios from "axios";
 
 export const processPayment = async (bankCode, accountNumber, accountName, amount) => {
   try {
-    const PAYSTACK_SECRET_KEY = process.env.PAYSTACKTOKEN;
+    const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 
     // Step 1: Create or find existing transfer recipient
     const recipientResponse = await axios.post(

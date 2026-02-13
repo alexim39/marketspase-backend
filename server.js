@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
-import axios from "axios";
+//import axios from "axios";
 // Cron Jobs
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
 import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
@@ -65,18 +65,25 @@ app.use(cors({
 app.options('*', cors());
 
 // Debugging middleware to log request origins
-app.use((req, res, next) => {
-    console.log('Request Origin:', req.headers.origin);
-    next();
+app.get('/my-ip', async (req, res) => {
+    try {
+        // We force the response type to be text to avoid parsing errors
+        const response = await axios.get('https://api.ipify.org');
+        
+        // This will now return the actual IP address string
+        res.status(200).send(`Your Outbound IP is: ${response.data}`);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));
 
-app.get('/my-ip', async (req, res) => {
-    const response = await axios.get('https://api.ipify.org');
-    res.json({ outboundIp: response.data.ip });
-});
+// app.get('/my-ip', async (req, res) => {
+//     const response = await axios.get('https://api.ipify.org');
+//     res.json({ outboundIp: response.data.ip });
+// });
 
 app.use('/auth', AuthRouter);
 app.use('/user', UserRouter);

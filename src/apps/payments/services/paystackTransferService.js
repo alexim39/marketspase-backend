@@ -3,7 +3,7 @@ import axios from "axios";
 import { UserModel } from "../../user/models/user.model.js";
 
 const PAYSTACK_BASE = "https://api.paystack.co";
-const SECRET = process.env.PAYSTACKTOKEN;
+const SECRET = process.env.PAYSTACK_SECRET_KEY;
 const headers = { Authorization: `Bearer ${SECRET}` };
 
 if (!SECRET) {
@@ -82,7 +82,7 @@ export async function initiateTransfer({
 
   const resp = await axios.post(`${PAYSTACK_BASE}/transfer`, payload, { headers });
 
-  // Typical: resp.data = { status: true, data: { status: 'pending'|'success'|'failed'|'blocked', transfer_code, reference, reason } }
+  // resp.data.data = { status, transfer_code, reference, reason, ... }
   const ok = resp?.data?.status === true;
   const d = resp?.data?.data || {};
   const status = d?.status || (ok ? "pending" : "failed");
@@ -90,9 +90,21 @@ export async function initiateTransfer({
   return {
     raw: resp?.data,
     ok,
-    status,
-    transfer_code: d?.transfer_code,
-    reference: d?.reference || d?.transfer_code || reference || null,
+    status,                         // 'success' | 'pending' | 'failed' | 'blocked' (rare)
+    transfer_code: d?.transfer_code || null,
+    reference: d?.reference || reference || null,  // use Paystack reference if returned; else our ref
     message: d?.reason || resp?.data?.message || "",
   };
+}
+
+/** Verify by reference (preferred) */
+export async function verifyTransferByReference(ref) {
+  const { data } = await axios.get(`${PAYSTACK_BASE}/transfer/verify/${ref}`, { headers });
+  return data;
+}
+
+/** Fallback: fetch by transfer_code (when verify-by-reference says not_found) */
+export async function fetchTransferByCode(transferCode) {
+  const { data } = await axios.get(`${PAYSTACK_BASE}/transfer/${transferCode}`, { headers });
+  return data;
 }

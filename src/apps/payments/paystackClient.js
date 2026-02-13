@@ -2,7 +2,7 @@
 import axios from "axios";
 
 const base = "https://api.paystack.co";
-const SECRET = process.env.PAYSTACKTOKEN;
+const SECRET = process.env.PAYSTACK_SECRET_KEY;
 
 if (!SECRET) {
   console.warn("⚠ PAYSTACK_SECRET_KEY is not set");

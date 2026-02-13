@@ -13,7 +13,7 @@ import { ReferralService } from './../../user/services/referral.service.js';
 const referralService = new ReferralService();
 
 // Set up Paystack configuration from environment variables
-const PAYSTACK_SECRET_KEY = process.env.PAYSTACKTOKEN;
+const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_VERIFY_URL = 'https://api.paystack.co/transaction/verify/';
 
 // Helper function for sending a consistent error response
