@@ -14,31 +14,12 @@ function findTxAcrossWallets(user, reference) {
 export async function finalizeDeposit(reference, amountKobo, rawMeta) {
   let user = await UserModel.findOne({ "wallets.marketer.transactions.reference": reference });
 
-  if (!user) {
-    if (!PAYMENT_CONFIG.allowAutoCreateDepositTxIfMissing) return false;
-    const email = rawMeta?.data?.customer?.email || rawMeta?.customer?.email;
-    user = email ? await UserModel.findOne({ email }) : null;
-    if (!user) return false;
-
-    user.wallets.marketer.transactions.unshift({
-      reference,
-      gateway: "paystack",
-      currency: rawMeta?.data?.currency || "NGN",
-      fee: 0,
-      amount: amountKobo,
-      type: "credit",
-      category: "deposit",
-      description: `Paystack charge ${reference}`,
-      status: "pending",
-      createdAt: new Date(),
-      meta: {},
-    });
-  }
+  // Optional autocreate path (usually disabled)
+  if (!user) return false;
 
   const { tx } = findTxAcrossWallets(user, reference) || {};
   if (!tx) return false;
 
-  // idempotent: if already terminal, skip
   if (["successful", "failed", "refunded", "reversed", "cancelled", "abandoned"].includes(tx.status)) {
     return true;
   }
@@ -52,7 +33,6 @@ export async function finalizeDeposit(reference, amountKobo, rawMeta) {
   tx.meta = { ...(tx.meta || {}), finalizeSource: rawMeta?.event || "recon" };
 
   user.wallets.marketer.balance += net;
-
   await user.save();
   return true;
 }
@@ -86,9 +66,7 @@ export async function finalizeTransfer(reference, outcome, amountKobo, details =
       // Deduct the 18% fee ONLY now
       const fee = Math.round(tx.amount * PAYMENT_CONFIG.withdrawalFeePercent);
       tx.fee = fee;
-
-      // Remove fee from promoter wallet balance
-      w.balance -= fee;
+      w.balance -= fee;          // fee removal now
       break;
     }
     case "failed":

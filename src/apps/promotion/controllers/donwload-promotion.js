@@ -100,7 +100,7 @@ export const downloadPromotion = async (req, res) => {
                   description: `Funds transferred to promoter ${promoter.displayName ?? promoter._id} for campaign: "${campaign.title}"`,
                   relatedCampaign: campaignId,
                   relatedPromotion: promotionId,
-                  status: "reserved_to_promoter",
+                  status: "reversed",
                   createdAt: now
                 }],
                 $position: 0,

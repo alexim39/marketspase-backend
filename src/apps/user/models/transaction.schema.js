@@ -87,7 +87,7 @@ export const transactionSchema = new mongoose.Schema({
       'declined',
       'completed',
       'paid',
-      'reserved_to_promoter',
+      'reserved_to_promoter', // to be removed. not used anymore
       'rejected'
     ],
     default: 'pending',

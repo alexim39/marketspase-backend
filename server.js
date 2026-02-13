@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
-
+import axios from "axios";
 // Cron Jobs
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
 import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
@@ -72,6 +72,12 @@ app.use((req, res, next) => {
 
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));
+
+app.get('/my-ip', async (req, res) => {
+    const response = await axios.get('https://api.ipify.org');
+    res.json({ outboundIp: response.data.ip });
+});
+
 app.use('/auth', AuthRouter);
 app.use('/user', UserRouter);
 app.use('/wallet', WalletRouter);
