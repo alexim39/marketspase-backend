@@ -65,9 +65,16 @@ app.use(cors({
 app.options('*', cors());
 
 // Debugging middleware to log request origins
-app.use((req, res, next) => {
-    console.log('Request Origin:', req.headers.origin);
-    next();
+app.get('/my-ip', async (req, res) => {
+    try {
+        // We force the response type to be text to avoid parsing errors
+        const response = await axios.get('https://api.ipify.org');
+        
+        // This will now return the actual IP address string
+        res.status(200).send(`Your Outbound IP is: ${response.data}`);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 /* Routes */
