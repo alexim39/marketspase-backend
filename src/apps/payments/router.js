@@ -9,7 +9,7 @@ export function buildPaymentRouter() {
 
   router.post(
     "/",
-    // RAW parser to compute HMAC on the exact body bytes
+    // RAW parser to compute HMAC on exact bytes
     express.raw({ type: "application/json" }),
     (req, _res, next) => { req.rawBody = req.body; try { req.body = JSON.parse(req.body); } catch { req.body = {}; } next(); },
     verifyPaystackSignature,
@@ -23,12 +23,13 @@ export function buildPaymentRouter() {
         } else if (type.startsWith("transfer.")) {
           await handleTransferEvent(event);
         } else {
-          // ignore unsupported event types
+          // ignore other events
         }
 
         return res.status(200).json({ received: true });
       } catch (err) {
         console.error("Webhook error:", err);
+        // Always ack to avoid retries; recon will fix
         return res.status(200).json({ received: true });
       }
     }

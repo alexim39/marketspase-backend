@@ -8,7 +8,7 @@ export async function handleDepositEvent(event) {
   if (!reference) return;
 
   if (type === "charge.success" && data?.status === "success") {
-    const amountKobo = Number(data.amount || 0); // Paystack KOBO
+    const amountKobo = Number(data.amount || 0); // KOBO
     await finalizeDeposit(reference, amountKobo, event);
   } else if (type === "charge.failed") {
     // Optional: mark tx failed if present (no wallet effect)

@@ -16,7 +16,6 @@ export async function finalizeDeposit(reference, amountKobo, rawMeta) {
 
   if (!user) {
     if (!PAYMENT_CONFIG.allowAutoCreateDepositTxIfMissing) return false;
-    // Optional: attempt to find by email metadata
     const email = rawMeta?.data?.customer?.email || rawMeta?.customer?.email;
     user = email ? await UserModel.findOne({ email }) : null;
     if (!user) return false;
@@ -39,7 +38,7 @@ export async function finalizeDeposit(reference, amountKobo, rawMeta) {
   const { tx } = findTxAcrossWallets(user, reference) || {};
   if (!tx) return false;
 
-  // Already finalized?
+  // idempotent: if already terminal, skip
   if (["successful", "failed", "refunded", "reversed", "cancelled", "abandoned"].includes(tx.status)) {
     return true;
   }
@@ -58,7 +57,7 @@ export async function finalizeDeposit(reference, amountKobo, rawMeta) {
   return true;
 }
 
-/** WITHDRAWAL (promoter): success=no balance move (already deducted); failure/reversed=refund amount+fee (OPTION B) */
+/** WITHDRAWAL (promoter): fee (18%) deducted ONLY on success; refund gross only on fail/reverse */
 export async function finalizeTransfer(reference, outcome, amountKobo, details = {}) {
   const user = await UserModel.findOne({
     $or: [
@@ -73,30 +72,34 @@ export async function finalizeTransfer(reference, outcome, amountKobo, details =
   const { wallet, tx } = found;
   const w = user.wallets[wallet];
 
-  // If already terminal, no-op
   if (["successful", "failed", "reversed", "refunded", "cancelled", "abandoned"].includes(tx.status)) {
     return true;
   }
 
   switch (outcome) {
     case "success": {
-      // Payout succeeded → nothing to refund; fee already captured at request time
       tx.status = "successful";
       tx.transferCode = details.transfer_code;
       tx.processedAt = new Date();
       tx.meta = { ...(tx.meta || {}), finalizeSource: details.event || "recon" };
+
+      // Deduct the 18% fee ONLY now
+      const fee = Math.round(tx.amount * PAYMENT_CONFIG.withdrawalFeePercent);
+      tx.fee = fee;
+
+      // Remove fee from promoter wallet balance
+      w.balance -= fee;
       break;
     }
     case "failed":
     case "reversed": {
-      // Per OPTION B: refund BOTH amount and fee back to the same wallet
-      const refund = (tx.amount || 0) + (tx.fee || 0);
-      w.balance += refund;
+      // Refund ONLY the gross amount (fee was never deducted)
+      w.balance += (tx.amount || 0);
 
       tx.status = outcome;
       tx.failureReason = details.reason || details.message || (outcome === "failed" ? "Transfer failed" : "Transfer reversed");
       tx.processedAt = new Date();
-      tx.meta = { ...(tx.meta || {}), finalizeSource: details.event || "recon", refunded: refund };
+      tx.meta = { ...(tx.meta || {}), finalizeSource: details.event || "recon", refunded: tx.amount || 0 };
       break;
     }
     case "pending": {
