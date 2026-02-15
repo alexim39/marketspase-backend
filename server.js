@@ -25,6 +25,7 @@ import FinancialRouter from './src/apps/financial/routes/index.route.js';
 import NewsletterRouter from './src/apps/newsletter/routes/index.js';
 import StoreIndexRouter from './src/apps/store/routes/index.route.js';
 import ForumIndexRouter from './src/apps/forum/routes/index.js';
+import FeedsIndexRouter from './src/apps/feeds/routes/index.route.js';
 
 import { registerPaymentEngine } from "./src/apps/payments/index.js";
 
@@ -98,6 +99,7 @@ app.use('/financial', FinancialRouter);
 app.use('/newsletter', NewsletterRouter);
 app.use('/stores', StoreIndexRouter);
 app.use('/forum', ForumIndexRouter);
+app.use('/feed', FeedsIndexRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
