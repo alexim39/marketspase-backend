@@ -27,7 +27,9 @@ import StoreIndexRouter from './src/apps/store/routes/index.route.js';
 import ForumIndexRouter from './src/apps/forum/routes/index.js';
 import FeedsIndexRouter from './src/apps/feeds/routes/index.route.js';
 
-import { registerPaymentEngine } from "./src/apps/payments/index.js";
+//import { registerPaymentEngine } from "./src/apps/payments/index.js";
+
+import { buildPaymentRouter } from "./src/apps/payments/router.js";
 
 // Port and Host
 const PORT = process.env.PORT || 8080;
@@ -36,9 +38,11 @@ const app = express();
 dotenv.config();
 
 // Mount webhooks BEFORE body parsers
-registerPaymentEngine(app, {
-  // enableCron: true, // default
-});
+// registerPaymentEngine(app, {
+//   // enableCron: true, // default
+// });
+
+app.use('/api/webhook/paystack', buildPaymentRouter());
 
 
 // Middleware
@@ -66,17 +70,17 @@ app.use(cors({
 app.options('*', cors());
 
 // Debugging middleware to log request origins
-app.get('/my-ip', async (req, res) => {
-    try {
-        // We force the response type to be text to avoid parsing errors
-        const response = await axios.get('https://api.ipify.org');
+// app.get('/my-ip', async (req, res) => {
+//     try {
+//         // We force the response type to be text to avoid parsing errors
+//         const response = await axios.get('https://api.ipify.org');
         
-        // This will now return the actual IP address string
-        res.status(200).send(`Your Outbound IP is: ${response.data}`);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
+//         // This will now return the actual IP address string
+//         res.status(200).send(`Your Outbound IP is: ${response.data}`);
+//     } catch (error) {
+//         res.status(500).json({ error: error.message });
+//     }
+// });
 
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));
