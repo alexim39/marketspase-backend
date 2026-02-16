@@ -1,12 +1,20 @@
 import axios from "axios";
 
-export const processPayment = async (bankCode, accountNumber, accountName, amount) => {
-  try {
-    const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+const PAYSTACK_BASE_URL = "https://api.paystack.co";
 
-    // Step 1: Create or find existing transfer recipient
-    const recipientResponse = await axios.post(
-      "https://api.paystack.co/transferrecipient",
+const paystackHeaders = (secret) => ({
+  Authorization: `Bearer ${secret}`,
+  "Content-Type": "application/json",
+});
+
+/**
+ * Find existing recipient OR create one
+ */
+const getOrCreateRecipient = async (secret, bankCode, accountNumber, accountName) => {
+  try {
+    // 1. Try to create recipient (Paystack safely deduplicates internally)
+    const response = await axios.post(
+      `${PAYSTACK_BASE_URL}/transferrecipient`,
       {
         type: "nuban",
         name: accountName,
@@ -14,166 +22,167 @@ export const processPayment = async (bankCode, accountNumber, accountName, amoun
         bank_code: bankCode,
         currency: "NGN",
       },
-      {
-        headers: {
-          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
+      { headers: paystackHeaders(secret) }
     );
 
-    if (!recipientResponse.data.status) {
-      return { 
-        success: false, 
-        message: "Failed to create transfer recipient",
-        details: recipientResponse.data.message
-      };
+    if (!response.data.status) {
+      return { success: false, message: response.data.message };
     }
 
-    
-    const recipientCode = recipientResponse.data.data.recipient_code;
-
-    // Step 2: Initiate transfer with auto-finalize parameters
-    const transferResponse = await axios.post(
-      "https://api.paystack.co/transfer",
-      {
-        source: "balance",
-        amount: Math.round(amount * 100), // Convert to kobo
-        recipient: recipientCode,
-        reason: "Withdrawal Payment - MarketSpase",
-        reference: `WD_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        // Critical parameters for auto-transfer:
-        queue: false, // Don't queue the transfer
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    const transferData = transferResponse.data.data;
-
-    // Check if transfer was successful or requires OTP/approval
-    if (transferResponse.data.status) {
-      if (transferData.status === "success") {
-        // Transfer was immediately successful
-        return {
-          success: true,
-          reference: transferData.reference,
-          transferCode: transferData.transfer_code,
-          message: "Transfer completed successfully"
-        };
-      } else if (transferData.status === "otp") {
-        // Transfer requires OTP - this should be automated
-        return handleOTPTransfer(transferData, PAYSTACK_SECRET_KEY);
-      } else if (transferData.status === "pending") {
-        // Check if it requires approval
-        if (transferData.requires_approval === 1) {
-          return {
-            success: false,
-            message: "Transfer requires manual approval from Paystack",
-            requiresApproval: true,
-            reference: transferData.reference
-          };
-        } else {
-          // It's pending but should process automatically
-          return {
-            success: true,
-            reference: transferData.reference,
-            transferCode: transferData.transfer_code,
-            message: "Transfer is being processed",
-            status: "pending"
-          };
-        }
-      } else {
-        return {
-          success: false,
-          message: `Transfer status: ${transferData.status}`,
-          reference: transferData.reference
-        };
-      }
-    } else {
-      return { 
-        success: false, 
-        message: transferResponse.data.message || "Transfer failed" 
-      };
-    }
+    return {
+      success: true,
+      recipientCode: response.data.data.recipient_code,
+    };
   } catch (error) {
-    console.error("Payment processing failed:", error.response?.data || error.message);
-    
-    // Handle specific Paystack error cases
-    const errorData = error.response?.data;
-    
-    if (errorData) {
-      // Check for transfer approval requirements
-      if (errorData.data?.code === 'transfer_requires_approval') {
-        return {
-          success: false,
-          message: "Transfer requires manual approval. Please contact support.",
-          requiresApproval: true
-        };
-      }
-      
-      // Check for insufficient balance
-      if (errorData.data?.code === 'insufficient_balance') {
-        return {
-          success: false,
-          message: "Insufficient balance in your Paystack account to process this transfer.",
-          insufficientBalance: true
-        };
-      }
-    }
-
-    return { 
-      success: false, 
-      message: errorData?.message || "An error occurred during payment processing",
-      code: errorData?.data?.code
+    const err = error.response?.data;
+    return {
+      success: false,
+      message: err?.message || "Recipient creation failed",
     };
   }
 };
 
-// Helper function to handle OTP transfers automatically
-const handleOTPTransfer = async (transferData, secretKey) => {
+/**
+ * Process Withdrawal Transfer
+ */
+export const processPayment = async (
+  bankCode,
+  accountNumber,
+  accountName,
+  amount, // already in KOBO
+  meta = {}
+) => {
   try {
-    // For OTP transfers, you need to finalize with OTP
-    // In production, you might want to store this and handle via webhook
-    // or use a default OTP if you've set one in Paystack dashboard
-    
-    console.log("Transfer requires OTP. Setting up for automatic finalization...");
-    
-    // If you have a fixed OTP for your business, you can use it here:
-    // const finalizeResponse = await axios.post(
-    //   "https://api.paystack.co/transfer/finalize_transfer",
-    //   {
-    //     transfer_code: transferData.transfer_code,
-    //     otp: "123456" // Your fixed OTP from Paystack
-    //   },
-    //   {
-    //     headers: {
-    //       Authorization: `Bearer ${secretKey}`,
-    //       "Content-Type": "application/json",
-    //     },
-    //   }
-    // );
-    
-    // For now, return pending status and handle via webhook
-    return {
-      success: true,
-      reference: transferData.reference,
-      transferCode: transferData.transfer_code,
-      message: "Transfer is being processed",
-      status: "pending",
-      requiresOTP: true
-    };
-    
-  } catch (error) {
-    console.error("OTP handling failed:", error.response?.data || error.message);
+    const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+
+    if (!PAYSTACK_SECRET_KEY) {
+      throw new Error("Missing Paystack Secret Key");
+    }
+
+    /**
+     * STEP 1 — Get recipient safely
+     */
+    const recipient = await getOrCreateRecipient(
+      PAYSTACK_SECRET_KEY,
+      bankCode,
+      accountNumber,
+      accountName
+    );
+
+    if (!recipient.success) {
+      return {
+        success: false,
+        message: recipient.message || "Failed to prepare recipient",
+      };
+    }
+
+    /**
+     * STEP 2 — Initiate transfer (SAFE MODE)
+     * DO NOT force instant sending
+     * Let Paystack risk engine process normally
+     */
+     const transferResponse = await axios.post(
+      `${PAYSTACK_BASE_URL}/transfer`,
+      {
+        source: "balance",
+        amount: amount < 100 ? amount * 100 : amount,
+        recipient: recipient.recipientCode,
+        reason: meta.reason || "Withdrawal Payment",
+        reference:
+          meta.reference ||
+          `WD_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
+      },
+      { headers: paystackHeaders(PAYSTACK_SECRET_KEY) }
+    );
+
+    const transferData = transferResponse.data.data;
+
+    if (!transferResponse.data.status) {
+      return {
+        success: false,
+        message: transferResponse.data.message || "Transfer failed",
+      };
+    }
+
+    /**
+     * STEP 3 — Interpret Paystack status safely
+     */
+
+    // SUCCESS
+    if (transferData.status === "success") {
+      return {
+        success: true,
+        reference: transferData.reference,
+        transferCode: transferData.transfer_code,
+        status: "success",
+        message: "Transfer completed successfully",
+      };
+    }
+
+    // PENDING (Normal auto-processing state)
+    if (transferData.status === "pending") {
+      return {
+        success: true,
+        reference: transferData.reference,
+        transferCode: transferData.transfer_code,
+        status: "pending",
+        message: "Transfer is being processed",
+      };
+    }
+
+    // OTP required (rare if OTP disabled)
+    if (transferData.status === "otp") {
+      return {
+        success: true,
+        reference: transferData.reference,
+        transferCode: transferData.transfer_code,
+        status: "pending",
+        requiresOTP: true,
+        message: "Transfer awaiting OTP finalization",
+      };
+    }
+
+    // Approval required
+    if (transferData.requires_approval === 1) {
+      return {
+        success: false,
+        requiresApproval: true,
+        reference: transferData.reference,
+        message: "Transfer requires Paystack approval",
+      };
+    }
+
+    // Any other state
     return {
       success: false,
-      message: "OTP requirement could not be processed automatically",
-      requiresOTP: true
+      reference: transferData.reference,
+      message: `Unhandled transfer status: ${transferData.status}`,
+    };
+  } catch (error) {
+    console.error("Payment processing failed:", error.response?.data || error.message);
+
+    const err = error.response?.data;
+
+    if (err?.data?.code === "transfer_requires_approval") {
+      return {
+        success: false,
+        requiresApproval: true,
+        message: "Transfer requires manual approval",
+      };
+    }
+
+    if (err?.data?.code === "insufficient_balance") {
+      return {
+        success: false,
+        insufficientBalance: true,
+        message: "Insufficient Paystack balance",
+      };
+    }
+
+    return {
+      success: false,
+      message: err?.message || "Payment processing error",
+      code: err?.data?.code,
     };
   }
 };
