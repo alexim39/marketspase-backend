@@ -8,10 +8,9 @@ import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 // Create feed post
+// Create campaign update post (for marketers)
 export const createFeedPost = asyncHandler(async (req, res) => {
-  const { content, type, earnings, campaign, tip, media, badge, userId } = req.body;
-
-  console.log(req.body);
+  const { content, campaignId, hashtags, userId, settings } = req.body;
 
   // Get user details
   const user = await UserModel.findById(userId).select('username displayName avatar role');
@@ -19,56 +18,63 @@ export const createFeedPost = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'User not found');
   }
 
-  // Validate campaign if type is campaign
-  if (type === 'campaign' && campaign?.campaignId) {
-    const campaignData = await CampaignModel.findById(campaign.campaignId);
-    if (!campaignData) {
-      throw new ApiError(404, 'Campaign not found');
-    }
-    campaign.name = campaignData.name;
-    campaign.budget = campaignData.budget;
+  // Verify user is a marketer
+  if (user.role !== 'marketer') {
+    throw new ApiError(403, 'Only marketers can create campaign updates');
   }
 
+  // Get campaign details
+  const campaign = await CampaignModel.findById(campaignId);
+  if (!campaign) {
+    throw new ApiError(404, 'Campaign not found');
+  }
+
+  // Verify campaign belongs to user
+  if (campaign.owner.toString() !== userId) {
+    throw new ApiError(403, 'You can only create updates for your own campaigns');
+  }
+
+  // Create post with campaign data
   const post = await FeedPostModel.create({
     author: userId,
     content,
-    type,
-    earnings,
-    campaign,
-    tip,
-    media,
-    badge: user.role === 'promoter' ? badge : null,
-    hashtags: [],
-    mentions: []
-  });
-
-  // Populate author details
-  await post.populate('author', 'username displayName avatar role rating');
-
-  // Log activity
-  await user.logActivity('feed_post_created', `Created a new ${type} post`, {
-    resourceType: 'feed',
-    resourceId: post._id
-  });
-
-  // Create notifications for mentions
-  if (post.mentions.length > 0) {
-    for (const mention of post.mentions) {
-      const mentionedUser = await UserModel.findOne({ username: mention.username });
-      if (mentionedUser && mentionedUser._id.toString() !== userId.toString()) {
-        await FeedNotificationModel.create({
-          recipient: mentionedUser._id,
-          type: 'mention',
-          post: post._id,
-          actor: userId,
-          message: `${user.displayName} mentioned you in a post`
-        });
-      }
+    type: 'campaign',
+    campaign: {
+      campaignId: campaign._id,
+      name: campaign.title,
+      budget: campaign.budget,
+      spentBudget: campaign.spentBudget,
+      status: campaign.status,
+      progress: campaign.progress
+    },
+    media: [{
+      url: campaign.mediaUrl,
+      type: campaign.mediaType,
+      thumbnail: campaign.thumbnailUrl
+    }],
+    hashtags: hashtags || [],
+    settings: {
+      postAnonymously: settings?.postAnonymously || false,
+      disableComments: settings?.disableComments || false
     }
+  });
+
+  // Populate author details (handle anonymous)
+  if (settings?.postAnonymously) {
+    post.author = null;
+  } else {
+    await post.populate('author', 'username displayName avatar role rating');
   }
 
+  // Log activity
+  await user.logActivity('campaign_update_created', `Created an update for campaign: ${campaign.title}`, {
+    resourceType: 'feed',
+    resourceId: post._id,
+    metadata: { campaignId: campaign._id }
+  });
+
   return res.status(201).json(
-    new ApiResponse(201, post, 'Post created successfully')
+    new ApiResponse(201, post, 'Campaign update created successfully')
   );
 });
 
