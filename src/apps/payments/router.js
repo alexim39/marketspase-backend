@@ -6,6 +6,11 @@ import { handleTransferEvent } from "./handlers/transfer.js";
 export function buildPaymentRouter() {
   const router = express.Router();
 
+  router.get("", (_req, res) => {
+    console.log("👀 Webhook GET test hit");
+    res.status(200).send("Webhook alive");
+  });
+
   router.post(
     "", // <-- FIXED (accepts /api/webhook/paystack without trailing slash)
     express.raw({ type: "application/json" }),
