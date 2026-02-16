@@ -4,7 +4,11 @@ import { UserModel } from "../../user/models/user.model.js";
 
 const PAYSTACK_BASE = "https://api.paystack.co";
 const SECRET = process.env.PAYSTACK_SECRET_KEY;
-const headers = { Authorization: `Bearer ${SECRET}` };
+
+const headers = {
+  Authorization: `Bearer ${SECRET}`,
+  "Content-Type": "application/json"
+};
 
 if (!SECRET) {
   console.warn("⚠ PAYSTACK_SECRET_KEY is not set");
@@ -18,34 +22,45 @@ export async function getOrCreateRecipient({
   bankCode,
   currency = "NGN",
 }) {
-  // 1) Reuse cached recipient_code if present
+  // 1️⃣ Reuse cached recipient_code if present
   if (userId) {
     const user = await UserModel.findById(userId);
     if (user?.savedAccounts?.length) {
       const acct = user.savedAccounts.find(
-        a => a.accountNumber === accountNumber && a.bankCode === bankCode && a.recipientCode
+        a => a.accountNumber === accountNumber &&
+             a.bankCode === bankCode &&
+             a.recipientCode
       );
       if (acct?.recipientCode) return acct.recipientCode;
     }
   }
 
-  // 2) Create at Paystack
+  // 2️⃣ Create at Paystack
   const resp = await axios.post(
     `${PAYSTACK_BASE}/transferrecipient`,
-    { type: "nuban", name, account_number: accountNumber, bank_code: bankCode, currency },
+    {
+      type: "nuban",
+      name,
+      account_number: accountNumber,
+      bank_code: bankCode,
+      currency
+    },
     { headers }
   );
 
   const recipientCode = resp?.data?.data?.recipient_code;
-  if (!recipientCode) throw new Error(resp?.data?.message || "Failed to create recipient");
+  if (!recipientCode) {
+    throw new Error(resp?.data?.message || "Failed to create recipient");
+  }
 
-  // 3) Cache in savedAccounts
+  // 3️⃣ Cache in savedAccounts
   if (userId) {
     const user = await UserModel.findById(userId);
     if (user) {
       let acct = user.savedAccounts?.find(
         a => a.accountNumber === accountNumber && a.bankCode === bankCode
       );
+
       if (!acct) {
         user.savedAccounts.push({
           bank: "",
@@ -63,6 +78,7 @@ export async function getOrCreateRecipient({
         acct.recipientCode = recipientCode;
         acct.lastUsed = new Date();
       }
+
       await user.save();
     }
   }
@@ -77,12 +93,17 @@ export async function initiateTransfer({
   reason = "Withdrawal Payment - MarketSpase",
   reference,
 }) {
-  const payload = { source: "balance", amount: amountKobo, recipient: recipientCode, reason };
+  const payload = {
+    source: "balance",
+    amount: amountKobo,
+    recipient: recipientCode,
+    reason,
+  };
+
   if (reference) payload.reference = reference;
 
   const resp = await axios.post(`${PAYSTACK_BASE}/transfer`, payload, { headers });
 
-  // resp.data.data = { status, transfer_code, reference, reason, ... }
   const ok = resp?.data?.status === true;
   const d = resp?.data?.data || {};
   const status = d?.status || (ok ? "pending" : "failed");
@@ -90,21 +111,48 @@ export async function initiateTransfer({
   return {
     raw: resp?.data,
     ok,
-    status,                         // 'success' | 'pending' | 'failed' | 'blocked' (rare)
+    status,
     transfer_code: d?.transfer_code || null,
-    reference: d?.reference || reference || null,  // use Paystack reference if returned; else our ref
+    reference: d?.reference || reference || null,
     message: d?.reason || resp?.data?.message || "",
   };
 }
 
+/** 🔥 NEW — Approve transfer when Paystack requires approval */
+export async function approveTransfer(reference) {
+  try {
+    const resp = await axios.post(
+      `${PAYSTACK_BASE}/transfer/finalize_transfer`,
+      {
+        transfer_code: reference
+      },
+      { headers }
+    );
+
+    return resp?.data;
+  } catch (err) {
+    console.error(
+      "Paystack approveTransfer failed:",
+      err?.response?.data || err.message
+    );
+    throw err;
+  }
+}
+
 /** Verify by reference (preferred) */
 export async function verifyTransferByReference(ref) {
-  const { data } = await axios.get(`${PAYSTACK_BASE}/transfer/verify/${ref}`, { headers });
+  const { data } = await axios.get(
+    `${PAYSTACK_BASE}/transfer/verify/${ref}`,
+    { headers }
+  );
   return data;
 }
 
-/** Fallback: fetch by transfer_code (when verify-by-reference says not_found) */
+/** Fallback: fetch by transfer_code */
 export async function fetchTransferByCode(transferCode) {
-  const { data } = await axios.get(`${PAYSTACK_BASE}/transfer/${transferCode}`, { headers });
+  const { data } = await axios.get(
+    `${PAYSTACK_BASE}/transfer/${transferCode}`,
+    { headers }
+  );
   return data;
 }
