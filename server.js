@@ -27,9 +27,9 @@ import StoreIndexRouter from './src/apps/store/routes/index.route.js';
 import ForumIndexRouter from './src/apps/forum/routes/index.js';
 import FeedsIndexRouter from './src/apps/feeds/routes/index.route.js';
 
-//import { registerPaymentEngine } from "./src/apps/payments/index.js";
+import { registerPaymentEngine } from "./src/apps/payments/index.js";
 
-import { buildPaymentRouter } from "./src/apps/payments/router.js";
+//import { buildPaymentRouter } from "./src/apps/payments/router.js";
 
 // Port and Host
 const PORT = process.env.PORT || 8080;
@@ -38,11 +38,11 @@ const app = express();
 dotenv.config();
 
 // Mount webhooks BEFORE body parsers
-// registerPaymentEngine(app, {
-//   // enableCron: true, // default
-// });
+registerPaymentEngine(app, {
+  // enableCron: true, // default
+});
 
-app.use('/api/webhook/paystack', buildPaymentRouter());
+//app.use('/api/webhook/paystack', buildPaymentRouter());
 
 
 // Middleware
