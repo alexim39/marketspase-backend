@@ -119,20 +119,26 @@ export async function initiateTransfer({
 }
 
 /** 🔥 NEW — Approve transfer when Paystack requires approval */
-export async function approveTransfer(reference) {
+/** 🔥 FINALIZE transfer for automatic approval accounts */
+export async function approveTransfer(transferCode) {
   try {
+    console.log("🔐 Finalizing transfer:", transferCode);
+
     const resp = await axios.post(
       `${PAYSTACK_BASE}/transfer/finalize_transfer`,
       {
-        transfer_code: reference
+        transfer_code: transferCode,
+        otp: "000000" // Required for auto-approved transfers
       },
       { headers }
     );
 
+    console.log("✅ Transfer finalized:", resp?.data);
+
     return resp?.data;
   } catch (err) {
     console.error(
-      "Paystack approveTransfer failed:",
+      "❌ Paystack approveTransfer failed:",
       err?.response?.data || err.message
     );
     throw err;
