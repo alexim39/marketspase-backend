@@ -42,14 +42,16 @@ export async function withdrawRequest(req, res) {
     if (!wallet) return res.status(400).json({ success: false, message: "Promoter wallet not found" });
 
     // Fee is deducted ONLY on success in finalizeTransfer, so we must ensure user can afford it.
-    const expectedFee = Math.round(amountKobo * PAYMENT_CONFIG.withdrawalFeePercent);
+    const grossKobo = toKobo(amount);
+    const feeKobo = Math.round(grossKobo * PAYMENT_CONFIG.withdrawalFeePercent);
+    const netKobo = grossKobo - feeKobo;
 
-    const totalNeeded = amountKobo + expectedFee;
-    if (wallet.balance < totalNeeded) {
+    // User only needs gross amount available
+    if (wallet.balance < grossKobo) {
       return res.status(400).json({
         success: false,
-        message: `Insufficient balance. Need ${(totalNeeded / 100).toFixed(2)} NGN`,
-        data: { balance: wallet.balance / 100, required: totalNeeded / 100 }
+        message: `Insufficient balance. Need ${(grossKobo / 100).toFixed(2)} NGN.`,
+        data: { balance: wallet.balance / 100, required: grossKobo / 100 }
       });
     }
 
@@ -98,7 +100,7 @@ export async function withdrawRequest(req, res) {
     await user.save();
 
     // 3) Call Paystack transfer initiation (engine will finalize via webhook/recon later) [8](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/process-payment.js)[4](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/transfer.js)[3](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/reconcileWithdrawals.js)
-    const payRes = await processPayment(bankCode, accountNumber, accountName, amountKobo, {
+    const payRes = await processPayment(bankCode, accountNumber, accountName, netKobo, {
       userId,
       reason: "Promoter Withdrawal - MarketSpase",
       reference
