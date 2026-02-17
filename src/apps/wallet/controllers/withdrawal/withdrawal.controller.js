@@ -12,7 +12,7 @@ function makeReference(prefix = "wd") {
   return `${prefix}_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
 }
 
-export async function requestWithdrawal(req, res) {
+export async function withdrawRequest(req, res) {
   try {
     const {
       saveAccount,
