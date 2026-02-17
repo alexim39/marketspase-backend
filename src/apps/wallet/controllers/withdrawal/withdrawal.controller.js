@@ -47,7 +47,7 @@ export async function withdrawRequest(req, res) {
     const netKobo = grossKobo - feeKobo;
 
     // User only needs gross amount available
-    if (wallet.balance < grossKobo) {
+    if (wallet.balance < amount) {
       return res.status(400).json({
         success: false,
         message: `Insufficient balance. Need ${(grossKobo / 100).toFixed(2)} NGN.`,
