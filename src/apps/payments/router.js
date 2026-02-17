@@ -15,7 +15,7 @@ export function buildPaymentRouter() {
    * 2. MAIN WEBHOOK ENDPOINT
    * Handles final status updates (success, failed, etc.)
    */
-  router.post("/", verifyPaystackSignature, async (req, res) => {
+  router.post("/approval", verifyPaystackSignature, async (req, res) => {
     try {
       const event = req.body;
       const type = event?.event || "";
