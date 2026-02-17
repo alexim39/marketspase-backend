@@ -1,231 +1,136 @@
-// controllers/withdrawal.controller.js
+// src/payments/controllers/withdraw.controller.js
+import crypto from "crypto";
+import { PAYMENT_CONFIG } from "../../../payments/config.js";
 import { UserModel } from '../../../user/models/user.model.js';
-import { sendEmail } from "../../../../services/email.service.js";
-import mongoose from 'mongoose';
-import dotenv from 'dotenv';
-import { assertAccountNotUsedByAnotherUser } from '../../services/account-ownership.service.js';
-import { withdrawalSuccessfulTemplate } from '../../services/email/withdrawalSuccessfulTemplate.js';
-import { withdrawalFailedTemplate } from '../../services/email/withdrawalFailedTemplate.js';
-import { getVerificationLevel } from '../../services/get-verify-level.service.js';
-import { processPayment } from '../../services/process-payment.js';
+import { processPayment } from "../../../payments/services/process-payment.js";
 
-dotenv.config();
-
-/** Normalize */
-function asNumber(n) {
-  const v = Number(n);
-  return Number.isNaN(v) ? NaN : v;
+function toKobo(naira) {
+  return Math.round(Number(naira) * 100);
 }
 
-/** Clean invalid ObjectIds in embedded transactions */
-const cleanInvalidTransactionIds = (wallet) => {
-  if (!wallet || !Array.isArray(wallet.transactions)) return;
-  wallet.transactions = wallet.transactions.map((tx) => {
-    try {
-      if (tx._id && !mongoose.isValidObjectId(tx._id)) {
-        tx._id = new mongoose.Types.ObjectId();
-      }
-    } catch {
-      tx._id = new mongoose.Types.ObjectId();
-    }
-    return tx;
-  });
-};
+function makeReference(prefix = "wd") {
+  return `${prefix}_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
+}
 
-export const withdrawRequest = async (req, res) => {
-  const {
-    bank,               // bank code (e.g., "058")
-    accountNumber,
-    accountName,
-    amount,             // KOBO
-    userId,
-    saveAccount,
-    bankName
-  } = req.body;
-
-  console.log('sent body ',req.body)
-
-  if (!userId || !amount || !bank || !accountNumber || !accountName) {
-    return res.status(400).json({
-      message: "Missing required fields.",
-      success: false,
-      code: "MISSING_REQUIRED_FIELDS",
-    });
-  }
-
-  // 🔥 Convert UI NAIRA → KOBO
-  const withdrawalAmount = Math.round(asNumber(amount) * 100);
-  if (Number.isNaN(withdrawalAmount) || withdrawalAmount <= 0) {
-    return res.status(400).json({
-      message: "Invalid withdrawal amount.",
-      success: false,
-      code: "INVALID_AMOUNT",
-    });
-  }
-    
-  // Fee is computed now BUT NOT deducted until success
-  const serviceFee = Math.round(withdrawalAmount * 0.18);
-  const amountPayable = withdrawalAmount - serviceFee; // net sent to bank
-
+export async function requestWithdrawal(req, res) {
   try {
-    // 1) Load user & basic checks
-    const user = await UserModel.findById(userId);
-    if (!user) return res.status(404).json({ message: "User not found", success: false });
-    if (!user.isActive || user.isDeleted) {
-      return res.status(403).json({ message: "Account inactive or deleted.", success: false });
-    }
-
-    // 2) Bank ownership guard
-    const ownershipCheck = await assertAccountNotUsedByAnotherUser({
-      bankCode: bank,
-      accountNumber,
-      accountName,
-      userId,
-    });
-    if (ownershipCheck.conflict) {
-      return res.status(409).json({
-        success: false,
-        code: "BANK_ACCOUNT_ALREADY_ASSOCIATED",
-        message: "This bank account belongs to another user.",
-        data: { source: ownershipCheck.source },
-      });
-    }
-
-    // 3) Verification
-    const verificationLevel = getVerificationLevel(user, accountNumber, accountName);
-    if (verificationLevel === "unverified") {
-      return res.status(403).json({
-        message: "Account ownership verification failed.",
-        success: false,
-        code: "ACCOUNT_OWNERSHIP_VERIFICATION_FAILED",
-      });
-    }
-
-    // 4) Balance check & initial deduction (GROSS only)
-    const promoterWallet = user.wallets.promoter;
-    if (promoterWallet.balance < amount) {
-      return res.status(400).json({ message: "Insufficient balance.", success: false });
-    }
-    promoterWallet.balance -= amount;
-
-    // 5) Create draft transaction
-    const tx = {
-      reference: undefined,          // will be set before provider call
-      gateway: "paystack",
-      currency: "NGN",
-      fee: 0,                        // will be set on success only
-      transferCode: undefined,
-      failureReason: undefined,
-
-      amount,      // GROSS requested
-      amountPayable,                 // NET sent to Paystack
-      type: "debit",
-      category: "withdrawal",
-      description: `Withdrawal to ${bankName} ending in ${accountNumber.slice(-4)}`,
-      status: "processing",
-      createdAt: new Date(),
-      processedAt: null,
-
-      providerReference: undefined, // Paystack's reference (not always same as ours)
-
-      bankDetails: { bank: bankName, bankCode: bank, accountNumber, accountName },
-      meta: { createdBy: "withdrawRequest", verifyLevel: verificationLevel },
-    };
-
-    promoterWallet.transactions.push(tx);
-    const txRef = promoterWallet.transactions[promoterWallet.transactions.length - 1];
-
-    // 6) Build/stash a stable reference and call provider (two-step under the hood)
-    const safeRef = txRef.reference || `WD_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    if (!txRef.reference) txRef.reference = safeRef;
-
-    const paymentResponse = await processPayment(
+    const {
+      saveAccount,
+      bankName,
+      bankCode,
       bank,
       accountNumber,
       accountName,
-      amountPayable,                          // KOBO
-      { userId, reason: "Withdrawal Payment - MarketSpase", reference: safeRef }
-    );
+      amount,
+      userId,
+    } = req.body || {};
 
-    
- // 🔴 CRITICAL: persist provider identifiers for recon
-    if (paymentResponse.reference) {
-      txRef.providerReference = paymentResponse.reference; // Paystack's reference
-    }
-    if (paymentResponse.transferCode) {
-      txRef.transferCode = paymentResponse.transferCode;   // Paystack's transfer_code (if you pipe it up)
+    if (!userId || !bankCode || !accountNumber || !accountName) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
+    const amountKobo = toKobo(amount);
+    if (!amountKobo || amountKobo <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid amount" });
+    }
 
-    txRef.meta.processPayment = {
-      success: paymentResponse.success,
-      status: paymentResponse.status,
-      message: paymentResponse.message,
-      requiresApproval: paymentResponse.requiresApproval,
-      insufficientBalance: paymentResponse.insufficientBalance,
+    // Load user + promoter wallet
+    const user = await UserModel.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    const wallet = user.wallets?.promoter;
+    if (!wallet) return res.status(400).json({ success: false, message: "Promoter wallet not found" });
+
+    // Fee is deducted ONLY on success in finalizeTransfer, so we must ensure user can afford it.
+    const expectedFee = Math.round(amountKobo * PAYMENT_CONFIG.withdrawalFeePercent);
+
+    const totalNeeded = amountKobo + expectedFee;
+    if (wallet.balance < totalNeeded) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient balance. Need ${(totalNeeded / 100).toFixed(2)} NGN`,
+        data: { balance: wallet.balance / 100, required: totalNeeded / 100 }
+      });
+    }
+
+    // Idempotency: if client sends an Idempotency-Key header you can use it as reference.
+    const reference = (req.headers["idempotency-key"] || "").trim() || makeReference("wd");
+
+    // Prevent duplicate reference within promoter wallet (you already index references) [12](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/user.model.js)
+    const existing = wallet.transactions.find(t => t.reference === reference);
+    if (existing) {
+      return res.status(200).json({
+        success: true,
+        message: "Withdrawal already initiated",
+        data: { reference, status: existing.status, transferCode: existing.transferCode || null }
+      });
+    }
+
+    // 1) Create tx record FIRST (engine finalizer searches by reference) [7](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/finalize.js)[10](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/transaction.schema.js)
+    const tx = {
+      reference,
+      gateway: "paystack",
+      currency: wallet.currency || "NGN",
+      amount: amountKobo,
+      amountPayable: amountKobo, // in your current design user receives gross; fee is separate [7](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/finalize.js)
+      type: "debit",
+      category: "withdrawal",
+      description: `Withdrawal to bank (${bankName || bankCode})`,
+      status: "initiated",
+      bankDetails: {
+        bank: bankName || bank || "",
+        bankCode: bankCode,
+        accountNumber,
+        accountName
+      },
+      meta: {
+        saveAccount: !!saveAccount,
+        // keep any UI fields for display/debug (but do not trust them for math)
+        ui: { bankName, bankCode, accountNumber, accountName, amount }
+      }
     };
 
-    // Immediate provider outcomes
-    if (paymentResponse.status === "blocked") {
-      // Refund gross (fee was never deducted)
-      promoterWallet.balance += withdrawalAmount;
-      txRef.status = "failed";
-      txRef.failureReason = "Transfer blocked by provider";
-      txRef.processedAt = new Date();
-      cleanInvalidTransactionIds(promoterWallet);
-      await user.save();
-      return res.status(200).json({
-        success: false,
-        message: "Withdrawal failed (blocked).",
-        data: { balance: promoterWallet.balance, transaction: txRef },
-      });
-    }
+    wallet.transactions.unshift(tx);
 
-    if (paymentResponse.insufficientBalance || paymentResponse.status === "failed") {
-      // Refund gross only
-      promoterWallet.balance += withdrawalAmount;
-      txRef.status = "failed";
-      txRef.failureReason = paymentResponse.message || "Provider insufficient balance";
-      txRef.processedAt = new Date();
-      cleanInvalidTransactionIds(promoterWallet);
-      await user.save();
-      return res.status(200).json({
-        success: false,
-        message: "Withdrawal failed!",
-        data: { balance: promoterWallet.balance, transaction: txRef },
-      });
-    }
+    // 2) Deduct gross amount immediately (the "hold")
+    wallet.balance -= amountKobo;
 
-    // Otherwise keep non-terminal; webhook/recon will finalize success/failure
-    txRef.status = "processing";
-
-    // Optionally store/refresh saved account info
-    if (saveAccount) {
-      const saved = user.savedAccounts.find(a => a.accountNumber === accountNumber && a.bankCode === bank);
-      if (!saved) {
-        user.savedAccounts.push({
-          bank: bankName, bankCode: bank, accountNumber, accountName,
-          verified: true, verifiedAt: new Date(), firstUsed: new Date(), lastUsed: new Date()
-        });
-      } else {
-        saved.lastUsed = new Date();
-      }
-    }
-
-    cleanInvalidTransactionIds(promoterWallet);
     await user.save();
 
-    return res.status(200).json({
-      message: "Withdrawal request processed.",
-      success: true,
-      data: { balance: promoterWallet.balance, transaction: txRef },
+    // 3) Call Paystack transfer initiation (engine will finalize via webhook/recon later) [8](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/process-payment.js)[4](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/transfer.js)[3](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/reconcileWithdrawals.js)
+    const payRes = await processPayment(bankCode, accountNumber, accountName, amountKobo, {
+      userId,
+      reason: "Promoter Withdrawal - MarketSpase",
+      reference
     });
 
-  } catch (error) {
-    console.error("Withdrawal error:", error);
-    return res.status(500).json({
-      message: "Unexpected error occurred.",
-      success: false,
+    // 4) Update tx with provider results (transferCode is useful for recon fallback) [3](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/reconcileWithdrawals.js)[8](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/process-payment.js)
+    const savedTx = wallet.transactions.find(t => t.reference === reference);
+    if (savedTx) {
+      savedTx.status = payRes.success ? "processing" : "failed";
+      savedTx.transferCode = payRes.transferCode || savedTx.transferCode;
+      savedTx.meta = { ...(savedTx.meta || {}), initiation: payRes };
+      if (!payRes.success) {
+        // If initiation failed immediately, refund gross now (since Paystack won’t send success webhook)
+        wallet.balance += amountKobo;
+      }
+      await user.save();
+    }
+
+    return res.status(200).json({
+      success: payRes.success,
+      message: payRes.success ? "Withdrawal initiated" : (payRes.message || "Withdrawal failed"),
+      data: {
+        reference,
+        status: payRes.success ? "processing" : "failed",
+        transferCode: payRes.transferCode || null,
+        // Fee is applied by finalizeTransfer only when Paystack confirms success [7](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/finalize.js)
+        expectedFee: expectedFee / 100,
+        grossAmount: amountKobo / 100
+      }
     });
+  } catch (err) {
+    console.error("requestWithdrawal error:", err?.response?.data || err?.message);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
-};
+}
