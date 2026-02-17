@@ -2,6 +2,7 @@
 import { PAYMENT_CONFIG } from "../config.js";
 import { UserModel } from "../../user/models/user.model.js";
 
+
 function findTxAcrossWallets(user, reference) {
   const pIdx = user.wallets?.promoter?.transactions?.findIndex(t => t.reference === reference) ?? -1;
   if (pIdx >= 0) return { wallet: "promoter", tx: user.wallets.promoter.transactions[pIdx] };
@@ -9,6 +10,7 @@ function findTxAcrossWallets(user, reference) {
   if (mIdx >= 0) return { wallet: "marketer", tx: user.wallets.marketer.transactions[mIdx] };
   return null;
 }
+
 
 /** DEPOSIT (marketer): credit net 90% (10% fee) exactly once */
 export async function finalizeDeposit(reference, amountKobo, rawMeta) {
@@ -37,7 +39,7 @@ export async function finalizeDeposit(reference, amountKobo, rawMeta) {
   return true;
 }
 
-/** WITHDRAWAL (promoter): fee (18%) deducted ONLY on success; refund gross only on fail/reverse */
+
 export async function finalizeTransfer(reference, outcome, amountKobo, details = {}) {
   const user = await UserModel.findOne({
     $or: [
@@ -49,6 +51,7 @@ export async function finalizeTransfer(reference, outcome, amountKobo, details =
 
   const found = findTxAcrossWallets(user, reference);
   if (!found) return false;
+
   const { wallet, tx } = found;
   const w = user.wallets[wallet];
 
@@ -56,30 +59,43 @@ export async function finalizeTransfer(reference, outcome, amountKobo, details =
     return true;
   }
 
+  // IMPORTANT:
+  // - tx.amount = gross (requested) that you deducted from wallet at initiation
+  // - tx.amountPayable = net (paid out) you sent to Paystack
+  // - fee = tx.amount - tx.amountPayable (or computed)
+  const gross = Number(tx.amount || 0);
+  const net = Number(tx.amountPayable || 0);
+
+  // If older records don't have amountPayable, fallback:
+  const computedFee = Math.round(gross * PAYMENT_CONFIG.withdrawalFeePercent);
+  const fee = tx.fee ?? (gross && net ? (gross - net) : computedFee);
+
   switch (outcome) {
     case "success": {
       tx.status = "successful";
       tx.transferCode = details.transfer_code;
       tx.processedAt = new Date();
+      tx.fee = fee;
       tx.meta = { ...(tx.meta || {}), finalizeSource: details.event || "recon" };
 
-      // Deduct the 18% fee ONLY now
-      const fee = Math.round(tx.amount * PAYMENT_CONFIG.withdrawalFeePercent);
-      tx.fee = fee;
-      w.balance -= fee;          // fee removal now
+      // ✅ DO NOT deduct fee from wallet here anymore.
+      // Fee is already embedded because we paid net out of gross at initiation.
       break;
     }
+
     case "failed":
     case "reversed": {
-      // Refund ONLY the gross amount (fee was never deducted)
-      w.balance += (tx.amount || 0);
-
+      // ✅ Refund gross (what you initially debited)
+      w.balance += gross;
       tx.status = outcome;
-      tx.failureReason = details.reason || details.message || (outcome === "failed" ? "Transfer failed" : "Transfer reversed");
+      tx.failureReason =
+        details.reason || details.message || (outcome === "failed" ? "Transfer failed" : "Transfer reversed");
       tx.processedAt = new Date();
-      tx.meta = { ...(tx.meta || {}), finalizeSource: details.event || "recon", refunded: tx.amount || 0 };
+      tx.fee = 0; // nothing charged if payout failed
+      tx.meta = { ...(tx.meta || {}), finalizeSource: details.event || "recon", refunded: gross };
       break;
     }
+
     case "pending": {
       tx.status = "processing";
       tx.meta = { ...(tx.meta || {}), finalizeSource: details.event || "recon" };
