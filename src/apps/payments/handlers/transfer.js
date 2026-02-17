@@ -21,54 +21,42 @@ export async function handleTransferEvent(event) {
 } */
 
 
+
+  // src/payments/handlers/transfer.js
 import { finalizeTransfer } from "../services/finalize.js";
-import { approveTransfer } from "../services/paystackTransferService.js";
 
 export async function handleTransferEvent(event) {
-  const type = event?.event || "";
-  const data = event?.data || {};
-  const reference = data?.reference;
-  const transferCode = data?.transfer_code;
-  const status = data?.status;
+  const type = event?.event;
+  const data = event?.data;
 
-  console.log("📩 Transfer event received:", type, "| Status:", status);
-
-  if (!reference) return;
-
-  const amountKobo = Number(data.amount || 0);
-
-  // 🔐 HANDLE APPROVAL TRIGGER
-  if (
-    type === "transfer.requires_approval" ||
-    (type === "transfer.created" && status === "blocked")
-  ) {
-    console.log("🔐 Transfer requires approval:", reference);
-
-    try {
-      if (transferCode) {
-        await approveTransfer(transferCode);
-        console.log("✅ Transfer approved automatically:", transferCode);
-      } else {
-        console.log("⚠ No transfer code found for approval");
-      }
-    } catch (err) {
-      console.error("❌ Failed to approve transfer:", err?.response?.data || err.message);
-    }
-
+  // 1. Structural Guard: Ensure data and reference exist
+  if (!data || !data.reference) {
+    console.error("Missing transfer data or reference:", event);
     return;
   }
 
-  // Final states
-  if (type === "transfer.success") {
-    await finalizeTransfer(reference, "success", amountKobo, { ...data, event: type });
-  } 
-  else if (type === "transfer.failed") {
-    await finalizeTransfer(reference, "failed", amountKobo, { ...data, event: type });
-  } 
-  else if (type === "transfer.reversed") {
-    await finalizeTransfer(reference, "reversed", amountKobo, { ...data, event: type });
-  } 
-  else if (type === "transfer.pending") {
-    await finalizeTransfer(reference, "pending", amountKobo, { ...data, event: type });
+  const reference = data.reference;
+  const amountKobo = Number(data.amount || 0);
+
+  // 2. Define valid statuses
+  const validStatuses = [
+    "transfer.success", 
+    "transfer.failed", 
+    "transfer.reversed", 
+    "transfer.pending"
+  ];
+
+  if (validStatuses.includes(type)) {
+    // Strip "transfer." prefix to get status: "success", "failed", etc.
+    const status = type.split(".")[1]; 
+    
+    console.log(`Processing transfer ${reference} with status: ${status}`);
+    
+    await finalizeTransfer(reference, status, amountKobo, { 
+      ...data, 
+      event_type: type 
+    });
+  } else {
+    console.warn(`Unhandled transfer event type: ${type}`);
   }
 }
