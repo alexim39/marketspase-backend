@@ -10,13 +10,13 @@ import { getOrCreateRecipient, initiateTransfer } from "./paystackTransferServic
  *   - reason?: string
  *   - reference?: string    // idempotency for provider & for webhook/recon matching
  */
-export async function processPayment(bankCode, accountNumber, accountName, amountKobo, opts = {}) {
+export async function processPayment(bankCode, accountNumber, accountName, amount, opts = {}) {
   try {
     const { userId, reason, reference } = opts;
 
     //console.log('options: ',opts, bankCode, accountNumber, accountName, amount)
 
-    const amountKobo =  Math.round(Number(naira) * 100);
+    const amountKobo =  Math.round(Number(amount) * 100);
 
     // 1) Ensure recipient_code (cached by (bankCode, accountNumber))
     const recipientCode = await getOrCreateRecipient({

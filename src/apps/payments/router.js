@@ -11,39 +11,30 @@ export function buildPaymentRouter() {
     res.status(200).send("Webhook alive");
   });
 
-  router.post(
-    "", // <-- FIXED (accepts /api/webhook/paystack without trailing slash)
-    express.raw({ type: "application/json" }),
-    (req, _res, next) => {
-      req.rawBody = req.body;
-      try {
-        req.body = JSON.parse(req.body);
-      } catch {
-        req.body = {};
+ /**
+   * 2. MAIN WEBHOOK ENDPOINT
+   * Handles final status updates (success, failed, etc.)
+   */
+  router.post("/", verifyPaystackSignature, async (req, res) => {
+    try {
+      const event = req.body;
+      const type = event?.event || "";
+
+      if (type.startsWith("charge.")) {
+        await handleDepositEvent(event);
+      } else if (type.startsWith("transfer.")) {
+        await handleTransferEvent(event);
       }
-      next();
-    },
-    verifyPaystackSignature,
-    async (req, res) => {
-      try {
-        console.log("🔥 Paystack webhook received:", req.body?.event);
 
-        const event = req.body;
-        const type = event?.event || "";
-
-        if (type.startsWith("charge.")) {
-          await handleDepositEvent(event);
-        } else if (type.startsWith("transfer.")) {
-          await handleTransferEvent(event);
-        }
-
-        return res.status(200).json({ received: true });
-      } catch (err) {
-        console.error("Webhook error:", err);
-        return res.status(200).json({ received: true });
-      }
+      return res.status(200).json({ received: true });
+    } catch (err) {
+      console.error("Webhook error:", err);
+      // Always return 200 to Paystack for webhooks to avoid retries, 
+      // unless you specifically want a retry.
+      return res.status(200).json({ received: true });
     }
-  );
+  });
 
   return router;
 }
+
