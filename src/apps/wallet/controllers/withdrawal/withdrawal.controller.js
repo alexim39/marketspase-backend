@@ -1,4 +1,5 @@
 // controllers/withdrawal.controller.js
+
 import { UserModel } from '../../../user/models/user.model.js';
 import { sendEmail } from "../../../../services/email.service.js";
 import mongoose from 'mongoose';
@@ -34,10 +35,10 @@ const cleanInvalidTransactionIds = (wallet) => {
 
 export const withdrawRequest = async (req, res) => {
   const {
-    bank,               // bank code (e.g., "058")
+    bank,
     accountNumber,
     accountName,
-    amount,             // KOBO
+    amount, // UI sends NAIRA
     userId,
     saveAccount,
     bankName
@@ -51,8 +52,12 @@ export const withdrawRequest = async (req, res) => {
     });
   }
 
-  const withdrawalAmount = asNumber(amount);
-  if (Number.isNaN(withdrawalAmount) || withdrawalAmount <= 0) {
+  /**
+   * 🔥 FIX 1 — Convert UI NAIRA → KOBO
+   */
+  const withdrawalAmountNaira = asNumber(amount);
+
+  if (Number.isNaN(withdrawalAmountNaira) || withdrawalAmountNaira <= 0) {
     return res.status(400).json({
       message: "Invalid withdrawal amount.",
       success: false,
@@ -60,25 +65,49 @@ export const withdrawRequest = async (req, res) => {
     });
   }
 
-  // Fee is computed now BUT NOT deducted until success
+  const withdrawalAmount = Math.round(withdrawalAmountNaira * 100); // Kobo
+
+  /**
+   * 🔥 FIX 2 — Prevent micro transfers (Paystack risk trigger)
+   */
+  if (withdrawalAmount < 1000) {
+    return res.status(400).json({
+      success: false,
+      message: "Minimum withdrawal is ₦10",
+    });
+  }
+
+  /**
+   * 🔥 FIX 3 — Fee computed in KOBO
+   */
   const serviceFee = Math.round(withdrawalAmount * 0.18);
-  const amountPayable = withdrawalAmount - serviceFee; // net sent to bank
+  const amountPayable = withdrawalAmount - serviceFee;
+
+  if (amountPayable < 1000) {
+    return res.status(400).json({
+      success: false,
+      message: "Withdrawal too small after fees.",
+    });
+  }
 
   try {
-    // 1) Load user & basic checks
+
     const user = await UserModel.findById(userId);
     if (!user) return res.status(404).json({ message: "User not found", success: false });
     if (!user.isActive || user.isDeleted) {
       return res.status(403).json({ message: "Account inactive or deleted.", success: false });
     }
 
-    // 2) Bank ownership guard
+    /**
+     * Ownership check
+     */
     const ownershipCheck = await assertAccountNotUsedByAnotherUser({
       bankCode: bank,
       accountNumber,
       accountName,
       userId,
     });
+
     if (ownershipCheck.conflict) {
       return res.status(409).json({
         success: false,
@@ -88,8 +117,11 @@ export const withdrawRequest = async (req, res) => {
       });
     }
 
-    // 3) Verification
+    /**
+     * Verification check
+     */
     const verificationLevel = getVerificationLevel(user, accountNumber, accountName);
+
     if (verificationLevel === "unverified") {
       return res.status(403).json({
         message: "Account ownership verification failed.",
@@ -98,33 +130,39 @@ export const withdrawRequest = async (req, res) => {
       });
     }
 
-    // 4) Balance check & initial deduction (GROSS only)
+    /**
+     * Wallet check (wallet already in KOBO)
+     */
     const promoterWallet = user.wallets.promoter;
+
     if (promoterWallet.balance < withdrawalAmount) {
       return res.status(400).json({ message: "Insufficient balance.", success: false });
     }
+
+    /**
+     * Deduct GROSS (KOBO)
+     */
     promoterWallet.balance -= withdrawalAmount;
 
-    // 5) Create draft transaction
+    /**
+     * Create TX
+     */
     const tx = {
-      reference: undefined,          // will be set before provider call
+      reference: undefined,
       gateway: "paystack",
       currency: "NGN",
-      fee: 0,                        // will be set on success only
+      fee: 0,
       transferCode: undefined,
       failureReason: undefined,
-
-      amount: withdrawalAmount,      // GROSS requested
-      amountPayable,                 // NET sent to Paystack
+      amount: withdrawalAmount,
+      amountPayable,
       type: "debit",
       category: "withdrawal",
       description: `Withdrawal to ${bankName} ending in ${accountNumber.slice(-4)}`,
       status: "processing",
       createdAt: new Date(),
       processedAt: null,
-
-      providerReference: undefined, // Paystack's reference (not always same as ours)
-
+      providerReference: undefined,
       bankDetails: { bank: bankName, bankCode: bank, accountNumber, accountName },
       meta: { createdBy: "withdrawRequest", verifyLevel: verificationLevel },
     };
@@ -132,77 +170,67 @@ export const withdrawRequest = async (req, res) => {
     promoterWallet.transactions.push(tx);
     const txRef = promoterWallet.transactions[promoterWallet.transactions.length - 1];
 
-    // 6) Build/stash a stable reference and call provider (two-step under the hood)
     const safeRef = txRef.reference || `WD_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     if (!txRef.reference) txRef.reference = safeRef;
 
+    /**
+     * 🔥 CALL PAYMENT ENGINE (KOBO)
+     */
     const paymentResponse = await processPayment(
       bank,
       accountNumber,
       accountName,
-      amountPayable,                          // KOBO
+      amountPayable,
       { userId, reason: "Withdrawal Payment - MarketSpase", reference: safeRef }
     );
 
-    
- // 🔴 CRITICAL: persist provider identifiers for recon
+    /**
+     * Store provider identifiers
+     */
     if (paymentResponse.reference) {
-      txRef.providerReference = paymentResponse.reference; // Paystack's reference
+      txRef.providerReference = paymentResponse.reference;
     }
     if (paymentResponse.transferCode) {
-      txRef.transferCode = paymentResponse.transferCode;   // Paystack's transfer_code (if you pipe it up)
+      txRef.transferCode = paymentResponse.transferCode;
     }
 
+    txRef.meta.processPayment = paymentResponse;
 
-    txRef.meta.processPayment = {
-      success: paymentResponse.success,
-      status: paymentResponse.status,
-      message: paymentResponse.message,
-      requiresApproval: paymentResponse.requiresApproval,
-      insufficientBalance: paymentResponse.insufficientBalance,
-    };
+    /**
+     * Handle immediate failure
+     */
+    if (paymentResponse.status === "blocked" || paymentResponse.success === false) {
 
-    // Immediate provider outcomes
-    if (paymentResponse.status === "blocked") {
-      // Refund gross (fee was never deducted)
       promoterWallet.balance += withdrawalAmount;
+
       txRef.status = "failed";
-      txRef.failureReason = "Transfer blocked by provider";
+      txRef.failureReason = paymentResponse.message || "Transfer blocked";
       txRef.processedAt = new Date();
+
       cleanInvalidTransactionIds(promoterWallet);
       await user.save();
+
       return res.status(200).json({
         success: false,
-        message: "Withdrawal failed (blocked).",
+        message: "Withdrawal failed.",
         data: { balance: promoterWallet.balance, transaction: txRef },
       });
     }
 
-    if (paymentResponse.insufficientBalance || paymentResponse.status === "failed") {
-      // Refund gross only
-      promoterWallet.balance += withdrawalAmount;
-      txRef.status = "failed";
-      txRef.failureReason = paymentResponse.message || "Provider insufficient balance";
-      txRef.processedAt = new Date();
-      cleanInvalidTransactionIds(promoterWallet);
-      await user.save();
-      return res.status(200).json({
-        success: false,
-        message: "Withdrawal failed!",
-        data: { balance: promoterWallet.balance, transaction: txRef },
-      });
-    }
-
-    // Otherwise keep non-terminal; webhook/recon will finalize success/failure
     txRef.status = "processing";
 
-    // Optionally store/refresh saved account info
     if (saveAccount) {
       const saved = user.savedAccounts.find(a => a.accountNumber === accountNumber && a.bankCode === bank);
       if (!saved) {
         user.savedAccounts.push({
-          bank: bankName, bankCode: bank, accountNumber, accountName,
-          verified: true, verifiedAt: new Date(), firstUsed: new Date(), lastUsed: new Date()
+          bank: bankName,
+          bankCode: bank,
+          accountNumber,
+          accountName,
+          verified: true,
+          verifiedAt: new Date(),
+          firstUsed: new Date(),
+          lastUsed: new Date()
         });
       } else {
         saved.lastUsed = new Date();
