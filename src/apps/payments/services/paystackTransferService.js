@@ -100,6 +100,8 @@ export async function initiateTransfer({
     reason,
   };
 
+  console.log('paystack payload ',payload)
+
   if (reference) payload.reference = reference;
 
   const resp = await axios.post(`${PAYSTACK_BASE}/transfer`, payload, { headers });
