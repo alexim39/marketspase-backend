@@ -4,10 +4,6 @@ import { PAYMENT_CONFIG } from "../../../payments/config.js";
 import { UserModel } from '../../../user/models/user.model.js';
 import { processPayment } from "../../../payments/services/process-payment.js";
 
-function toKobo(naira) {
-  return Math.round(Number(naira) * 100);
-}
-
 function makeReference(prefix = "wd") {
   return `${prefix}_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
 }
@@ -29,8 +25,8 @@ export async function withdrawRequest(req, res) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    const amountKobo = toKobo(amount);
-    if (!amountKobo || amountKobo <= 0) {
+    //const amountKobo = toKobo(amount);
+    if (!amount || amount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid amount" });
     }
 
@@ -42,16 +38,15 @@ export async function withdrawRequest(req, res) {
     if (!wallet) return res.status(400).json({ success: false, message: "Promoter wallet not found" });
 
     // Fee is deducted ONLY on success in finalizeTransfer, so we must ensure user can afford it.
-    const grossKobo = toKobo(amount);
-    const feeKobo = Math.round(grossKobo * PAYMENT_CONFIG.withdrawalFeePercent);
-    const netKobo = grossKobo - feeKobo;
+    const fee = Math.round(amount * PAYMENT_CONFIG.withdrawalFeePercent);
+    const payable = amount - fee;
 
     // User only needs gross amount available
-    if (wallet.balance < amount) {
+    if (amount > wallet.balance) {
       return res.status(400).json({
         success: false,
-        message: `Insufficient balance. Need ${(grossKobo / 100).toFixed(2)} NGN.`,
-        data: { balance: wallet.balance / 100, required: grossKobo / 100 }
+        message: `Insufficient balance.`,
+        data: { balance: wallet.balance, required: amount }
       });
     }
 
@@ -73,8 +68,8 @@ export async function withdrawRequest(req, res) {
       reference,
       gateway: "paystack",
       currency: wallet.currency || "NGN",
-      amount: amountKobo,
-      amountPayable: amountKobo, // in your current design user receives gross; fee is separate [7](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/finalize.js)
+      amount,
+      amountPayable: payable, // in your current design user receives gross; fee is separate [7](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/finalize.js)
       type: "debit",
       category: "withdrawal",
       description: `Withdrawal to bank (${bankName || bankCode})`,
@@ -95,12 +90,12 @@ export async function withdrawRequest(req, res) {
     wallet.transactions.unshift(tx);
 
     // 2) Deduct gross amount immediately (the "hold")
-    wallet.balance -= amountKobo;
+    wallet.balance -= amount;
 
     await user.save();
 
     // 3) Call Paystack transfer initiation (engine will finalize via webhook/recon later) [8](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/process-payment.js)[4](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/transfer.js)[3](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/reconcileWithdrawals.js)
-    const payRes = await processPayment(bankCode, accountNumber, accountName, netKobo, {
+    const payRes = await processPayment(bankCode, accountNumber, accountName, payable, {
       userId,
       reason: "Promoter Withdrawal - MarketSpase",
       reference
@@ -114,7 +109,7 @@ export async function withdrawRequest(req, res) {
       savedTx.meta = { ...(savedTx.meta || {}), initiation: payRes };
       if (!payRes.success) {
         // If initiation failed immediately, refund gross now (since Paystack won’t send success webhook)
-        wallet.balance += amountKobo;
+        wallet.balance += amount;
       }
       await user.save();
     }
@@ -127,8 +122,8 @@ export async function withdrawRequest(req, res) {
         status: payRes.success ? "processing" : "failed",
         transferCode: payRes.transferCode || null,
         // Fee is applied by finalizeTransfer only when Paystack confirms success [7](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/finalize.js)
-        expectedFee: expectedFee / 100,
-        grossAmount: amountKobo / 100
+        expectedFee: fee,
+        grossAmount: amount
       }
     });
   } catch (err) {

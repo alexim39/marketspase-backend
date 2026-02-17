@@ -14,6 +14,10 @@ export async function processPayment(bankCode, accountNumber, accountName, amoun
   try {
     const { userId, reason, reference } = opts;
 
+    //console.log('options: ',opts, bankCode, accountNumber, accountName, amount)
+
+    const amountKobo =  Math.round(Number(naira) * 100);
+
     // 1) Ensure recipient_code (cached by (bankCode, accountNumber))
     const recipientCode = await getOrCreateRecipient({
       userId,
@@ -30,6 +34,8 @@ export async function processPayment(bankCode, accountNumber, accountName, amoun
       reason: reason || "Withdrawal Payment - MarketSpase",
       reference,
     });
+
+    console.log('paystack response ',res)
 
     const status = res.status; // 'success' | 'pending' | 'failed' | 'blocked'(rare)
     const isBlocked = status?.toLowerCase() === "blocked";
