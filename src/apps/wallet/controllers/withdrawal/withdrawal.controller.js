@@ -25,7 +25,6 @@ export async function withdrawRequest(req, res) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    //const amountKobo = toKobo(amount);
     if (!amount || amount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid amount" });
     }
