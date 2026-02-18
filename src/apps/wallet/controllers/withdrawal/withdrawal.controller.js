@@ -55,9 +55,7 @@ export const withdrawRequest = async (req, res) => {
     });
   }
 
-  // Convert UI NAIRA → KOBO
-  const withdrawalAmount = Math.round(asNumber(amount) * 100);
-  if (Number.isNaN(withdrawalAmount) || withdrawalAmount <= 0) {
+  if (Number.isNaN(amount) || amount <= 0) {
     return res.status(400).json({
       message: "Invalid withdrawal amount.",
       success: false,
@@ -65,9 +63,9 @@ export const withdrawRequest = async (req, res) => {
     });
   }
     
-  // Calculate fee (18%)
-  const serviceFee = Math.round(withdrawalAmount * 0.18);
-  const amountPayable = withdrawalAmount - serviceFee;
+  // // Calculate fee (18%)
+  const serviceFee = Math.round(amount * 0.18);
+  // const amountPayable = withdrawalAmount - serviceFee;
 
   try {
     // 1) Load user & basic checks
@@ -88,7 +86,7 @@ export const withdrawRequest = async (req, res) => {
 
     // 2) Optional: Check Paystack balance before proceeding
     const balanceCheck = await checkPaystackBalance();
-    if (!balanceCheck.success || balanceCheck.balance < amountPayable) {
+    if (!balanceCheck.success || balanceCheck.balance < payableAmount) {
       console.warn('Paystack balance warning:', balanceCheck);
       // Continue anyway - webhook will handle failure if insufficient
     }
@@ -122,7 +120,7 @@ export const withdrawRequest = async (req, res) => {
 
     // 5) Balance check & initial deduction
     const promoterWallet = user.wallets.promoter;
-    if (promoterWallet.balance < withdrawalAmount) {
+    if (promoterWallet.balance < amount) {
       return res.status(400).json({ 
         message: "Insufficient balance.", 
         success: false 
@@ -130,7 +128,7 @@ export const withdrawRequest = async (req, res) => {
     }
     
     // Deduct gross amount from user balance
-    promoterWallet.balance -= withdrawalAmount;
+    promoterWallet.balance -= amount;
 
     // 6) Create transaction
     const tx = {
@@ -171,7 +169,7 @@ export const withdrawRequest = async (req, res) => {
       bank,
       accountNumber,
       accountName,
-      amountPayable,
+      payableAmount,
       { 
         userId, 
         reason: `Withdrawal to ${accountName} - MarketSpase`, 
@@ -197,7 +195,7 @@ export const withdrawRequest = async (req, res) => {
     // Handle immediate failures
     if (!paymentResponse.success) {
       // Refund the user
-      promoterWallet.balance += withdrawalAmount;
+      promoterWallet.balance += amount;
       txRef.status = "failed";
       txRef.failureReason = paymentResponse.message || "Transfer failed";
       txRef.processedAt = new Date();
@@ -206,23 +204,23 @@ export const withdrawRequest = async (req, res) => {
       await user.save();
 
       // Send failure notification
-      if (user.email) {
-        try {
-          const emailTemplate = withdrawalFailedTemplate(
-            user.displayName || user.username,
-            (withdrawalAmount / 100).toFixed(2),
-            paymentResponse.message || 'Transfer failed',
-            new Date().toLocaleDateString()
-          );
-          await sendEmail({
-            to: user.email,
-            subject: 'Withdrawal Failed - Funds Refunded',
-            html: emailTemplate
-          });
-        } catch (emailError) {
-          console.error('Failed to send failure email:', emailError);
-        }
-      }
+      // if (user.email) {
+      //   try {
+      //     const emailTemplate = withdrawalFailedTemplate(
+      //       user.displayName || user.username,
+      //       (amount / 100).toFixed(2),
+      //       paymentResponse.message || 'Transfer failed',
+      //       new Date().toLocaleDateString()
+      //     );
+      //     await sendEmail({
+      //       to: user.email,
+      //       subject: 'Withdrawal Failed - Funds Refunded',
+      //       html: emailTemplate
+      //     });
+      //   } catch (emailError) {
+      //     console.error('Failed to send failure email:', emailError);
+      //   }
+      // }
 
       return res.status(200).json({
         success: false,
@@ -245,7 +243,7 @@ export const withdrawRequest = async (req, res) => {
         try {
           const emailTemplate = withdrawalSuccessfulTemplate(
             user.displayName || user.username,
-            (withdrawalAmount / 100).toFixed(2),
+            (amount / 100).toFixed(2),
             accountNumber.slice(-4),
             bankName || bank,
             new Date().toLocaleDateString()
@@ -263,13 +261,13 @@ export const withdrawRequest = async (req, res) => {
       // Add to activity log
       await user.logActivity(
         'withdrawal_completed',
-        `Withdrawal of ₦${(withdrawalAmount / 100).toFixed(2)} completed successfully`,
+        `Withdrawal of ₦${(amount / 100).toFixed(2)} completed successfully`,
         {
           resourceType: 'withdrawal',
           metadata: {
             transactionId: txRef._id,
             reference: txRef.reference,
-            amount: withdrawalAmount
+            amount: amount
           }
         }
       );
