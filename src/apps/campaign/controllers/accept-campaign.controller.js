@@ -17,6 +17,7 @@ const isRetryableTxnError = (err) =>
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export const acceptCampaign = async (req, res) => {
+  
   let lastErr;
   for (let attempt = 1; attempt <= MAX_TX_RETRIES; attempt++) {
     const session = await mongoose.startSession();
@@ -24,6 +25,9 @@ export const acceptCampaign = async (req, res) => {
       const promotion = await session.withTransaction(async () => {
         const { campaignId } = req.params;
         const { userId } = req.body;
+
+        //console.log('campaignId ',campaignId)
+        //console.log('userId ',userId)
 
         /* 1️⃣ Load campaign */
         const campaign = await CampaignModel.findById(campaignId)
@@ -40,12 +44,16 @@ export const acceptCampaign = async (req, res) => {
         if (campaign.currentPromoters >= campaign.maxPromoters)
           throw { status: 400, message: "Campaign has reached promoter limit" };
 
+        //console.log('campaign ',campaign)
+
         /* 2️⃣ Load promoter */
         const promoter = await UserModel.findById(userId)
           .session(session)
           .select("_id role");
         if (!promoter || promoter.role !== "promoter")
           throw { status: 403, message: "Only promoters can accept campaigns" };
+
+        //console.log('promoter ',promoter)
 
         /* 3️⃣ Idempotency check (block if an active accept already exists for this campaign) */
         const existingPromotion = await PromotionModel.findOne({
@@ -55,6 +63,8 @@ export const acceptCampaign = async (req, res) => {
         }).session(session);
         if (existingPromotion)
           throw { status: 409, message: "Campaign already accepted" }; // keeps existing behavior
+
+        //console.log('existingPromotion ',existingPromotion)
 
         /* 3️⃣.a Lifetime cap: prevent >3 accepts for the same campaign by the same promoter */
         const lifetimeCount = await PromotionModel.countDocuments({
@@ -70,10 +80,13 @@ export const acceptCampaign = async (req, res) => {
         }
         // (This is inside the same transaction, so concurrent requests won't slip through) 
 
+
         /* 4️⃣ Load marketer + reserve funds */
         const marketer = await UserModel.findById(campaign.owner)
           .session(session)
           .select("wallets.marketer");
+
+          //console.log('marketer ',marketer)
 
         const payout = Number(campaign.payoutPerPromotion);
         if (!Number.isFinite(payout) || payout <= 0) {
@@ -141,20 +154,31 @@ export const acceptCampaign = async (req, res) => {
           },
         });
 
-        await UserModel.updateOne(
-          { _id: campaign.owner },
-          { $set: { lastSeenAt: new Date() } }
-        );
-
         return promotion;
-      });
+      },
+      {
+        maxCommitTimeMS: 8000,      // cap commit time
+        readConcern: { level: "snapshot" },
+        writeConcern: { w: "majority" }
+      }
+      );
 
       session.endSession();
+
+       // do NOT await
+      setImmediate(() => {
+        UserModel.updateOne(
+          { _id: req.body.userId },
+          { $set: { lastSeenAt: new Date() } }
+        ).catch(err => console.error("lastSeenAt update failed:", err.message));
+      });
+
       return res.json({
         success: true,
         message: "Campaign accepted successfully",
         promotion,
       });
+
     } catch (err) {
       session.endSession();
       if (isRetryableTxnError(err) && attempt < MAX_TX_RETRIES) {

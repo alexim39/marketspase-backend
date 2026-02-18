@@ -1,132 +1,353 @@
-// src/payments/controllers/withdraw.controller.js
-import crypto from "crypto";
-import { PAYMENT_CONFIG } from "../../../payments/config.js";
+// controllers/withdrawal.controller.js
 import { UserModel } from '../../../user/models/user.model.js';
-import { processPayment } from "../../../payments/services/process-payment.js";
+import { sendEmail } from "../../../../services/email.service.js";
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+import { assertAccountNotUsedByAnotherUser } from '../../services/account-ownership.service.js';
+import { withdrawalSuccessfulTemplate } from '../../services/email/withdrawalSuccessfulTemplate.js';
+import { withdrawalFailedTemplate } from '../../services/email/withdrawalFailedTemplate.js';
+import { getVerificationLevel } from '../../services/get-verify-level.service.js';
+import { processPayment, checkPaystackBalance } from '../../services/process-payment.js';
 
-function makeReference(prefix = "wd") {
-  return `${prefix}_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
+dotenv.config();
+
+/** Normalize */
+function asNumber(n) {
+  const v = Number(n);
+  return Number.isNaN(v) ? NaN : v;
 }
 
-export async function withdrawRequest(req, res) {
+/** Clean invalid ObjectIds in embedded transactions */
+const cleanInvalidTransactionIds = (wallet) => {
+  if (!wallet || !Array.isArray(wallet.transactions)) return;
+  wallet.transactions = wallet.transactions.map((tx) => {
+    try {
+      if (tx._id && !mongoose.isValidObjectId(tx._id)) {
+        tx._id = new mongoose.Types.ObjectId();
+      }
+    } catch {
+      tx._id = new mongoose.Types.ObjectId();
+    }
+    return tx;
+  });
+};
+
+export const withdrawRequest = async (req, res) => {
+  const {
+    bank,
+    accountNumber,
+    accountName,
+    amount,
+    userId,
+    saveAccount,
+    bankName,
+    payableAmount,
+    bankCode
+  } = req.body;
+
+  console.log('Withdrawal request body:', req.body);
+
+  if (!userId || !amount || !bank || !accountNumber || !accountName) {
+    return res.status(400).json({
+      message: "Missing required fields.",
+      success: false,
+      code: "MISSING_REQUIRED_FIELDS",
+    });
+  }
+
+  // Convert UI NAIRA → KOBO
+  const withdrawalAmount = Math.round(asNumber(amount) * 100);
+  if (Number.isNaN(withdrawalAmount) || withdrawalAmount <= 0) {
+    return res.status(400).json({
+      message: "Invalid withdrawal amount.",
+      success: false,
+      code: "INVALID_AMOUNT",
+    });
+  }
+    
+  // Calculate fee (18%)
+  const serviceFee = Math.round(withdrawalAmount * 0.18);
+  const amountPayable = withdrawalAmount - serviceFee;
+
   try {
-    const {
-      saveAccount,
-      bankName,
-      bankCode,
+    // 1) Load user & basic checks
+    const user = await UserModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({ 
+        message: "User not found", 
+        success: false 
+      });
+    }
+    
+    if (!user.isActive || user.isDeleted) {
+      return res.status(403).json({ 
+        message: "Account inactive or deleted.", 
+        success: false 
+      });
+    }
+
+    // 2) Optional: Check Paystack balance before proceeding
+    const balanceCheck = await checkPaystackBalance();
+    if (!balanceCheck.success || balanceCheck.balance < amountPayable) {
+      console.warn('Paystack balance warning:', balanceCheck);
+      // Continue anyway - webhook will handle failure if insufficient
+    }
+
+    // 3) Bank ownership guard
+    const ownershipCheck = await assertAccountNotUsedByAnotherUser({
+      bankCode: bank,
+      accountNumber,
+      accountName,
+      userId,
+    });
+    
+    if (ownershipCheck.conflict) {
+      return res.status(409).json({
+        success: false,
+        code: "BANK_ACCOUNT_ALREADY_ASSOCIATED",
+        message: "This bank account belongs to another user.",
+        data: { source: ownershipCheck.source },
+      });
+    }
+
+    // 4) Verification
+    const verificationLevel = getVerificationLevel(user, accountNumber, accountName);
+    if (verificationLevel === "unverified") {
+      return res.status(403).json({
+        message: "Account ownership verification failed.",
+        success: false,
+        code: "ACCOUNT_OWNERSHIP_VERIFICATION_FAILED",
+      });
+    }
+
+    // 5) Balance check & initial deduction
+    const promoterWallet = user.wallets.promoter;
+    if (promoterWallet.balance < withdrawalAmount) {
+      return res.status(400).json({ 
+        message: "Insufficient balance.", 
+        success: false 
+      });
+    }
+    
+    // Deduct gross amount from user balance
+    promoterWallet.balance -= withdrawalAmount;
+
+    // 6) Create transaction
+    const tx = {
+      reference: `WD_${Date.now()}_${Math.random().toString(36).slice(2, 15)}`,
+      gateway: "paystack",
+      currency: "NGN",
+      fee: serviceFee,
+      transferCode: undefined,
+      failureReason: undefined,
+      amount,
+      amountPayable: payableAmount,
+      type: "debit",
+      category: "withdrawal",
+      description: `Withdrawal to ${bankName || bank} ending in ${accountNumber.slice(-4)}`,
+      status: "processing",
+      createdAt: new Date(),
+      processedAt: null,
+      providerReference: undefined,
+      bankDetails: { 
+        bank: bankName || bank, 
+        bankCode: bank, 
+        accountNumber, 
+        accountName 
+      },
+      meta: { 
+        createdBy: "withdrawRequest", 
+        verifyLevel: verificationLevel,
+        requestIp: req.ip,
+        userAgent: req.get('User-Agent')
+      },
+    };
+
+    promoterWallet.transactions.push(tx);
+    const txRef = promoterWallet.transactions[promoterWallet.transactions.length - 1];
+
+    // 7) Process payment through Paystack
+    const paymentResponse = await processPayment(
       bank,
       accountNumber,
       accountName,
-      amount,
-      userId,
-    } = req.body || {};
-
-    if (!userId || !bankCode || !accountNumber || !accountName) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
-    }
-
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ success: false, message: "Invalid amount" });
-    }
-
-    // Load user + promoter wallet
-    const user = await UserModel.findById(userId);
-    if (!user) return res.status(404).json({ success: false, message: "User not found" });
-
-    const wallet = user.wallets?.promoter;
-    if (!wallet) return res.status(400).json({ success: false, message: "Promoter wallet not found" });
-
-    // Fee is deducted ONLY on success in finalizeTransfer, so we must ensure user can afford it.
-    const fee = Math.round(amount * PAYMENT_CONFIG.withdrawalFeePercent);
-    const payable = amount - fee;
-
-    // User only needs gross amount available
-    if (amount > wallet.balance) {
-      return res.status(400).json({
-        success: false,
-        message: `Insufficient balance.`,
-        data: { balance: wallet.balance, required: amount }
-      });
-    }
-
-    // Idempotency: if client sends an Idempotency-Key header you can use it as reference.
-    const reference = (req.headers["idempotency-key"] || "").trim() || makeReference("wd");
-
-    // Prevent duplicate reference within promoter wallet (you already index references) [12](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/user.model.js)
-    const existing = wallet.transactions.find(t => t.reference === reference);
-    if (existing) {
-      return res.status(200).json({
-        success: true,
-        message: "Withdrawal already initiated",
-        data: { reference, status: existing.status, transferCode: existing.transferCode || null }
-      });
-    }
-
-    // 1) Create tx record FIRST (engine finalizer searches by reference) [7](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/finalize.js)[10](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/transaction.schema.js)
-    const tx = {
-      reference,
-      gateway: "paystack",
-      currency: wallet.currency || "NGN",
-      amount,
-      amountPayable: payable, // in your current design user receives gross; fee is separate [7](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/finalize.js)
-      type: "debit",
-      category: "withdrawal",
-      description: `Withdrawal to bank (${bankName || bankCode})`,
-      status: "initiated",
-      bankDetails: {
-        bank: bankName || bank || "",
-        bankCode: bankCode,
-        accountNumber,
-        accountName
-      },
-      meta: {
-        saveAccount: !!saveAccount,
-        // keep any UI fields for display/debug (but do not trust them for math)
-        ui: { bankName, bankCode, accountNumber, accountName, amount }
+      amountPayable,
+      { 
+        userId, 
+        reason: `Withdrawal to ${accountName} - MarketSpase`, 
+        reference: txRef.reference 
       }
+    );
+
+    // Store provider response
+    if (paymentResponse.reference) {
+      txRef.providerReference = paymentResponse.reference;
+    }
+    if (paymentResponse.transferCode) {
+      txRef.transferCode = paymentResponse.transferCode;
+    }
+
+    txRef.meta.processPayment = {
+      success: paymentResponse.success,
+      status: paymentResponse.status,
+      message: paymentResponse.message,
+      timestamp: new Date()
     };
 
-    wallet.transactions.unshift(tx);
-
-    // 2) Deduct gross amount immediately (the "hold")
-    wallet.balance -= amount;
-
-    await user.save();
-
-    // 3) Call Paystack transfer initiation (engine will finalize via webhook/recon later) [8](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/process-payment.js)[4](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/transfer.js)[3](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/reconcileWithdrawals.js)
-    const payRes = await processPayment(bankCode, accountNumber, accountName, payable, {
-      userId,
-      reason: "Promoter Withdrawal - MarketSpase",
-      reference
-    });
-
-    // 4) Update tx with provider results (transferCode is useful for recon fallback) [3](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/reconcileWithdrawals.js)[8](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/process-payment.js)
-    const savedTx = wallet.transactions.find(t => t.reference === reference);
-    if (savedTx) {
-      savedTx.status = payRes.success ? "processing" : "failed";
-      savedTx.transferCode = payRes.transferCode || savedTx.transferCode;
-      savedTx.meta = { ...(savedTx.meta || {}), initiation: payRes };
-      if (!payRes.success) {
-        // If initiation failed immediately, refund gross now (since Paystack won’t send success webhook)
-        wallet.balance += amount;
-      }
+    // Handle immediate failures
+    if (!paymentResponse.success) {
+      // Refund the user
+      promoterWallet.balance += withdrawalAmount;
+      txRef.status = "failed";
+      txRef.failureReason = paymentResponse.message || "Transfer failed";
+      txRef.processedAt = new Date();
+      
+      cleanInvalidTransactionIds(promoterWallet);
       await user.save();
+
+      // Send failure notification
+      if (user.email) {
+        try {
+          const emailTemplate = withdrawalFailedTemplate(
+            user.displayName || user.username,
+            (withdrawalAmount / 100).toFixed(2),
+            paymentResponse.message || 'Transfer failed',
+            new Date().toLocaleDateString()
+          );
+          await sendEmail({
+            to: user.email,
+            subject: 'Withdrawal Failed - Funds Refunded',
+            html: emailTemplate
+          });
+        } catch (emailError) {
+          console.error('Failed to send failure email:', emailError);
+        }
+      }
+
+      return res.status(200).json({
+        success: false,
+        message: "Withdrawal failed: " + (paymentResponse.message || "Unknown error"),
+        data: { 
+          balance: promoterWallet.balance, 
+          transaction: txRef,
+          refunded: true
+        },
+      });
     }
 
-    return res.status(200).json({
-      success: payRes.success,
-      message: payRes.success ? "Withdrawal initiated" : (payRes.message || "Withdrawal failed"),
-      data: {
-        reference,
-        status: payRes.success ? "processing" : "failed",
-        transferCode: payRes.transferCode || null,
-        // Fee is applied by finalizeTransfer only when Paystack confirms success [7](https://saipem-my.sharepoint.com/personal/alex_imenwo_saipem_com1/Documents/Microsoft%20Copilot%20Chat%20Files/finalize.js)
-        expectedFee: fee,
-        grossAmount: amount
+    // If transfer was immediately successful (OTP disabled)
+    if (paymentResponse.status === 'success') {
+      txRef.status = "successful";
+      txRef.processedAt = new Date();
+      
+      // Send success email
+      if (user.email) {
+        try {
+          const emailTemplate = withdrawalSuccessfulTemplate(
+            user.displayName || user.username,
+            (withdrawalAmount / 100).toFixed(2),
+            accountNumber.slice(-4),
+            bankName || bank,
+            new Date().toLocaleDateString()
+          );
+          await sendEmail({
+            to: user.email,
+            subject: 'Withdrawal Successful',
+            html: emailTemplate
+          });
+        } catch (emailError) {
+          console.error('Failed to send success email:', emailError);
+        }
       }
+
+      // Add to activity log
+      await user.logActivity(
+        'withdrawal_completed',
+        `Withdrawal of ₦${(withdrawalAmount / 100).toFixed(2)} completed successfully`,
+        {
+          resourceType: 'withdrawal',
+          metadata: {
+            transactionId: txRef._id,
+            reference: txRef.reference,
+            amount: withdrawalAmount
+          }
+        }
+      );
+    } 
+    // If still processing (fallback - but unlikely with OTP disabled)
+    else {
+      txRef.status = "processing";
+    }
+
+    // Save bank account if requested
+    if (saveAccount) {
+      const saved = user.savedAccounts.find(
+        a => a.accountNumber === accountNumber && a.bankCode === bank
+      );
+      
+      if (!saved) {
+        user.savedAccounts.push({
+          bank: bankName || bank,
+          bankCode: bank,
+          accountNumber,
+          accountName,
+          verified: true,
+          verifiedAt: new Date(),
+          firstUsed: new Date(),
+          lastUsed: new Date(),
+          recipientCode: paymentResponse.data?.recipient?.recipient_code // Save for future use
+        });
+      } else {
+        saved.lastUsed = new Date();
+        if (paymentResponse.data?.recipient?.recipient_code) {
+          saved.recipientCode = paymentResponse.data.recipient.recipient_code;
+        }
+      }
+    }
+
+    cleanInvalidTransactionIds(promoterWallet);
+    await user.save();
+
+    return res.status(200).json({
+      message: paymentResponse.status === 'success' 
+        ? "Withdrawal completed successfully." 
+        : "Withdrawal request is being processed.",
+      success: true,
+      data: { 
+        balance: promoterWallet.balance, 
+        transaction: txRef,
+        status: txRef.status,
+        providerStatus: paymentResponse.status
+      },
     });
-  } catch (err) {
-    console.error("requestWithdrawal error:", err?.response?.data || err?.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+
+  } catch (error) {
+    console.error("Withdrawal error:", error);
+    
+    // Attempt to refund if error occurred after deduction
+    try {
+      const user = await UserModel.findById(userId);
+      if (user && user.wallets?.promoter) {
+        const promoterWallet = user.wallets.promoter;
+        const transaction = promoterWallet.transactions.find(
+          t => t.reference === `WD_${Date.now()}_${Math.random().toString(36).slice(2, 15)}`
+        );
+        
+        if (transaction && transaction.status === 'processing') {
+          promoterWallet.balance += transaction.amount;
+          transaction.status = 'failed';
+          transaction.failureReason = 'System error: ' + error.message;
+          await user.save();
+        }
+      }
+    } catch (refundError) {
+      console.error('Failed to refund user:', refundError);
+    }
+
+    return res.status(500).json({
+      message: "Unexpected error occurred. Please try again.",
+      success: false,
+      code: "INTERNAL_SERVER_ERROR"
+    });
   }
-}
+};
