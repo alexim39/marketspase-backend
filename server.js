@@ -50,6 +50,7 @@ app.post('/api/webhook/paystack/approval', express.json({
   verify: (req, res, buf) => {
     // Store raw body for signature verification
     req.rawBody = buf.toString();
+    console.log('Raw body captured for webhook'); // Debug log
   },
   type: 'application/json'
 }), paystackWebhookHandler);

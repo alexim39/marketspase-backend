@@ -5,10 +5,10 @@ import { withdrawalSuccessfulTemplate } from './email/withdrawalSuccessfulTempla
 import { withdrawalFailedTemplate } from './email/withdrawalFailedTemplate.js';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-
+import mongoose from 'mongoose';
 dotenv.config();
 
-const PAYSTACK_SECRET_KEY = 'sk_live_31139039a3e109121ff97248e06ee567563cede4';
+const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || 'sk_live_31139039a3e109121ff97248e06ee567563cede4';
 
 /**
  * Verify Paystack webhook signature - MORE ROBUST VERSION
@@ -28,10 +28,11 @@ function verifyWebhookSignature(signature, body, rawBody) {
       .update(bodyToSign)
       .digest('hex');
     
-    return crypto.timingSafeEqual(
-      Buffer.from(hash, 'hex'),
-      Buffer.from(signature, 'hex')
-    );
+    // For debugging - compare the signatures
+    console.log('Generated hash:', hash);
+    console.log('Received signature:', signature);
+    
+    return hash === signature; // Simple string comparison for debugging
   } catch (error) {
     console.error('Signature verification error:', error);
     return false;
@@ -45,7 +46,7 @@ const cleanInvalidTransactionIds = (wallet) => {
   if (!wallet || !Array.isArray(wallet.transactions)) return;
   wallet.transactions = wallet.transactions.map((tx) => {
     try {
-      if (tx._id && !mongoose.isValidObjectId(tx._id)) {
+      if (tx._id && !mongoose.Types.ObjectId.isValid(tx._id)) {
         tx._id = new mongoose.Types.ObjectId();
       }
     } catch {
@@ -65,7 +66,7 @@ async function findTransactionByReference(reference) {
   const user = await UserModel.findOne({
     $or: [
       { 'wallets.promoter.transactions.reference': reference },
-      { 'wallets.promoter.transactions.providerReference': reference }, // Also search by providerReference
+      { 'wallets.promoter.transactions.providerReference': reference },
       { 'wallets.marketer.transactions.reference': reference },
       { 'wallets.marketer.transactions.providerReference': reference }
     ]
@@ -102,16 +103,41 @@ async function findTransactionByReference(reference) {
   return { user: null, transaction: null, walletType: null };
 }
 
-export default async function handler(req, res) {
 
-   // Get signature from header
+export default async function handler(req, res) {
+  // FIRST: Check if it's a POST request
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Log headers for debugging
+  console.log('Webhook received - Headers:', {
+    signature: req.headers['x-paystack-signature'] ? req.headers['x-paystack-signature'].substring(0, 20) + '...' : 'MISSING',
+    contentType: req.headers['content-type'],
+    userAgent: req.headers['user-agent']
+  });
+
+  // Get signature from header
   const signature = req.headers['x-paystack-signature'];
   
   // Use rawBody if available (from server.js verification)
   const rawBody = req.rawBody;
   
+  // Log body for debugging
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+
   // Verify webhook signature
-  if (!signature || !verifyWebhookSignature(signature, req.body, rawBody)) {
+  if (!signature) {
+    console.error('No signature provided in headers');
+    return res.status(401).json({ 
+      error: 'Unauthorized',
+      message: 'No signature provided'
+    });
+  }
+
+  const isValid = verifyWebhookSignature(signature, req.body, rawBody);
+  
+  if (!isValid) {
     console.error('Invalid webhook signature');
     return res.status(401).json({ 
       error: 'Unauthorized',
@@ -119,20 +145,9 @@ export default async function handler(req, res) {
     });
   }
 
-  // Only accept POST requests
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  // Log headers for debugging (remove in production)
-  console.log('Webhook headers:', {
-    signature: req.headers['x-paystack-signature']?.substring(0, 20) + '...',
-    contentType: req.headers['content-type'],
-    userAgent: req.headers['user-agent']
-  });
+  console.log('✅ Webhook signature verified successfully');
 
   const event = req.body;
-  console.log('✅ Webhook signature verified successfully');
   console.log('Received Paystack webhook:', event.event, event.data?.reference);
 
   try {
