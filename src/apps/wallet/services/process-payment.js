@@ -59,30 +59,31 @@ export const processPayment = async (bankCode, accountNumber, accountName, amoun
     const reference = metadata.reference;
     console.log('Using reference for transfer:', reference);
 
-    // Step 3: Initiate transfer with OUR reference, not letting Paystack generate one
+    // Step 3: Initiate transfer with OUR reference
     const transfer = await initiateTransfer(
       koboAmount,
       recipient.data.recipient_code,
-      reference,  // Pass our reference
+      reference,
       metadata.reason || 'Withdrawal from MarketSpase'
     );
 
-    console.log('Transfer response:', JSON.stringify(transfer, null, 2));
+    console.log('Full transfer response:', JSON.stringify(transfer, null, 2));
 
-    if (transfer.status == "received") {
-      // Return both our reference and Paystack's reference
+    // Check if transfer was successful
+    if (transfer.status === true) {
       return {
         success: true,
-        status: transfer.data.status,
+        status: transfer.data?.status || 'pending',
         message: transfer.message || 'Transfer initiated',
-        reference: reference,  // OUR reference (for webhook lookup)
-        providerReference: transfer.data.reference || transfer.data.transfer_code, // Paystack's reference
-        transferCode: transfer.data.transfer_code,
+        reference: reference,  // OUR reference
+        providerReference: transfer.data?.reference || transfer.data?.transfer_code || reference,
+        transferCode: transfer.data?.transfer_code,
         requiresApproval: false,
         insufficientBalance: false,
         data: transfer.data
       };
     } else {
+      // Check for insufficient balance
       if (transfer.message && transfer.message.toLowerCase().includes('insufficient balance')) {
         return {
           success: false,

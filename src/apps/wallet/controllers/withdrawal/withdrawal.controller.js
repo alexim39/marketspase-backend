@@ -178,7 +178,14 @@ export const withdrawRequest = async (req, res) => {
       }
     );
 
-    console.log('Payment response received:', JSON.stringify(paymentResponse, null, 2));
+    console.log('🔵 PAYMENT RESPONSE DETAILS:', {
+      success: paymentResponse.success,
+      status: paymentResponse.status,
+      reference: paymentResponse.reference,
+      providerReference: paymentResponse.providerReference,
+      transferCode: paymentResponse.transferCode,
+      message: paymentResponse.message
+    });
 
     // Store ALL provider identifiers for recon
     if (paymentResponse.reference) {

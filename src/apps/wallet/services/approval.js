@@ -60,49 +60,79 @@ const cleanInvalidTransactionIds = (wallet) => {
  * Find transaction by reference across all users - MORE ROBUST VERSION
  */
 async function findTransactionByReference(reference) {
-  console.log('Searching for transaction with reference:', reference);
+  console.log('🔍 SEARCHING FOR TRANSACTION WITH REFERENCE:', reference);
+  
+  // Also search for the reference without "WD_" prefix or with different formats
+  const possibleReferences = [
+    reference,
+    reference.replace('WD_', ''), // In case WD_ is stripped
+    `WD_${reference}`, // In case WD_ is added
+  ];
+  
+  console.log('Trying possible references:', possibleReferences);
   
   // Search in promoter wallet transactions
   const user = await UserModel.findOne({
     $or: [
-      { 'wallets.promoter.transactions.reference': reference },
-      { 'wallets.promoter.transactions.providerReference': reference },
-      { 'wallets.marketer.transactions.reference': reference },
-      { 'wallets.marketer.transactions.providerReference': reference }
+      { 'wallets.promoter.transactions.reference': { $in: possibleReferences } },
+      { 'wallets.promoter.transactions.providerReference': { $in: possibleReferences } },
+      { 'wallets.marketer.transactions.reference': { $in: possibleReferences } },
+      { 'wallets.marketer.transactions.providerReference': { $in: possibleReferences } }
     ]
   });
 
   if (!user) {
-    console.log('No user found with reference:', reference);
+    console.log('❌ No user found with reference:', reference);
+    
+    // Debug: Check all transactions in the database
+    const allUsers = await UserModel.find({}, { 'wallets.promoter.transactions': 1 });
+    console.log('Sample of existing references:');
+    allUsers.forEach(u => {
+      if (u.wallets?.promoter?.transactions) {
+        u.wallets.promoter.transactions.forEach(t => {
+          console.log(`- Reference: ${t.reference}, ProviderRef: ${t.providerReference}`);
+        });
+      }
+    });
+    
     return { user: null, transaction: null, walletType: null };
   }
 
-  console.log('Found user:', user._id);
+  console.log('✅ Found user:', user._id);
 
   // Check promoter wallet
   let transaction = user.wallets.promoter?.transactions.find(tx => 
-    tx.reference === reference || tx.providerReference === reference
+    possibleReferences.includes(tx.reference) || possibleReferences.includes(tx.providerReference)
   );
   
   if (transaction) {
-    console.log('Found transaction in promoter wallet:', transaction._id);
+    console.log('✅ Found transaction in promoter wallet:', {
+      id: transaction._id,
+      reference: transaction.reference,
+      providerRef: transaction.providerReference,
+      status: transaction.status
+    });
     return { user, transaction, walletType: 'promoter' };
   }
 
   // Check marketer wallet
   transaction = user.wallets.marketer?.transactions.find(tx => 
-    tx.reference === reference || tx.providerReference === reference
+    possibleReferences.includes(tx.reference) || possibleReferences.includes(tx.providerReference)
   );
   
   if (transaction) {
-    console.log('Found transaction in marketer wallet:', transaction._id);
+    console.log('✅ Found transaction in marketer wallet:', {
+      id: transaction._id,
+      reference: transaction.reference,
+      providerRef: transaction.providerReference,
+      status: transaction.status
+    });
     return { user, transaction, walletType: 'marketer' };
   }
 
-  console.log('Transaction not found in either wallet');
+  console.log('❌ Transaction not found in either wallet');
   return { user: null, transaction: null, walletType: null };
 }
-
 
 export default async function handler(req, res) {
   // FIRST: Check if it's a POST request
