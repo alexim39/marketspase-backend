@@ -56,22 +56,24 @@ const cleanInvalidTransactionIds = (wallet) => {
   });
 };
 
+
 /**
  * Find transaction by reference across all users - MORE ROBUST VERSION
  */
 async function findTransactionByReference(reference) {
-  console.log('🔍 SEARCHING FOR TRANSACTION WITH REFERENCE:', reference);
+  console.log('🔍 Searching for transaction with reference:', reference);
   
-  // Also search for the reference without "WD_" prefix or with different formats
+  // Try multiple reference formats
   const possibleReferences = [
     reference,
-    reference.replace('WD_', ''), // In case WD_ is stripped
-    `WD_${reference}`, // In case WD_ is added
+    reference.replace('WD_', ''),
+    `WD_${reference}`,
+    // Add more variations if needed
   ];
   
   console.log('Trying possible references:', possibleReferences);
   
-  // Search in promoter wallet transactions
+  // Search in database
   const user = await UserModel.findOne({
     $or: [
       { 'wallets.promoter.transactions.reference': { $in: possibleReferences } },
@@ -82,23 +84,9 @@ async function findTransactionByReference(reference) {
   });
 
   if (!user) {
-    console.log('❌ No user found with reference:', reference);
-    
-    // Debug: Check all transactions in the database
-    const allUsers = await UserModel.find({}, { 'wallets.promoter.transactions': 1 });
-    console.log('Sample of existing references:');
-    allUsers.forEach(u => {
-      if (u.wallets?.promoter?.transactions) {
-        u.wallets.promoter.transactions.forEach(t => {
-          console.log(`- Reference: ${t.reference}, ProviderRef: ${t.providerReference}`);
-        });
-      }
-    });
-    
+    console.log('❌ No user found');
     return { user: null, transaction: null, walletType: null };
   }
-
-  console.log('✅ Found user:', user._id);
 
   // Check promoter wallet
   let transaction = user.wallets.promoter?.transactions.find(tx => 
@@ -106,12 +94,7 @@ async function findTransactionByReference(reference) {
   );
   
   if (transaction) {
-    console.log('✅ Found transaction in promoter wallet:', {
-      id: transaction._id,
-      reference: transaction.reference,
-      providerRef: transaction.providerReference,
-      status: transaction.status
-    });
+    console.log('✅ Found in promoter wallet');
     return { user, transaction, walletType: 'promoter' };
   }
 
@@ -121,16 +104,11 @@ async function findTransactionByReference(reference) {
   );
   
   if (transaction) {
-    console.log('✅ Found transaction in marketer wallet:', {
-      id: transaction._id,
-      reference: transaction.reference,
-      providerRef: transaction.providerReference,
-      status: transaction.status
-    });
+    console.log('✅ Found in marketer wallet');
     return { user, transaction, walletType: 'marketer' };
   }
 
-  console.log('❌ Transaction not found in either wallet');
+  console.log('❌ Transaction not found');
   return { user: null, transaction: null, walletType: null };
 }
 
@@ -185,22 +163,62 @@ export default async function handler(req, res) {
     });
   }
 
+  console.log('✅ Webhook signature verified successfully');
   console.log('Received Paystack webhook:', event.event, event.data?.reference);
 
-  try {
-    // Check what kind of event this is
+ try {
+    // Handle transferrequest.approval-required (this is what you're getting)
     if (event.event === 'transferrequest.approval-required') {
-      console.log('⚠️ Transfer requires approval - this might be a dashboard setting');
+      console.log('⚠️ Transfer requires approval - checking data...');
       
-      // You might want to auto-approve these if possible
-      // For now, just acknowledge receipt
+      // The transfer data might be in different places
+      const transferData = event.data || event;
+      
+      console.log('Transfer data:', JSON.stringify(transferData, null, 2));
+      
+      // Look for reference in the data
+      let reference = null;
+      
+      // Check various places where reference might be
+      if (transferData.reference) {
+        reference = transferData.reference;
+      } else if (transferData.data?.reference) {
+        reference = transferData.data.reference;
+      } else if (transferData.transfer?.reference) {
+        reference = transferData.transfer.reference;
+      }
+      
+      if (reference) {
+        console.log('Found reference:', reference);
+        
+        // Try to find and update the transaction
+        const { user, transaction, walletType } = await findTransactionByReference(reference);
+        
+        if (user && transaction) {
+          console.log('Found transaction, updating status to processing');
+          transaction.status = 'processing';
+          transaction.meta.approvalRequired = true;
+          transaction.meta.webhook = {
+            event: event.event,
+            receivedAt: new Date(),
+            data: transferData
+          };
+          
+          cleanInvalidTransactionIds(user.wallets[walletType]);
+          await user.save();
+          console.log('✅ Transaction updated successfully');
+        } else {
+          console.log('❌ Transaction not found for reference:', reference);
+        }
+      }
+      
       return res.status(200).json({ 
-        status: 'received', 
-        message: 'Approval required event received' 
+        status: 'success',
+        message: 'Approval required event processed'
       });
     }
     
-    // Handle transfer events
+    // Handle regular transfer events
     switch (event.event) {
       case 'transfer.success':
         await handleTransferSuccess(event.data);
