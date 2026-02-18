@@ -11,15 +11,31 @@ dotenv.config();
 const PAYSTACK_SECRET_KEY = 'sk_live_31139039a3e109121ff97248e06ee567563cede4';
 
 /**
- * Verify Paystack webhook signature
+ * Verify Paystack webhook signature - MORE ROBUST VERSION
  */
-function verifyWebhookSignature(signature, body) {
-  const hash = crypto
-    .createHmac('sha512', PAYSTACK_SECRET_KEY)
-    .update(JSON.stringify(body))
-    .digest('hex');
-  
-  return hash === signature;
+function verifyWebhookSignature(signature, body, rawBody) {
+  if (!signature) {
+    console.error('No signature provided');
+    return false;
+  }
+
+  try {
+    // Use rawBody if available, otherwise stringify the parsed body
+    const bodyToSign = rawBody || JSON.stringify(body);
+    
+    const hash = crypto
+      .createHmac('sha512', PAYSTACK_SECRET_KEY)
+      .update(bodyToSign)
+      .digest('hex');
+    
+    return crypto.timingSafeEqual(
+      Buffer.from(hash, 'hex'),
+      Buffer.from(signature, 'hex')
+    );
+  } catch (error) {
+    console.error('Signature verification error:', error);
+    return false;
+  }
 }
 
 /**
@@ -87,20 +103,37 @@ async function findTransactionByReference(reference) {
 }
 
 export default async function handler(req, res) {
+
+   // Get signature from header
+  const signature = req.headers['x-paystack-signature'];
+  
+  // Use rawBody if available (from server.js verification)
+  const rawBody = req.rawBody;
+  
+  // Verify webhook signature
+  if (!signature || !verifyWebhookSignature(signature, req.body, rawBody)) {
+    console.error('Invalid webhook signature');
+    return res.status(401).json({ 
+      error: 'Unauthorized',
+      message: 'Invalid signature'
+    });
+  }
+
   // Only accept POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Verify webhook signature
-  const signature = req.headers['x-paystack-signature'];
-  if (!signature || !verifyWebhookSignature(signature, req.body)) {
-    console.error('Invalid webhook signature');
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+  // Log headers for debugging (remove in production)
+  console.log('Webhook headers:', {
+    signature: req.headers['x-paystack-signature']?.substring(0, 20) + '...',
+    contentType: req.headers['content-type'],
+    userAgent: req.headers['user-agent']
+  });
 
   const event = req.body;
-  console.log('Received Paystack webhook:', event.event, event.data.reference);
+  console.log('✅ Webhook signature verified successfully');
+  console.log('Received Paystack webhook:', event.event, event.data?.reference);
 
   try {
     // Handle transfer events

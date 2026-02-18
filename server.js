@@ -46,7 +46,13 @@ dotenv.config();
 
 
 // This endpoint will be: POST /api/webhook/paystack/approval
-app.post('/api/webhook/paystack/approval', express.json({ type: 'application/json' }), paystackWebhookHandler);
+app.post('/api/webhook/paystack/approval', express.json({
+  verify: (req, res, buf) => {
+    // Store raw body for signature verification
+    req.rawBody = buf.toString();
+  },
+  type: 'application/json'
+}), paystackWebhookHandler);
 
 
 // Middleware
