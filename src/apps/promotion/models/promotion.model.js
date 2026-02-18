@@ -2,6 +2,16 @@ import mongoose from "mongoose";
 import { NotificationService } from "../../notification/services/notification.service.js";
 import { generateUniqueUpi } from "./../utils/generateUniqueUpi.js";
 
+
+const withTimeout = (p, ms, label = "operation") =>
+  Promise.race([
+    p,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+
+
 const promotionSchema = new mongoose.Schema(
   {
     campaign: {
@@ -254,66 +264,80 @@ promotionSchema.pre("save", function (next) {
 //
 // 🔔 POST-SAVE NOTIFICATIONS (SAFE & DEDUPED)
 //
-promotionSchema.post("save", async function (doc) {
+
+promotionSchema.post("save", function (doc) {
   if (!doc._pendingNotification) return;
 
   const { type, timestamp } = doc._pendingNotification;
 
-  const alreadyLogged = await PromotionModel.exists({
-    _id: doc._id,
-    "notificationLog.type": type,
-  });
-
-  if (alreadyLogged) return;
-
-  try {
-    const campaign = await mongoose.model("Campaign").findById(doc.campaign);
-    if (!campaign) return;
-
-    switch (type) {
-      case "promotion_assigned":
-        await NotificationService.createPromotionAssignedNotification(doc.promoter, campaign, doc);
-        break;
-      case "promotion_submitted":
-        await NotificationService.createPromotionSubmittedNotification(campaign.owner, doc, campaign);
-        break;
-      case "promotion_validated":
-        await NotificationService.createPromotionValidatedNotification(doc.promoter, doc, campaign);
-        break;
-      case "payment_processed":
-        await NotificationService.createPaymentProcessedNotification(
-          doc.promoter,
-          doc.payoutAmount,
-          doc,
-          "promoter"
-        );
-        break;
-      case "promotion_rejected":
-        await NotificationService.createPromotionRejectedNotification(
-          doc.promoter,
-          doc,
-          campaign,
-          doc.rejectionReason
-        );
-        break;
-    }
-
-    await PromotionModel.updateOne(
-      { _id: doc._id },
-      {
-        $push: {
-          notificationLog: {
-            type,
-            sentAt: timestamp,
-          },
-        },
-      }
-    );
-  } catch (err) {
-    console.error("Notification error:", err.message);
-  }
-
+  // Prevent holding references on doc instance
   delete doc._pendingNotification;
+
+  // 🔥 Do NOT await — run async in background
+  setImmediate(async () => {
+    try {
+      const alreadyLogged = await PromotionModel.exists({
+        _id: doc._id,
+        "notificationLog.type": type,
+      });
+
+      if (alreadyLogged) return;
+
+      const campaign = await mongoose.model("Campaign").findById(doc.campaign);
+      if (!campaign) return;
+
+      // ⏱️ Protect external calls with timeouts
+      switch (type) {
+        case "promotion_assigned":
+          await withTimeout(
+            NotificationService.createPromotionAssignedNotification(doc.promoter, campaign, doc),
+            4000,
+            "createPromotionAssignedNotification"
+          );
+          break;
+
+        case "promotion_submitted":
+          await withTimeout(
+            NotificationService.createPromotionSubmittedNotification(campaign.owner, doc, campaign),
+            4000,
+            "createPromotionSubmittedNotification"
+          );
+          break;
+
+        case "promotion_validated":
+          await withTimeout(
+            NotificationService.createPromotionValidatedNotification(doc.promoter, doc, campaign),
+            4000,
+            "createPromotionValidatedNotification"
+          );
+          break;
+
+        case "payment_processed":
+          await withTimeout(
+            NotificationService.createPaymentProcessedNotification(doc.promoter, doc.payoutAmount, doc, "promoter"),
+            4000,
+            "createPaymentProcessedNotification"
+          );
+          break;
+
+        case "promotion_rejected":
+          await withTimeout(
+            NotificationService.createPromotionRejectedNotification(doc.promoter, doc, campaign, doc.rejectionReason),
+            4000,
+            "createPromotionRejectedNotification"
+          );
+          break;
+      }
+
+      await PromotionModel.updateOne(
+        { _id: doc._id },
+        { $push: { notificationLog: { type, sentAt: timestamp } } }
+      );
+    } catch (err) {
+      console.error("Notification background error:", err.message);
+    }
+  });
 });
+
 
 export const PromotionModel = mongoose.model("Promotion", promotionSchema);
