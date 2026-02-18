@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 dotenv.config();
 
-const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || 'sk_live_31139039a3e109121ff97248e06ee567563cede4';
+const PAYSTACK_SECRET_KEY = 'sk_live_31139039a3e109121ff97248e06ee567563cede4';
 
 /**
  * Verify Paystack webhook signature - MORE ROBUST VERSION

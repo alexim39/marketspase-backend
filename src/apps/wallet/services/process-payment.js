@@ -7,9 +7,6 @@ dotenv.config();
 const PAYSTACK_SECRET_KEY = 'sk_live_31139039a3e109121ff97248e06ee567563cede4'
 const PAYSTACK_API = 'https://api.paystack.co';
 
-
-
-
 export const processPayment = async (bankCode, accountNumber, accountName, amount, metadata) => {
   try {
     console.log('Processing payment with metadata:', metadata);
@@ -72,7 +69,7 @@ export const processPayment = async (bankCode, accountNumber, accountName, amoun
 
     console.log('Transfer response:', JSON.stringify(transfer, null, 2));
 
-    if (transfer.status) {
+    if (transfer.status == "received") {
       // Return both our reference and Paystack's reference
       return {
         success: true,
