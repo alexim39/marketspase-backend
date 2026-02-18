@@ -140,6 +140,16 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Log everything for debugging
+  console.log('='.repeat(80));
+  console.log('🔥 WEBHOOK RECEIVED AT:', new Date().toISOString());
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Raw body:', req.rawBody);
+  console.log('Parsed body:', JSON.stringify(req.body, null, 2));
+  console.log('='.repeat(80));
+
+  const event = req.body;
+
   // Log headers for debugging
   console.log('Webhook received - Headers:', {
     signature: req.headers['x-paystack-signature'] ? req.headers['x-paystack-signature'].substring(0, 20) + '...' : 'MISSING',
@@ -175,12 +185,21 @@ export default async function handler(req, res) {
     });
   }
 
-  console.log('✅ Webhook signature verified successfully');
-
-  const event = req.body;
   console.log('Received Paystack webhook:', event.event, event.data?.reference);
 
   try {
+    // Check what kind of event this is
+    if (event.event === 'transferrequest.approval-required') {
+      console.log('⚠️ Transfer requires approval - this might be a dashboard setting');
+      
+      // You might want to auto-approve these if possible
+      // For now, just acknowledge receipt
+      return res.status(200).json({ 
+        status: 'received', 
+        message: 'Approval required event received' 
+      });
+    }
+    
     // Handle transfer events
     switch (event.event) {
       case 'transfer.success':
@@ -196,13 +215,13 @@ export default async function handler(req, res) {
         break;
       
       default:
-        console.log(`Unhandled event type: ${event.event}`);
+        console.log(`📝 Unhandled event type: ${event.event}`);
     }
 
     return res.status(200).json({ status: 'success' });
 
   } catch (error) {
-    console.error('Webhook processing error:', error);
+    console.error('❌ Webhook processing error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
