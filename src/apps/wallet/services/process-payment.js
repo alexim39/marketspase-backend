@@ -7,14 +7,16 @@ dotenv.config();
 const PAYSTACK_SECRET_KEY = 'sk_live_31139039a3e109121ff97248e06ee567563cede4'
 const PAYSTACK_API = 'https://api.paystack.co';
 
-/**
- * Process payment/withdrawal through Paystack (No OTP version)
- */
+
+
+
 export const processPayment = async (bankCode, accountNumber, accountName, amount, metadata) => {
   try {
-    console.log('Processing payment:', { bankCode, accountNumber, accountName, amount, metadata });
+    console.log('Processing payment with metadata:', metadata);
 
-    // Step 1: Resolve account to verify details
+    const koboAmount = amount * 100;
+
+    // Step 1: Resolve account
     const accountDetails = await resolveAccount(bankCode, accountNumber);
     
     if (!accountDetails.status || !accountDetails.data) {
@@ -26,7 +28,7 @@ export const processPayment = async (bankCode, accountNumber, accountName, amoun
       };
     }
 
-    // Verify account name matches (case insensitive)
+    // Verify account name
     const resolvedName = accountDetails.data.account_name.toLowerCase().trim();
     const providedName = accountName.toLowerCase().trim();
     
@@ -56,63 +58,35 @@ export const processPayment = async (bankCode, accountNumber, accountName, amoun
       };
     }
 
-    // Step 3: Initiate transfer (OTP disabled, so should be immediate)
+    // IMPORTANT: Use the reference from metadata
+    const reference = metadata.reference;
+    console.log('Using reference for transfer:', reference);
+
+    // Step 3: Initiate transfer with OUR reference, not letting Paystack generate one
     const transfer = await initiateTransfer(
-      amount,
+      koboAmount,
       recipient.data.recipient_code,
-      metadata.reference,
+      reference,  // Pass our reference
       metadata.reason || 'Withdrawal from MarketSpase'
     );
 
-    // Handle transfer outcomes
+    console.log('Transfer response:', JSON.stringify(transfer, null, 2));
+
     if (transfer.status) {
-      // Check if transfer was successful immediately
-      if (transfer.data.status === 'success') {
-        return {
-          success: true,
-          status: 'success',
-          message: 'Transfer completed successfully',
-          reference: metadata.reference,
-          providerReference: transfer.data.reference || transfer.data.transfer_code,
-          transferCode: transfer.data.transfer_code,
-          requiresApproval: false,
-          insufficientBalance: false,
-          data: transfer.data
-        };
-      } 
-      // If still processing (but should be rare with OTP disabled)
-      else if (transfer.data.status === 'pending' || transfer.data.status === 'processing') {
-        return {
-          success: true,
-          status: 'processing',
-          message: 'Transfer is being processed',
-          reference: metadata.reference,
-          providerReference: transfer.data.reference || transfer.data.transfer_code,
-          transferCode: transfer.data.transfer_code,
-          requiresApproval: false,
-          insufficientBalance: false,
-          data: transfer.data
-        };
-      }
-      else {
-        return {
-          success: true,
-          status: transfer.data.status,
-          message: transfer.message || 'Transfer initiated',
-          reference: metadata.reference,
-          providerReference: transfer.data.reference || transfer.data.transfer_code,
-          transferCode: transfer.data.transfer_code,
-          requiresApproval: false,
-          insufficientBalance: false,
-          data: transfer.data
-        };
-      }
+      // Return both our reference and Paystack's reference
+      return {
+        success: true,
+        status: transfer.data.status,
+        message: transfer.message || 'Transfer initiated',
+        reference: reference,  // OUR reference (for webhook lookup)
+        providerReference: transfer.data.reference || transfer.data.transfer_code, // Paystack's reference
+        transferCode: transfer.data.transfer_code,
+        requiresApproval: false,
+        insufficientBalance: false,
+        data: transfer.data
+      };
     } else {
-      // Check if it's insufficient balance
-      if (transfer.message && (
-        transfer.message.includes('insufficient balance') || 
-        transfer.message.includes('Insufficient Balance')
-      )) {
+      if (transfer.message && transfer.message.toLowerCase().includes('insufficient balance')) {
         return {
           success: false,
           status: 'failed',
@@ -131,20 +105,6 @@ export const processPayment = async (bankCode, accountNumber, accountName, amoun
 
   } catch (error) {
     console.error('Process payment error:', error);
-    
-    // Check if error is due to insufficient balance in Paystack
-    if (error.response && error.response.data && error.response.data.message) {
-      const message = error.response.data.message;
-      if (message.includes('insufficient balance') || message.includes('Insufficient Balance')) {
-        return {
-          success: false,
-          status: 'failed',
-          message: 'Insufficient Paystack balance',
-          insufficientBalance: true
-        };
-      }
-    }
-
     return {
       success: false,
       status: 'failed',
@@ -154,9 +114,6 @@ export const processPayment = async (bankCode, accountNumber, accountName, amoun
   }
 };
 
-/**
- * Resolve bank account details
- */
 async function resolveAccount(bankCode, accountNumber) {
   try {
     const response = await axios.get(`${PAYSTACK_API}/bank/resolve`, {
@@ -168,7 +125,6 @@ async function resolveAccount(bankCode, accountNumber) {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`
       }
     });
-    
     return response.data;
   } catch (error) {
     console.error('Resolve account error:', error.response?.data || error.message);
@@ -179,9 +135,6 @@ async function resolveAccount(bankCode, accountNumber) {
   }
 }
 
-/**
- * Create transfer recipient
- */
 async function createTransferRecipient(name, accountNumber, bankCode, userId) {
   try {
     const response = await axios.post(`${PAYSTACK_API}/transferrecipient`, {
@@ -200,7 +153,6 @@ async function createTransferRecipient(name, accountNumber, bankCode, userId) {
         'Content-Type': 'application/json'
       }
     });
-    
     return response.data;
   } catch (error) {
     console.error('Create recipient error:', error.response?.data || error.message);
@@ -211,16 +163,13 @@ async function createTransferRecipient(name, accountNumber, bankCode, userId) {
   }
 }
 
-/**
- * Initiate transfer
- */
 async function initiateTransfer(amount, recipientCode, reference, reason) {
   try {
     const response = await axios.post(`${PAYSTACK_API}/transfer`, {
       source: 'balance',
       amount: amount,
       recipient: recipientCode,
-      reference: reference,
+      reference: reference,  // This ensures Paystack uses OUR reference
       reason: reason,
       currency: 'NGN'
     }, {
@@ -229,7 +178,6 @@ async function initiateTransfer(amount, recipientCode, reference, reason) {
         'Content-Type': 'application/json'
       }
     });
-    
     return response.data;
   } catch (error) {
     console.error('Initiate transfer error:', error.response?.data || error.message);
@@ -239,6 +187,10 @@ async function initiateTransfer(amount, recipientCode, reference, reason) {
     };
   }
 }
+
+
+
+
 
 /**
  * Check Paystack balance

@@ -40,30 +40,49 @@ const cleanInvalidTransactionIds = (wallet) => {
 };
 
 /**
- * Find transaction by reference across all users
+ * Find transaction by reference across all users - MORE ROBUST VERSION
  */
 async function findTransactionByReference(reference) {
+  console.log('Searching for transaction with reference:', reference);
+  
+  // Search in promoter wallet transactions
   const user = await UserModel.findOne({
     $or: [
       { 'wallets.promoter.transactions.reference': reference },
-      { 'wallets.marketer.transactions.reference': reference }
+      { 'wallets.promoter.transactions.providerReference': reference }, // Also search by providerReference
+      { 'wallets.marketer.transactions.reference': reference },
+      { 'wallets.marketer.transactions.providerReference': reference }
     ]
   });
 
   if (!user) {
+    console.log('No user found with reference:', reference);
     return { user: null, transaction: null, walletType: null };
   }
 
-  let transaction = user.wallets.promoter?.transactions.find(tx => tx.reference === reference);
+  console.log('Found user:', user._id);
+
+  // Check promoter wallet
+  let transaction = user.wallets.promoter?.transactions.find(tx => 
+    tx.reference === reference || tx.providerReference === reference
+  );
+  
   if (transaction) {
+    console.log('Found transaction in promoter wallet:', transaction._id);
     return { user, transaction, walletType: 'promoter' };
   }
 
-  transaction = user.wallets.marketer?.transactions.find(tx => tx.reference === reference);
+  // Check marketer wallet
+  transaction = user.wallets.marketer?.transactions.find(tx => 
+    tx.reference === reference || tx.providerReference === reference
+  );
+  
   if (transaction) {
+    console.log('Found transaction in marketer wallet:', transaction._id);
     return { user, transaction, walletType: 'marketer' };
   }
 
+  console.log('Transaction not found in either wallet');
   return { user: null, transaction: null, walletType: null };
 }
 
@@ -116,8 +135,22 @@ export default async function handler(req, res) {
 async function handleTransferSuccess(data) {
   const { reference, amount, transfer_code, reason, createdAt } = data;
 
+   console.log('Processing transfer.success with data:', {
+    webhookReference: reference,
+    transfer_code,
+    amount
+  });
+
   const { user, transaction, walletType } = await findTransactionByReference(reference);
 
+  console.log('Lookup result:', { 
+    found: !!user, 
+    transactionId: transaction?._id,
+    transactionRef: transaction?.reference,
+    providerRef: transaction?.providerReference 
+  });
+
+ 
   if (!user || !transaction) {
     console.error(`Transaction not found for reference: ${reference}`);
     return;

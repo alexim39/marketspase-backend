@@ -165,6 +165,7 @@ export const withdrawRequest = async (req, res) => {
     const txRef = promoterWallet.transactions[promoterWallet.transactions.length - 1];
 
     // 7) Process payment through Paystack
+    console.log('Initiating payment with reference:', txRef.reference);
     const paymentResponse = await processPayment(
       bank,
       accountNumber,
@@ -177,20 +178,46 @@ export const withdrawRequest = async (req, res) => {
       }
     );
 
-    // Store provider response
+    console.log('Payment response received:', JSON.stringify(paymentResponse, null, 2));
+
+    // Store ALL provider identifiers for recon
     if (paymentResponse.reference) {
-      txRef.providerReference = paymentResponse.reference;
+      txRef.reference = paymentResponse.reference; // Update with our reference (should be same)
+    }
+    if (paymentResponse.providerReference) {
+      txRef.providerReference = paymentResponse.providerReference; // Paystack's reference
     }
     if (paymentResponse.transferCode) {
       txRef.transferCode = paymentResponse.transferCode;
     }
 
-    txRef.meta.processPayment = {
-      success: paymentResponse.success,
-      status: paymentResponse.status,
-      message: paymentResponse.message,
-      timestamp: new Date()
-    };
+    // Store the full response in meta
+   txRef.meta.processPayment = {
+    success: paymentResponse.success,
+    status: paymentResponse.status,
+    message: paymentResponse.message,
+    providerReference: paymentResponse.providerReference,
+    transferCode: paymentResponse.transferCode,
+    timestamp: new Date(),
+    fullResponse: paymentResponse.data // Store full response for debugging
+  };
+
+  // Check if transfer was blocked
+  if (paymentResponse.status === "blocked" || paymentResponse.data?.status === "blocked") {
+    // Refund gross
+    promoterWallet.balance += amount;
+    txRef.status = "failed";
+    txRef.failureReason = "Transfer blocked by provider";
+    txRef.processedAt = new Date();
+    cleanInvalidTransactionIds(promoterWallet);
+    await user.save();
+    
+    return res.status(200).json({
+      success: false,
+      message: "Withdrawal failed (blocked).",
+      data: { balance: promoterWallet.balance, transaction: txRef },
+    });
+  }
 
     // Handle immediate failures
     if (!paymentResponse.success) {
@@ -239,28 +266,28 @@ export const withdrawRequest = async (req, res) => {
       txRef.processedAt = new Date();
       
       // Send success email
-      if (user.email) {
-        try {
-          const emailTemplate = withdrawalSuccessfulTemplate(
-            user.displayName || user.username,
-            (amount / 100).toFixed(2),
-            accountNumber.slice(-4),
-            bankName || bank,
-            new Date().toLocaleDateString()
-          );
-          await sendEmail({
-            to: user.email,
-            subject: 'Withdrawal Successful',
-            html: emailTemplate
-          });
-        } catch (emailError) {
-          console.error('Failed to send success email:', emailError);
-        }
-      }
+      // if (user.email) {
+      //   try {
+      //     const emailTemplate = withdrawalSuccessfulTemplate(
+      //       user.displayName || user.username,
+      //       (amount / 100).toFixed(2),
+      //       accountNumber.slice(-4),
+      //       bankName || bank,
+      //       new Date().toLocaleDateString()
+      //     );
+      //     await sendEmail({
+      //       to: user.email,
+      //       subject: 'Withdrawal Successful',
+      //       html: emailTemplate
+      //     });
+      //   } catch (emailError) {
+      //     console.error('Failed to send success email:', emailError);
+      //   }
+      // }
 
       // Add to activity log
       await user.logActivity(
-        'withdrawal_completed',
+        'withdrawal_complete',
         `Withdrawal of ₦${(amount / 100).toFixed(2)} completed successfully`,
         {
           resourceType: 'withdrawal',
