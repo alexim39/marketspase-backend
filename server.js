@@ -46,14 +46,28 @@ dotenv.config();
 
 
 // This endpoint will be: POST /api/webhook/paystack/approval
-app.post('/api/webhook/paystack/approval', express.json({
-  verify: (req, res, buf) => {
-    // Store raw body for signature verification
-    req.rawBody = buf.toString();
-    console.log('Raw body captured for webhook'); // Debug log
-  },
-  type: 'application/json'
-}), paystackWebhookHandler);
+// This endpoint will be: POST /api/webhook/paystack/approval
+app.post('/api/webhook/paystack/approval', (req, res, next) => {
+  // Capture raw body
+  let data = '';
+  req.setEncoding('utf8');
+  req.on('data', chunk => {
+    data += chunk;
+  });
+  req.on('end', () => {
+    req.rawBody = data;
+    console.log('📦 Raw body captured, length:', data.length);
+    
+    // Now parse the JSON
+    try {
+      req.body = JSON.parse(data);
+      next();
+    } catch (e) {
+      console.error('Failed to parse JSON:', e);
+      res.status(400).json({ error: 'Invalid JSON' });
+    }
+  });
+}, paystackWebhookHandler);
 
 
 // Middleware
