@@ -8,7 +8,7 @@ export const activitySchema = new mongoose.Schema({
     required: true,
     enum: [
       // Authentication & Profile
-      'login', 'logout', 'profile_update', 'password_change', 'email_verify', 'referred_signup',
+      'login', 'logout', 'profile_update', 'password_change', 'email_verify', 'referred_signup', 'signup',
       
       // Wallet & Financial
       'wallet_fund', 'withdrawal_request', 'withdrawal_complete', 'transfer', 'promo_credit_claimed',
