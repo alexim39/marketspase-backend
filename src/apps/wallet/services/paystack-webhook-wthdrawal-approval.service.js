@@ -220,7 +220,7 @@ async function handleTransferSuccess(data) {
       'withdrawal_complete',
       `Withdrawal of ₦${(transaction.amount / 100).toFixed(2)} completed successfully`,
       {
-        resourceType: 'withdrawal',
+        resourceType: 'wallet',
         metadata: {
           transactionId: transaction._id,
           reference: reference,
@@ -292,7 +292,7 @@ async function handleTransferFailed(data) {
       'withdrawal_rejected',
       `Withdrawal of ₦${(transaction.amount / 100).toFixed(2)} failed. Amount refunded.`,
       {
-        resourceType: 'withdrawal',
+        resourceType: 'wallet',
         metadata: {
           transactionId: transaction._id,
           reference: reference,
@@ -364,7 +364,7 @@ async function handleTransferReversed(data) {
       'withdrawal_rejected',
       `Withdrawal of ₦${(transaction.amount / 100).toFixed(2)} was reversed. Amount refunded.`,
       {
-        resourceType: 'withdrawal',
+        resourceType: 'wallet',
         metadata: {
           transactionId: transaction._id,
           reference: reference,
