@@ -289,7 +289,7 @@ async function handleTransferFailed(data) {
   // Add to activity log
   if (user.logActivity) {
     await user.logActivity(
-      'withdrawal_failed',
+      'withdrawal_rejected',
       `Withdrawal of ₦${(transaction.amount / 100).toFixed(2)} failed. Amount refunded.`,
       {
         resourceType: 'withdrawal',
@@ -361,7 +361,7 @@ async function handleTransferReversed(data) {
 
   if (user.logActivity) {
     await user.logActivity(
-      'withdrawal_reversed',
+      'withdrawal_rejected',
       `Withdrawal of ₦${(transaction.amount / 100).toFixed(2)} was reversed. Amount refunded.`,
       {
         resourceType: 'withdrawal',
