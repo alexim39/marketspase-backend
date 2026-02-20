@@ -22,8 +22,187 @@ const sendError = (res, message, status = 500) => {
   res.status(status).json({ success: false, message });
 };
 
-
 export const verifyAndRecordPayment = async (req, res) => {
+  const { userId, amount, paystackResult } = req.body;
+  
+  // 1. Basic Payload Validation
+  if (!userId || !amount || !paystackResult?.response?.reference) {
+    return sendError(res, 'Invalid payload: missing required fields.', 400);
+  }
+
+  const { reference } = paystackResult.response;
+
+  // 2. Start MongoDB session for transaction
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // 3. Check for existing transaction using the reference field (more reliable)
+    const existingUserWithTransaction = await UserModel.findOne({
+      $or: [
+        { 'wallets.marketer.transactions.reference': reference },
+        { 'wallets.promoter.transactions.reference': reference }
+      ]
+    }).session(session);
+
+    if (existingUserWithTransaction) {
+      // Transaction already processed - return success to prevent double-charging
+      await session.abortTransaction();
+      session.endSession();
+      
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Payment already recorded.',
+        alreadyExists: true,
+        newBalance: existingUserWithTransaction.wallets.marketer?.balance
+      });
+    }
+
+    // 4. Verify with Paystack
+    const paystackResponse = await axios.get(`${PAYSTACK_VERIFY_URL}${reference}`, {
+      headers: {
+        'Authorization': `Bearer ${PAYSTACK_SECRET_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const verificationData = paystackResponse.data.data;
+    
+    if (!verificationData || verificationData.status !== 'success') {
+      await session.abortTransaction();
+      session.endSession();
+      return sendError(res, 'Paystack verification failed.', 400);
+    }
+
+    // 5. Verify amount matches (prevent tampering)
+    const paystackAmountInNaira = verificationData.amount / 100; // Paystack returns in kobo
+    if (Math.abs(paystackAmountInNaira - amount) > 1) { // Allow 1 naira rounding difference
+      await session.abortTransaction();
+      session.endSession();
+      return sendError(res, 'Amount mismatch with Paystack record.', 400);
+    }
+
+    // 6. Find user and update
+    const user = await UserModel.findById(userId).session(session);
+    if (!user) {
+      await session.abortTransaction();
+      session.endSession();
+      return sendError(res, 'User not found.', 404);
+    }
+
+    // 7. Check if this is first campaign funding
+    const isFirstCampaignFunding = !user.qualificationMilestones?.firstCampaignFunded;
+
+    // 8. Update wallet with transaction (using reference field)
+    const updateResult = await UserModel.findByIdAndUpdate(
+      userId,
+      {
+        $inc: { 
+          'wallets.marketer.balance': amount 
+        },
+        $push: {
+          'wallets.marketer.transactions': {
+            amount: amount,
+            type: 'credit',
+            category: 'deposit',
+            description: `Paystack funding`,
+            reference: reference, // Store reference for future lookups
+            status: 'successful',
+            gateway: 'paystack',
+            meta: {
+              paystackReference: reference,
+              paystackResponse: {
+                id: verificationData.id,
+                domain: verificationData.domain,
+                channel: verificationData.channel,
+                ipAddress: verificationData.ip_address,
+                createdAt: verificationData.created_at
+              }
+            },
+            processedAt: new Date(),
+            createdAt: new Date()
+          }
+        },
+        ...(isFirstCampaignFunding && {
+          $set: {
+            'qualificationMilestones.firstCampaignFunded': true
+          }
+        })
+      },
+      { 
+        session, 
+        new: true,
+        runValidators: true
+      }
+    );
+
+    if (!updateResult) {
+      throw new Error('Failed to update user wallet');
+    }
+
+    // 9. Commit transaction
+    await session.commitTransaction();
+    session.endSession();
+
+    // 10. Handle referral (don't await - run in background)
+    if (isFirstCampaignFunding && amount >= 2000) {
+      referralService.checkMarketerFirstCampaign(userId).catch(err => {
+        console.error('Referral processing error:', err);
+      });
+    }
+
+    // 11. Send email (don't await - run in background)
+    sendEmail(
+      user.email, 
+      'Payment Approved', 
+      paymentApprovedEmailTemplate({
+        userName: user.displayName,
+        amount: amount,
+        transactionReference: reference,
+        newBalance: updateResult.wallets.marketer.balance,
+      })
+    ).catch(err => console.error('Email sending error:', err));
+
+    // 12. Return success
+    res.status(200).json({
+      success: true,
+      message: 'Payment verified and wallet funded successfully.',
+      newBalance: updateResult.wallets.marketer.balance,
+      transactionId: updateResult.wallets.marketer.transactions.slice(-1)[0]._id,
+      isFirstCampaignFunding
+    });
+
+  } catch (error) {
+    // Rollback on any error
+    await session.abortTransaction();
+    session.endSession();
+    
+    console.error('Payment recording error:', error);
+    
+    // Send declined email
+    try {
+      const user = await UserModel.findById(userId);
+      if (user) {
+        await sendEmail(
+          user.email,
+          'Payment Declined',
+          paymentDeclinedEmailTemplate({
+            userName: user.displayName,
+            amount: amount,
+            transactionReference: reference,
+            reason: 'System error processing payment. Please contact support.',
+          })
+        );
+      }
+    } catch (emailError) {
+      console.error('Failed to send declined email:', emailError);
+    }
+
+    sendError(res, 'Failed to record payment. Please contact support.', 500);
+  }
+};
+
+/* export const verifyAndRecordPayment = async (req, res) => {
   const { userId, amount, paystackResult } = req.body;
   
   // 1. Basic Payload Validation
@@ -210,5 +389,46 @@ export const verifyAndRecordPayment = async (req, res) => {
     // Handle specific HTTP status codes from Paystack or other network errors
     const errorMessage = paystackError.response?.data?.message || 'Paystack verification failed.';
     return sendError(res, `Verification Error: ${errorMessage}`, 500);
+  }
+}; */
+
+
+export const verifyPaymentStatus = async (req, res) => {
+  const { reference } = req.params;
+
+  try {
+    // Check if transaction exists
+    const user = await UserModel.findOne({
+      $or: [
+        { 'wallets.marketer.transactions.reference': reference },
+        { 'wallets.promoter.transactions.reference': reference }
+      ]
+    });
+
+    if (user) {
+      return res.status(200).json({
+        success: true,
+        exists: true,
+        message: 'Payment found in system'
+      });
+    }
+
+    // Verify with Paystack
+    const response = await axios.get(`${PAYSTACK_VERIFY_URL}${reference}`, {
+      headers: {
+        'Authorization': `Bearer ${PAYSTACK_SECRET_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      exists: false,
+      paystackStatus: response.data.data.status,
+      message: 'Payment verified with Paystack but not in system'
+    });
+
+  } catch (error) {
+    sendError(res, 'Verification failed', 500);
   }
 };

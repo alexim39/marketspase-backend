@@ -5,13 +5,19 @@ import express from 'express';
 import { deleteSavedAccount } from '../controllers/delete-saved-account.controller.js'
 import { withdrawRequest } from '../controllers/withdrawal/withdrawal.controller.js'
 import { getVerifiedAccounts } from '../controllers/withdrawal/get-gerified-accounts.controller.js'
-import { verifyAndRecordPayment } from '../controllers/verify-record-payment.controller.js'
-import { verifyBankAccount } from '../controllers/withdrawal/verify-bankacount.controller.js'
+import { verifyAndRecordPayment, verifyPaymentStatus } from '../controllers/verify-record-payment.controller.js'
+import { verifyBankAccount } from '../controllers/verify-bankacount.controller.js'
 
 const IndexRouter = express.Router();
 
-// Payment verification
+// returnd paystck key
+IndexRouter.get('/resolve-account', verifyBankAccount);
+
+// Payment verification using frontend callback
 IndexRouter.post('/verify-and-record', verifyAndRecordPayment);
+// payment verification usng reference retry
+IndexRouter.get('/verify-payment/:reference', verifyPaymentStatus);
+
 
 // Withdrawal endpoints
 IndexRouter.post('/withdraw-request', withdrawRequest);

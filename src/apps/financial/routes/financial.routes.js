@@ -11,6 +11,7 @@ import { approveWithdrawal } from '../controllers/approve-withdrawal.controller.
 import { getTransactions } from '../controllers/get-transansactions.controller.js';
 import { rejectWithdrawal } from '../controllers/reject-withdrawal.controller.js';
 import { processWithdrawal } from '../controllers/process-withdrawal.controller.js';
+import { getWithdrawalById } from '../controllers/get-withdrawal-by-id.controller.js';
 
 const router = express.Router();
 
@@ -20,6 +21,7 @@ router.get('/stats', getFinancialStats);
 
 // Withdrawal management
 router.get('/withdrawals', getWithdrawalRequests);
+router.get('/:withdrawalId/:withdrawalId', getWithdrawalById);
 router.patch('/withdrawals/:withdrawalId/approve', approveWithdrawal);
 router.patch('/withdrawals/:withdrawalId/reject', rejectWithdrawal);
 router.patch('/withdrawals/:withdrawalId/process', processWithdrawal);
