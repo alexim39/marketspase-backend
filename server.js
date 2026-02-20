@@ -72,16 +72,16 @@ app.post('/api/webhook/paystack', (req, res, next) => {
     try {
       req.body = JSON.parse(data);
       
-      // Verify signature
-      const signature = req.headers['x-paystack-signature'];
-      const hash = crypto
-        .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
-        .update(data)
-        .digest('hex');
+      // // Verify signature
+      // const signature = req.headers['x-paystack-signature'];
+      // const hash = crypto
+      //   .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
+      //   .update(data)
+      //   .digest('hex');
 
-      if (signature !== hash) {
-        return res.status(401).send('Unauthorized');
-      }
+      // if (signature !== hash) {
+      //   return res.status(401).send('Unauthorized');
+      // }
 
       // Route based on event type
       const event = req.body.event;
@@ -96,7 +96,7 @@ app.post('/api/webhook/paystack', (req, res, next) => {
         // Acknowledge other events
         return res.status(200).send('OK');
       }
-      
+      next();
     } catch (e) {
       console.error('Failed to parse JSON:', e);
       res.status(400).json({ error: 'Invalid JSON' });
