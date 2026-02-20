@@ -217,7 +217,7 @@ async function handleTransferSuccess(data) {
   // Add to activity log
   if (user.logActivity) {
     await user.logActivity(
-      'withdrawal_completed',
+      'withdrawal_complete',
       `Withdrawal of ₦${(transaction.amount / 100).toFixed(2)} completed successfully`,
       {
         resourceType: 'withdrawal',
