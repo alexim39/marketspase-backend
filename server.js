@@ -27,11 +27,9 @@ import StoreIndexRouter from './src/apps/store/routes/index.route.js';
 import ForumIndexRouter from './src/apps/forum/routes/index.js';
 import FeedsIndexRouter from './src/apps/feeds/routes/index.route.js';
 
-import paystackWebhookHandler from './src/apps/wallet/services/approval.js';
-
-
-//import { registerPaymentEngine } from "./src/apps/payments/index.js";
-
+import handlePaystackWithdrawalWebhook from './src/apps/wallet/services/paystack-webhook-wthdrawal-approval.service.js';
+import handlePaystackFundingWebhook from './src/apps/wallet/services/paystack-webhook-deposit-approval.service.js';
+import { initWithdrawalSyncCron } from './src/apps/wallet/jobs/withdrawal-sync.cron.js';
 
 // Port and Host
 const PORT = process.env.PORT || 8080;
@@ -39,15 +37,9 @@ const HOST = '0.0.0.0'; // Essential for container deployment
 const app = express();
 dotenv.config();
 
-// Mount webhooks BEFORE body parsers
-// registerPaymentEngine(app, {
-//   // enableCron: true, // default
-// });
 
-
-// This endpoint will be: POST /api/webhook/paystack/approval
-// This endpoint will be: POST /api/webhook/paystack/approval
-app.post('/api/webhook/paystack/approval', (req, res, next) => {
+// This endpoint will be: POST /api/webhook/paystack/approval for withdrawal approval
+/* app.post('/api/webhook/paystack', (req, res, next) => {
   // Capture raw body
   let data = '';
   req.setEncoding('utf8');
@@ -67,7 +59,50 @@ app.post('/api/webhook/paystack/approval', (req, res, next) => {
       res.status(400).json({ error: 'Invalid JSON' });
     }
   });
-}, paystackWebhookHandler);
+}, handlePaystackWithdrawalWebhook); */
+
+// Single webhook endpoint that routes internally
+app.post('/api/webhook/paystack', (req, res, next) => {
+  let data = '';
+  req.setEncoding('utf8');
+  req.on('data', chunk => { data += chunk; });
+  req.on('end', () => {
+    req.rawBody = data;
+    
+    try {
+      req.body = JSON.parse(data);
+      
+      // Verify signature
+      const signature = req.headers['x-paystack-signature'];
+      const hash = crypto
+        .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
+        .update(data)
+        .digest('hex');
+
+      if (signature !== hash) {
+        return res.status(401).send('Unauthorized');
+      }
+
+      // Route based on event type
+      const event = req.body.event;
+      
+      if (event.startsWith('charge.')) {
+        // Handle funding events
+        return handlePaystackFundingWebhook(req, res);
+      } else if (event.startsWith('transfer.')) {
+        // Handle withdrawal events
+        return handlePaystackWithdrawalWebhook(req, res);
+      } else {
+        // Acknowledge other events
+        return res.status(200).send('OK');
+      }
+      
+    } catch (e) {
+      console.error('Failed to parse JSON:', e);
+      res.status(400).json({ error: 'Invalid JSON' });
+    }
+  });
+});
 
 
 // Middleware
@@ -143,6 +178,9 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
     // Call the methods to start the cron jobs
     CampaignSchedulerService.registerCampaignExpiryCron();
     CampaignSchedulerService.registerCampaignExhaustionCron();
+
+    // Initialize withdrawal sync cron job
+    initWithdrawalSyncCron();
 
     app.listen(PORT, HOST, () => {
         console.log(`Server listening on port ${PORT} at host ${HOST}`);

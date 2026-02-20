@@ -63,8 +63,8 @@ export const withdrawRequest = async (req, res) => {
     });
   }
     
-  // // Calculate fee (18%)
-  const serviceFee = Math.round(amount * 0.18);
+  // Calculate fee (18%)
+  const serviceFee = Math.round(amount * 0.20);
   // const amountPayable = withdrawalAmount - serviceFee;
 
   try {
@@ -142,7 +142,7 @@ export const withdrawRequest = async (req, res) => {
       amountPayable: payableAmount,
       type: "debit",
       category: "withdrawal",
-      description: `Withdrawal to ${bankName || bank} ending in ${accountNumber.slice(-4)}`,
+      description: `MarketSpase withdrawal to ${bankName || bank} ending in ${accountNumber.slice(-4)}`,
       status: "processing",
       createdAt: new Date(),
       processedAt: null,
@@ -173,19 +173,19 @@ export const withdrawRequest = async (req, res) => {
       payableAmount,
       { 
         userId, 
-        reason: `Withdrawal to ${accountName} - MarketSpase`, 
+        reason: `MarketSpase withdrawal to ${accountName}`, 
         reference: txRef.reference 
       }
     );
 
-    console.log('🔵 PAYMENT RESPONSE DETAILS:', {
-      success: paymentResponse.success,
-      status: paymentResponse.status,
-      reference: paymentResponse.reference,
-      providerReference: paymentResponse.providerReference,
-      transferCode: paymentResponse.transferCode,
-      message: paymentResponse.message
-    });
+    // console.log('🔵 PAYMENT RESPONSE DETAILS:', {
+    //   success: paymentResponse.success,
+    //   status: paymentResponse.status,
+    //   reference: paymentResponse.reference,
+    //   providerReference: paymentResponse.providerReference,
+    //   transferCode: paymentResponse.transferCode,
+    //   message: paymentResponse.message
+    // });
 
     // Store ALL provider identifiers for recon
     if (paymentResponse.reference) {
