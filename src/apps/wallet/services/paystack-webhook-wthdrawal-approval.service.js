@@ -217,10 +217,10 @@ async function handleTransferSuccess(data) {
   // Add to activity log
   if (user.logActivity) {
     await user.logActivity(
-      'withdrawal_completed',
+      'withdrawal_complete',
       `Withdrawal of ₦${(transaction.amount / 100).toFixed(2)} completed successfully`,
       {
-        resourceType: 'withdrawal',
+        resourceType: 'wallet',
         metadata: {
           transactionId: transaction._id,
           reference: reference,
@@ -289,10 +289,10 @@ async function handleTransferFailed(data) {
   // Add to activity log
   if (user.logActivity) {
     await user.logActivity(
-      'withdrawal_failed',
+      'withdrawal_rejected',
       `Withdrawal of ₦${(transaction.amount / 100).toFixed(2)} failed. Amount refunded.`,
       {
-        resourceType: 'withdrawal',
+        resourceType: 'wallet',
         metadata: {
           transactionId: transaction._id,
           reference: reference,
@@ -361,10 +361,10 @@ async function handleTransferReversed(data) {
 
   if (user.logActivity) {
     await user.logActivity(
-      'withdrawal_reversed',
+      'withdrawal_rejected',
       `Withdrawal of ₦${(transaction.amount / 100).toFixed(2)} was reversed. Amount refunded.`,
       {
-        resourceType: 'withdrawal',
+        resourceType: 'wallet',
         metadata: {
           transactionId: transaction._id,
           reference: reference,

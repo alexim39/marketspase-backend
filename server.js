@@ -4,7 +4,6 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
-//import axios from "axios";
 // Cron Jobs
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
 import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
@@ -37,30 +36,6 @@ const HOST = '0.0.0.0'; // Essential for container deployment
 const app = express();
 dotenv.config();
 
-
-// This endpoint will be: POST /api/webhook/paystack/approval for withdrawal approval
-/* app.post('/api/webhook/paystack', (req, res, next) => {
-  // Capture raw body
-  let data = '';
-  req.setEncoding('utf8');
-  req.on('data', chunk => {
-    data += chunk;
-  });
-  req.on('end', () => {
-    req.rawBody = data;
-    console.log('📦 Raw body captured, length:', data.length);
-    
-    // Now parse the JSON
-    try {
-      req.body = JSON.parse(data);
-      next();
-    } catch (e) {
-      console.error('Failed to parse JSON:', e);
-      res.status(400).json({ error: 'Invalid JSON' });
-    }
-  });
-}, handlePaystackWithdrawalWebhook); */
-
 // Single webhook endpoint that routes internally
 app.post('/api/webhook/paystack', (req, res, next) => {
   let data = '';
@@ -71,17 +46,6 @@ app.post('/api/webhook/paystack', (req, res, next) => {
     
     try {
       req.body = JSON.parse(data);
-      
-      // // Verify signature
-      // const signature = req.headers['x-paystack-signature'];
-      // const hash = crypto
-      //   .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
-      //   .update(data)
-      //   .digest('hex');
-
-      // if (signature !== hash) {
-      //   return res.status(401).send('Unauthorized');
-      // }
 
       // Route based on event type
       const event = req.body.event;
@@ -129,27 +93,8 @@ app.use(cors({
 // Handle preflight requests
 app.options('*', cors());
 
-// Debugging middleware to log request origins
-// app.get('/my-ip', async (req, res) => {
-//     try {
-//         // We force the response type to be text to avoid parsing errors
-//         const response = await axios.get('https://api.ipify.org');
-        
-//         // This will now return the actual IP address string
-//         res.status(200).send(`Your Outbound IP is: ${response.data}`);
-//     } catch (error) {
-//         res.status(500).json({ error: error.message });
-//     }
-// });
-
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));
-
-// app.get('/my-ip', async (req, res) => {
-//     const response = await axios.get('https://api.ipify.org');
-//     res.json({ outboundIp: response.data.ip });
-// });
-
 app.use('/auth', AuthRouter);
 app.use('/user', UserRouter);
 app.use('/wallet', WalletRouter);
@@ -178,6 +123,7 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
     // Call the methods to start the cron jobs
     CampaignSchedulerService.registerCampaignExpiryCron();
     CampaignSchedulerService.registerCampaignExhaustionCron();
+    CampaignSchedulerService.registerAutoActivateCampaignsCron();
 
     // Initialize withdrawal sync cron job
     initWithdrawalSyncCron();

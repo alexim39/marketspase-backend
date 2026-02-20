@@ -301,6 +301,25 @@ async function updateTransactionStatus(withdrawal, paystackStatus, paystackData)
         } */
       }
       break;
+    case 'rejected':
+      if (transaction.status !== 'rejected') {
+        console.log(`   ❌ Marking as ${paystackStatus}`);
+        
+        // Refund the user
+        const wallet = user.wallets[walletType];
+        wallet.balance += transaction.amount;
+        
+        transaction.status = 'rejected';
+        transaction.failureReason = paystackData?.reason || `Transfer ${paystackStatus} on Paystack`;
+        transaction.processedAt = new Date();
+        transaction.meta.syncUpdate = {
+          syncedAt: new Date(),
+          previousStatus: transaction.status,
+          paystackData
+        };
+        updated = true;      
+      }
+      break;
       
     case 'pending':
     case 'processing':
