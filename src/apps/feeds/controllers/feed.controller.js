@@ -390,3 +390,95 @@ export const getTrendingHashtags = asyncHandler(async (req, res) => {
     new ApiResponse(200, hashtags, 'Trending hashtags fetched')
   );
 });
+
+
+/**
+ * Get community feed posts (simplified version for dashboard)
+ */
+export const getCommunityFeed = asyncHandler(async (req, res) => {
+  const {
+    page = 1,
+    limit = 20,
+    userId,
+    type,
+    hashtag
+  } = req.query;
+
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  // Build query
+  const query = { status: 'published' };
+  if (type) query.type = type;
+  if (hashtag) query['hashtags.tag'] = hashtag.toLowerCase();
+
+  // Get posts
+  const posts = await FeedPostModel.find(query)
+    .populate('author', 'displayName username avatar role badge')
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(parseInt(limit))
+    .lean();
+
+  // Add user interaction data if userId provided
+  if (userId) {
+    posts.forEach(post => {
+      post.isLiked = post.likes?.some(like => 
+        like.user?.toString() === userId.toString()
+      ) || false;
+      
+      post.isSaved = post.savedBy?.some(saved => 
+        saved.user?.toString() === userId.toString()
+      ) || false;
+
+      // Remove arrays from response
+      delete post.likes;
+      delete post.savedBy;
+      delete post.shares;
+    });
+  } else {
+    posts.forEach(post => {
+      post.isLiked = false;
+      post.isSaved = false;
+      delete post.likes;
+      delete post.savedBy;
+      delete post.shares;
+    });
+  }
+
+  // Get today's activity stats
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const postsToday = await FeedPostModel.countDocuments({
+    ...query,
+    createdAt: { $gte: today }
+  });
+
+  // Get trending hashtags (top 5)
+  const trendingHashtags = await FeedPostModel.aggregate([
+    { $unwind: '$hashtags' },
+    { $match: { status: 'published' } },
+    { $group: { _id: '$hashtags.tag', count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+    { $limit: 5 },
+    { $project: { tag: '$_id', count: 1, _id: 0 } }
+  ]);
+
+  return res.status(200).json(
+    new ApiResponse(200, {
+      posts,
+      stats: {
+        postsToday,
+        activeUsers: Math.floor(Math.random() * 50) + 20, // Mock for now
+        totalEngagement: posts.reduce((sum, p) => sum + p.likeCount + p.commentCount + (p.shareCount || 0), 0),
+        topHashtag: trendingHashtags[0]?.tag || ''
+      },
+      trendingHashtags,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit)
+      }
+    }, 'Community feed fetched successfully')
+  );
+});
+
