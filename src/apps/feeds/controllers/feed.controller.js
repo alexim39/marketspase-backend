@@ -67,14 +67,14 @@ export const createFeedPost = asyncHandler(async (req, res) => {
   }
 
   // Log activity
-  await user.logActivity('campaign_update_created', `Created an update for campaign: ${campaign.title}`, {
+  await user.logActivity('campaign_update', `Created an update for campaign: ${campaign.title}`, {
     resourceType: 'feed',
     resourceId: post._id,
     metadata: { campaignId: campaign._id }
   });
 
   return res.status(201).json(
-    new ApiResponse(201, post, 'Campaign update created successfully')
+    new ApiResponse(201, post, 'Campaign feed created successfully')
   );
 });
 
@@ -173,7 +173,11 @@ export const getFeedPosts = asyncHandler(async (req, res) => {
 // Like/Unlike post
 export const togglePostLike = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const userId = req.user._id;
+  const { userId } = req.body;
+  //const userId = req.user.body;
+
+  console.log('postId ', postId)
+  console.log('body ', userId)
 
   const post = await FeedPostModel.findById(postId);
   if (!post) {
@@ -189,7 +193,7 @@ export const togglePostLike = asyncHandler(async (req, res) => {
     post.likes.push({ user: userId });
     
     // Create notification for post author
-    if (post.author.toString() !== userId.toString()) {
+    if (post?.author?.toString() !== userId?.toString()) {
       const user = await UserModel.findById(userId).select('displayName');
       await FeedNotificationModel.create({
         recipient: post.author,

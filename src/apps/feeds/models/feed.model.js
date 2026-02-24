@@ -36,7 +36,7 @@ const feedPostSchema = new mongoose.Schema({
     campaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' },
     name: { type: String },
     budget: { type: Number, min: 0 },
-    status: { type: String, enum: ['active', 'completed', 'paused'] }
+    status: { type: String, enum: ["active", "paused", "rejected", "completed", "exhausted", "expired", "pending", "draft", "archived"] }
   },
   
   // For tip type
