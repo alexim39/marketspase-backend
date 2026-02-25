@@ -310,9 +310,6 @@ static async getPromoterWalletDetails(promoterIdentifier) {
     const page = options.page || 1;
     const skip = (page - 1) * limit;
 
-    console.log('promoterIdentifier ', promoterIdentifier)
-    console.log('options ', options)
-
     try {
       const promoter = await UserModel.findOne({
         $or: [
@@ -375,7 +372,7 @@ static async getPromoterWalletDetails(promoterIdentifier) {
  */
 static async validateRefund(promoterIdentifier, amount) {
   try {
-    console.log('Validating refund:', { promoterIdentifier, amount });
+    //console.log('Validating refund:', { promoterIdentifier, amount });
     
     // Build query based on the identifier type
     const query = {
@@ -401,11 +398,11 @@ static async validateRefund(promoterIdentifier, amount) {
     // Only search for promoters or marketers
     query.role = { $in: ['promoter', 'marketer'] };
     
-    console.log('Search query:', JSON.stringify(query, null, 2));
+    //console.log('Search query:', JSON.stringify(query, null, 2));
     
     const promoter = await UserModel.findOne(query);
 
-    console.log('Found promoter:', promoter ? `Yes: ${promoter.username} (${promoter._id})` : 'No');
+    //console.log('Found promoter:', promoter ? `Yes: ${promoter.username} (${promoter._id})` : 'No');
     
     if (!promoter) {
       return {

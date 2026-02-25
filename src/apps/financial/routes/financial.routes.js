@@ -21,7 +21,7 @@ router.get('/stats', getFinancialStats);
 
 // Withdrawal management
 router.get('/withdrawals', getWithdrawalRequests);
-router.get('/:withdrawalId/:withdrawalId', getWithdrawalById);
+router.get('/withdrawals/:withdrawalId', getWithdrawalById);
 router.patch('/withdrawals/:withdrawalId/approve', approveWithdrawal);
 router.patch('/withdrawals/:withdrawalId/reject', rejectWithdrawal);
 router.patch('/withdrawals/:withdrawalId/process', processWithdrawal);

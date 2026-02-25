@@ -113,7 +113,7 @@ RefundRouter.post('/validate', async (req, res) => {
   try {
     const { promoterUserId, amount } = req.body;
     
-    console.log('Validation request:', { promoterUserId, amount });
+    //console.log('Validation request:', { promoterUserId, amount });
     
     if (!promoterUserId || !amount) {
       return res.status(400).json({
@@ -238,7 +238,7 @@ RefundRouter.post('/', async (req, res) => {
     const { promoterUserId, amount, reason, metadata, adminId } = req.body;
     //const adminId = req.user?.id || req.user?._id; // Handle both id and _id
 
-    console.log('Refund request:', { promoterUserId, amount, reason, metadata, adminId });
+    //console.log('Refund request:', { promoterUserId, amount, reason, metadata, adminId });
 
     if (!adminId) {
       return res.status(401).json({
