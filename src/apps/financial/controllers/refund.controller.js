@@ -310,6 +310,9 @@ static async getPromoterWalletDetails(promoterIdentifier) {
     const page = options.page || 1;
     const skip = (page - 1) * limit;
 
+    console.log('promoterIdentifier ', promoterIdentifier)
+    console.log('options ', options)
+
     try {
       const promoter = await UserModel.findOne({
         $or: [
