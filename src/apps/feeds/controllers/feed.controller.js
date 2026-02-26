@@ -181,8 +181,8 @@ export const togglePostLike = asyncHandler(async (req, res) => {
   const { postId } = req.params;
   const { userId } = req.body;
 
-  console.log('like postId ', postId)
-  console.log('lik body ', userId)
+  // console.log('like postId ', postId)
+  // console.log('lik body ', userId)
 
   const post = await FeedPostModel.findById(postId);
   if (!post) {
@@ -228,8 +228,8 @@ export const toggleSavePost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
   const { userId } = req.body;
 
-  console.log('save postId ', postId)
-  console.log('save body ', userId)
+  // console.log('save postId ', postId)
+  // console.log('save body ', userId)
 
   const post = await FeedPostModel.findById(postId);
   if (!post) {
@@ -312,8 +312,8 @@ export const sharePost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
   const { platform, userId } = req.body;
 
-  console.log('share postId ', postId)
-  console.log('share body ', userId)
+  // console.log('share postId ', postId)
+  // console.log('share body ', userId)
 
   const post = await FeedPostModel.findById(postId);
   if (!post) {
