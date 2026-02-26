@@ -9,7 +9,9 @@ import {
   sharePost,
   getPostById,
   getTrendingHashtags,
-  getCommunityFeed
+  getCommunityFeed,
+  getPostComments,
+  toggleCommentLike
 } from '../controllers/feed.controller.js';
 
 const router = express.Router();
@@ -18,9 +20,10 @@ const router = express.Router();
 router.get('/list', getFeedPosts);
 router.get('/community', getCommunityFeed);
 router.get('/trending/hashtags', getTrendingHashtags);
+router.get('/:postId/comments', getPostComments);
+
+router.post('/:postId/comments/:commentId/like', toggleCommentLike);
 router.get('/:postId', getPostById);
-
-
 
 router.post('/create', createFeedPost);
 router.post('/:postId/like', togglePostLike);
