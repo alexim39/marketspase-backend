@@ -120,7 +120,10 @@ export const getFeedPosts = asyncHandler(async (req, res) => {
 
   // Get posts
   const posts = await FeedPostModel.find(query)
-    .populate('author', 'username displayName avatar role rating badge')
+    .populate({
+      path: 'author',
+      select: 'username displayName avatar role rating badge'
+    })
     .populate('campaign.campaignId', 'name budget status')
     .populate('earnings.campaignId', 'name')
     .sort(sortOptions)
@@ -331,10 +334,13 @@ export const sharePost = asyncHandler(async (req, res) => {
 // Get single post
 export const getPostById = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const userId = req.user?._id;
+  const userId = req.body.userId;
 
   const post = await FeedPostModel.findById(postId)
-    .populate('author', 'username displayName avatar role rating')
+    .populate({
+      path: 'author',
+      select: 'username displayName avatar role rating badge'
+    })
     .populate('campaign.campaignId', 'name budget status')
     .populate('earnings.campaignId', 'name')
     .populate('comments.user', 'username displayName avatar')
@@ -396,6 +402,88 @@ export const getTrendingHashtags = asyncHandler(async (req, res) => {
 
  // Get community feed posts (simplified version for dashboard)
 export const getCommunityFeed = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 20, userId, type, hashtag } = req.query;
+
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  const query = { status: 'published' };
+  if (type) query.type = type;
+  if (hashtag) query['hashtags.tag'] = hashtag.toLowerCase();
+
+  const posts = await FeedPostModel.find(query)
+    .populate({
+      path: 'author',
+      select: 'username displayName avatar role rating badge personalInfo'
+    })
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(parseInt(limit))
+    .lean();
+
+
+  // Add engagement counts and interaction flags
+  posts.forEach(post => {
+    post.likeCount = post.likes?.length || 0;
+    post.commentCount = post.comments?.length || 0;
+    post.shareCount = post.shares?.length || 0;
+    post.phone = post.author?.personalInfo?.phone || '';
+
+    if (userId) {
+      post.isLiked =
+        post.likes?.some(like => like.user?.toString() === userId.toString()) || false;
+
+      post.isSaved =
+        post.savedBy?.some(saved => saved.user?.toString() === userId.toString()) || false;
+    } else {
+      post.isLiked = false;
+      post.isSaved = false;
+    }
+
+    delete post.likes;
+    delete post.savedBy;
+    delete post.shares;
+  });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const postsToday = await FeedPostModel.countDocuments({
+    ...query,
+    createdAt: { $gte: today }
+  });
+
+  const trendingHashtags = await FeedPostModel.aggregate([
+    { $unwind: '$hashtags' },
+    { $match: { status: 'published' } },
+    { $group: { _id: '$hashtags.tag', count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+    { $limit: 5 },
+    { $project: { tag: '$_id', count: 1, _id: 0 } }
+  ]);
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        posts,
+        stats: {
+          postsToday,
+          activeUsers: Math.floor(Math.random() * 50) + 20,
+          totalEngagement: posts.reduce(
+            (sum, p) => sum + p.likeCount + p.commentCount + (p.shareCount || 0),
+            0
+          ),
+          topHashtag: trendingHashtags[0]?.tag || ''
+        },
+        trendingHashtags,
+        pagination: { page: parseInt(page), limit: parseInt(limit) }
+      },
+      'Community feed fetched successfully'
+    )
+  );
+});
+
+/* export const getCommunityFeed = asyncHandler(async (req, res) => {
   const {
     page = 1,
     limit = 20,
@@ -412,47 +500,51 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
   if (hashtag) query['hashtags.tag'] = hashtag.toLowerCase();
 
   // Get posts
-  // Get posts with lean()
-const posts = await FeedPostModel.find(query)
-  .populate('author', 'displayName username avatar role badge')
-  .sort({ createdAt: -1 })
-  .skip(skip)
-  .limit(parseInt(limit))
-  .lean();  // lean is fine, we'll add counts manually
+  const posts = await FeedPostModel.find(query)
+    .populate({
+      path: 'author',
+      select: 'username displayName avatar role rating badge '
+    })
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(parseInt(limit))
+    .lean();  // lean is fine, we'll add counts manually
 
-// Add engagement counts and interaction flags
-if (userId) {
-  posts.forEach(post => {
-    // Add counts
-    post.likeCount = post.likes?.length || 0;
-    post.commentCount = post.comments?.length || 0;
-    post.shareCount = post.shares?.length || 0;
+    console.log('posts ', posts)
 
-    // Interaction flags
-    post.isLiked = post.likes?.some(like => 
-      like.user?.toString() === userId.toString()
-    ) || false;
-    post.isSaved = post.savedBy?.some(saved => 
-      saved.user?.toString() === userId.toString()
-    ) || false;
+  // Add engagement counts and interaction flags
+  if (userId) {
+    posts.forEach(post => {
+      // Add counts
+      post.likeCount = post.likes?.length || 0;
+      post.commentCount = post.comments?.length || 0;
+      post.shareCount = post.shares?.length || 0;
 
-    // Remove arrays from response
-    delete post.likes;
-    delete post.savedBy;
-    delete post.shares;
-  });
-} else {
-  posts.forEach(post => {
-    post.likeCount = post.likes?.length || 0;
-    post.commentCount = post.comments?.length || 0;
-    post.shareCount = post.shares?.length || 0;
-    post.isLiked = false;
-    post.isSaved = false;
-    delete post.likes;
-    delete post.savedBy;
-    delete post.shares;
-  });
-}
+      // Interaction flags
+      post.isLiked = post.likes?.some(like => 
+        like.user?.toString() === userId.toString()
+      ) || false;
+      post.isSaved = post.savedBy?.some(saved => 
+        saved.user?.toString() === userId.toString()
+      ) || false;
+
+      // Remove arrays from response
+      delete post.likes;
+      delete post.savedBy;
+      delete post.shares;
+    });
+  } else {
+    posts.forEach(post => {
+      post.likeCount = post.likes?.length || 0;
+      post.commentCount = post.comments?.length || 0;
+      post.shareCount = post.shares?.length || 0;
+      post.isLiked = false;
+      post.isSaved = false;
+      delete post.likes;
+      delete post.savedBy;
+      delete post.shares;
+    });
+  } 
 
   // Get today's activity stats
   const today = new Date();
@@ -489,7 +581,7 @@ if (userId) {
       }
     }, 'Community feed fetched successfully')
   );
-});
+});*/
 
 // Get comments for a post with pagination
 export const getPostComments = asyncHandler(async (req, res) => {
