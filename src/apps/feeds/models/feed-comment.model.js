@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+/* import mongoose from 'mongoose';
 
 const feedCommentSchema = new mongoose.Schema({
   post: {
@@ -78,4 +78,4 @@ feedCommentSchema.pre('save', function(next) {
   next();
 });
 
-export const FeedCommentModel = mongoose.model('FeedComment', feedCommentSchema);
+export const FeedCommentModel = mongoose.model('FeedComment', feedCommentSchema); */

@@ -1,5 +1,4 @@
 import { FeedPostModel } from '../models/feed.model.js';
-import { FeedCommentModel } from '../models/feed-comment.model.js';
 import { FeedNotificationModel } from '../models/feed-notification.model.js';
 import { UserModel } from '../../user/models/user.model.js';
 import { CampaignModel } from '../../campaign/models/campaign.model.js';
