@@ -8,18 +8,22 @@ import {
   addComment,
   sharePost,
   getPostById,
-  getTrendingHashtags
+  getTrendingHashtags,
+  getCommunityFeed,
+  getPostComments,
+  toggleCommentLike
 } from '../controllers/feed.controller.js';
 
 const router = express.Router();
 
 // Public routes
 router.get('/list', getFeedPosts);
+router.get('/community', getCommunityFeed);
 router.get('/trending/hashtags', getTrendingHashtags);
-router.get('/:postId', getPostById);
+router.get('/:postId/comments', getPostComments);
 
-// Protected routes
-//router.use(verifyJWT); // All routes below require authentication
+router.post('/:postId/comments/:commentId/like', toggleCommentLike);
+router.get('/:postId', getPostById);
 
 router.post('/create', createFeedPost);
 router.post('/:postId/like', togglePostLike);

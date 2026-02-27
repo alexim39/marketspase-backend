@@ -4,122 +4,6 @@ import { AdminRefundController } from '../controllers/refund.controller.js';
 const RefundRouter = express.Router();
 
 /**
- * @route POST /api/financial/refund/
- * @description Refund balance to a promoter
- * @access Admin only
- */
-RefundRouter.post('/', async (req, res) => {
-  try {
-    const { promoterUserId, amount, reason, metadata, adminId } = req.body;
-    //const adminId = req.user?.id || req.user?._id; // Handle both id and _id
-
-    console.log('Refund request:', { promoterUserId, amount, reason, metadata, adminId });
-
-    if (!adminId) {
-      return res.status(401).json({
-        success: false,
-        error: 'Admin not authenticated'
-      });
-    }
-
-    const result = await AdminRefundController.refundPromoterBalance({
-      promoterUserId,
-      amount,
-      reason,
-      adminId,
-      metadata
-    });
-
-    res.status(200).json(result);
-  } catch (error) {
-    console.error('Refund error:', error);
-    res.status(400).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-/**
- * @route GET /api/financial/refund/:identifier/wallet
- * @description Get promoter wallet details
- * @access Admin only
- */
-RefundRouter.get('/:identifier/wallet', async (req, res) => {
-  try {
-    const { identifier } = req.params;
-    const result = await AdminRefundController.getPromoterWalletDetails(identifier);
-    res.status(200).json(result);
-  } catch (error) {
-    console.error('Get wallet error:', error);
-    res.status(400).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-/**
- * @route POST /api/financial/refund/bulk
- * @description Bulk refund multiple promoters
- * @access Admin only
- */
-RefundRouter.post('/bulk', async (req, res) => {
-  try {
-    const { refunds } = req.body;
-    const adminId = req.user?.id || req.user?._id;
-
-    if (!adminId) {
-      return res.status(401).json({
-        success: false,
-        error: 'Admin not authenticated'
-      });
-    }
-
-    if (!Array.isArray(refunds)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Refunds must be an array'
-      });
-    }
-
-    const result = await AdminRefundController.bulkRefundPromoters(refunds, adminId);
-    res.status(200).json(result);
-  } catch (error) {
-    console.error('Bulk refund error:', error);
-    res.status(400).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-/**
- * @route GET /api/financial/refund/:identifier/refund-history
- * @description Get promoter's refund history
- * @access Admin only
- */
-RefundRouter.get('/:identifier/refund-history', async (req, res) => {
-  try {
-    const { identifier } = req.params;
-    const { limit = 20, page = 1 } = req.query;
-
-    const result = await AdminRefundController.getPromoterRefundHistory(identifier, {
-      limit: parseInt(limit),
-      page: parseInt(page)
-    });
-
-    res.status(200).json(result);
-  } catch (error) {
-    console.error('Get refund history error:', error);
-    res.status(400).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-/**
  * @route GET /api/financial/refund/history
  * @description Get all refund history (not specific to a promoter)
  * @access Admin only
@@ -151,53 +35,6 @@ RefundRouter.get('/history', async (req, res) => {
     });
   }
 });
-
-
-/**
- * @route POST /api/financial/refund/validate
- * @description Validate if a refund can be processed
- * @access Admin only
- */
-RefundRouter.post('/validate', async (req, res) => {
-  try {
-    const { promoterUserId, amount } = req.body;
-    
-    console.log('Validation request:', { promoterUserId, amount });
-    
-    if (!promoterUserId || !amount) {
-      return res.status(400).json({
-        success: false,
-        data: {
-          valid: false,
-          error: 'Missing promoterUserId or amount'
-        }
-      });
-    }
-    
-    const result = await AdminRefundController.validateRefund(promoterUserId, amount);
-    
-    // Ensure consistent response format
-    if (result && typeof result === 'object') {
-      res.status(200).json({
-        success: true,
-        data: result
-      });
-    } else {
-      // If controller returns raw validation result
-      res.status(200).json({
-        success: true,
-        data: result
-      });
-    }
-  } catch (error) {
-    console.error('Validation error:', error);
-    res.status(400).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
 
 /**
  * @route GET /api/financial/refund/search
@@ -260,6 +97,167 @@ RefundRouter.get('/search', async (req, res) => {
     });
   } catch (error) {
     console.error('Search promoters error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route POST /api/financial/refund/validate
+ * @description Validate if a refund can be processed
+ * @access Admin only
+ */
+RefundRouter.post('/validate', async (req, res) => {
+  try {
+    const { promoterUserId, amount } = req.body;
+    
+    //console.log('Validation request:', { promoterUserId, amount });
+    
+    if (!promoterUserId || !amount) {
+      return res.status(400).json({
+        success: false,
+        data: {
+          valid: false,
+          error: 'Missing promoterUserId or amount'
+        }
+      });
+    }
+    
+    const result = await AdminRefundController.validateRefund(promoterUserId, amount);
+    
+    // Ensure consistent response format
+    if (result && typeof result === 'object') {
+      res.status(200).json({
+        success: true,
+        data: result
+      });
+    } else {
+      // If controller returns raw validation result
+      res.status(200).json({
+        success: true,
+        data: result
+      });
+    }
+  } catch (error) {
+    console.error('Validation error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route POST /api/financial/refund/bulk
+ * @description Bulk refund multiple promoters
+ * @access Admin only
+ */
+RefundRouter.post('/bulk', async (req, res) => {
+  try {
+    const { refunds } = req.body;
+    const adminId = req.user?.id || req.user?._id;
+
+    if (!adminId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Admin not authenticated'
+      });
+    }
+
+    if (!Array.isArray(refunds)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Refunds must be an array'
+      });
+    }
+
+    const result = await AdminRefundController.bulkRefundPromoters(refunds, adminId);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Bulk refund error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route GET /api/financial/refund/:identifier/wallet
+ * @description Get promoter wallet details
+ * @access Admin only
+ */
+RefundRouter.get('/:identifier/wallet', async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const result = await AdminRefundController.getPromoterWalletDetails(identifier);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Get wallet error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route GET /api/financial/refund/:identifier/refund-history
+ * @description Get promoter's refund history
+ * @access Admin only
+ */
+RefundRouter.get('/:identifier/refund-history', async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const { limit = 20, page = 1 } = req.query;
+
+    const result = await AdminRefundController.getPromoterRefundHistory(identifier, {
+      limit: parseInt(limit),
+      page: parseInt(page)
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Get refund history error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+})
+
+/**
+ * @route POST /api/financial/refund/
+ * @description Refund balance to a promoter
+ * @access Admin only
+ */
+RefundRouter.post('/', async (req, res) => {
+  try {
+    const { promoterUserId, amount, reason, metadata, adminId } = req.body;
+    //const adminId = req.user?.id || req.user?._id; // Handle both id and _id
+
+    //console.log('Refund request:', { promoterUserId, amount, reason, metadata, adminId });
+
+    if (!adminId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Admin not authenticated'
+      });
+    }
+
+    const result = await AdminRefundController.refundPromoterBalance({
+      promoterUserId,
+      amount,
+      reason,
+      adminId,
+      metadata
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Refund error:', error);
     res.status(400).json({
       success: false,
       error: error.message
