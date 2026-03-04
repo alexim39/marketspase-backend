@@ -677,7 +677,47 @@ const calculatePromoterDrivenSales = async (storeId) => {
 /**
  * Update daily analytics
  */
+
 const updateDailyAnalytics = async (storeId, type, referrer = null) => {
+  const today = new Date().toISOString().split('T')[0];
+
+  try {
+    // 1. Try to update an existing daily entry
+    const updated = await StoreAnalyticsModel.findOneAndUpdate(
+      { storeId, 'dailyViews.date': today },
+      {
+        $inc: {
+          'dailyViews.$.views': type === 'view' ? 1 : 0,
+          'dailyViews.$.uniqueVisitors': type === 'view' && !referrer ? 1 : 0,
+          'dailyViews.$.promoterTraffic': referrer ? 1 : 0
+        }
+      },
+      { new: true }
+    );
+
+    // 2. If no entry existed, push a new one (and create the parent doc if needed)
+    if (!updated) {
+      await StoreAnalyticsModel.findOneAndUpdate(
+        { storeId },
+        {
+          $push: {
+            dailyViews: {
+              date: today,
+              views: type === 'view' ? 1 : 0,
+              uniqueVisitors: type === 'view' && !referrer ? 1 : 0,
+              promoterTraffic: referrer ? 1 : 0
+            }
+          }
+        },
+        { upsert: true, new: true }
+      );
+    }
+  } catch (error) {
+    console.error('Update daily analytics error:', error);
+  }
+};
+
+/* const updateDailyAnalytics = async (storeId, type, referrer = null) => {
   const today = new Date().toISOString().split('T')[0];
   
   try {
@@ -695,7 +735,7 @@ const updateDailyAnalytics = async (storeId, type, referrer = null) => {
   } catch (error) {
     console.error('Update daily analytics error:', error);
   }
-};
+}; */
 
 /**
  * Track store referral

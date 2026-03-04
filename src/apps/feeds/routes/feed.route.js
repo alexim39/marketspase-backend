@@ -13,6 +13,8 @@ import {
   getPostComments,
   toggleCommentLike
 } from '../controllers/feed.controller.js';
+import { updateFeedPost } from '../controllers/update-post.controller.js';
+import { deleteFeedPost } from '../controllers/delete-post.controller.js';
 
 const router = express.Router();
 
@@ -30,5 +32,8 @@ router.post('/:postId/like', togglePostLike);
 router.post('/:postId/save', toggleSavePost);
 router.post('/:postId/comments', addComment);
 router.post('/:postId/share', sharePost);
+
+router.put('/:postId', updateFeedPost);    // Edit post
+router.delete('/:postId', deleteFeedPost); 
 
 export default router;
