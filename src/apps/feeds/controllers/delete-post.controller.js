@@ -1,9 +1,11 @@
-/* import { FeedPostModel } from '../models/feed.model.js';
+import { FeedPostModel } from '../models/feed.model.js';
+import { FeedNotificationModel } from '../models/feed-notification.model.js';
 import { UserModel } from '../../user/models/user.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
+/* 
 // Delete (archive) a feed post
 export const deleteFeedPost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
@@ -40,12 +42,7 @@ export const deleteFeedPost = asyncHandler(async (req, res) => {
 }); */
 
 
-import { FeedPostModel } from '../models/feed.model.js';
-import { FeedNotificationModel } from '../models/feed-notification.model.js';
-import { UserModel } from '../../user/models/user.model.js';
-import { ApiError } from '../utils/ApiError.js';
-import { ApiResponse } from '../utils/ApiResponse.js';
-import { asyncHandler } from '../utils/asyncHandler.js';
+
 
 // Permanently delete a feed post
 export const deleteFeedPost = asyncHandler(async (req, res) => {
