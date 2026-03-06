@@ -4,31 +4,34 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
-// Cron Jobs
-import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
-import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
 
 import './src/apps/campaign/services/jobs/campaign-notification.job.js'; 
 import './src/apps/notification/services/jobs/notification-scheduler.job.js'; 
 
-import AuthRouter from './src/apps/auth/routes/index.route.js';
-import UserRouter from './src/apps/user/routes/index.route.js';
+import AuthRouter from './src/apps/auth/routes/index.js';
+import UserRouter from './src/apps/user/routes/index.js';
 import WalletRouter from './src/apps/wallet/routes/index.js';
 import CampaignRouter from './src/apps/campaign/routes/index.js';
-import SettingsRouter from './src/apps/settings/routes/index.route.js';
+import SettingsRouter from './src/apps/settings/routes/index.js';
 import ContactRouter from './src/apps/contact/routes/index.js';
-import DashboardRouter from './src/apps/dashboard/routes/index.route.js';
+import DashboardRouter from './src/apps/dashboard/routes/index.js';
 import PromoterRouter from './src/apps/promotion/index.js';
 import NotificationRouter from './src/apps/notification/index.js';
-import FinancialRouter from './src/apps/financial/routes/index.route.js';
+import FinancialRouter from './src/apps/financial/routes/index.js';
 import NewsletterRouter from './src/apps/newsletter/routes/index.js';
-import StoreIndexRouter from './src/apps/store/routes/index.route.js';
+import StoreIndexRouter from './src/apps/store/routes/index.js';
 import ForumIndexRouter from './src/apps/forum/routes/index.js';
-import FeedsIndexRouter from './src/apps/feeds/routes/index.route.js';
+import FeedsIndexRouter from './src/apps/feeds/routes/index.js';
+import ProfileIndexRouter from './src/apps/profile/routes/index.js';
 
+// paystack transaction webhook imports
 import handlePaystackWithdrawalWebhook from './src/apps/wallet/services/paystack-webhook-wthdrawal-approval.service.js';
 import handlePaystackFundingWebhook from './src/apps/wallet/services/paystack-webhook-deposit-approval.service.js';
+
+// cron job imports
 import { initWithdrawalSyncCron } from './src/apps/wallet/jobs/withdrawal-sync.cron.js';
+import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
+import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
 
 // Port and Host
 const PORT = process.env.PORT || 8080;
@@ -109,6 +112,7 @@ app.use('/newsletter', NewsletterRouter);
 app.use('/stores', StoreIndexRouter);
 app.use('/forum', ForumIndexRouter);
 app.use('/feed', FeedsIndexRouter);
+app.use('/profile', ProfileIndexRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
