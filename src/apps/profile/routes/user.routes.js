@@ -7,12 +7,14 @@ import {
   getFollowing,
   toggleFollow,
 } from '../controllers/user.controller.js';
+import { getSuggestedUsers } from '../controllers/get-suggested-user-controller.js';
 
 const router = express.Router();
 
 // All routes require authentication to know current user
 //router.use(authMiddleware);
 
+router.get('/suggested', getSuggestedUsers);
 router.get('/:userId/profile', getProfile);
 router.get('/:userId/posts', getUserPosts);
 router.get('/:userId/followers', getFollowers);
