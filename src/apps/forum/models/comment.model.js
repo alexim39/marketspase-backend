@@ -21,7 +21,7 @@ const commentSchema = new mongoose.Schema(
     },
     parentComment: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Comment'
+      ref: 'Forumcomment'
     },
     likeCount: {
       type: Number,
@@ -42,7 +42,7 @@ const commentSchema = new mongoose.Schema(
 
 /* Comment Virtuals */
 commentSchema.virtual('replies', {
-  ref: 'Comment',
+  ref: 'Forumcomment',
   localField: '_id',
   foreignField: 'parentComment'
 });
@@ -52,4 +52,4 @@ commentSchema.index({ thread: 1, createdAt: -1 });
 commentSchema.index({ author: 1, createdAt: -1 });
 
 /* Models */
-export const CommentModel = mongoose.model('Comment', commentSchema);
+export const CommentModel = mongoose.model('Forumcomment', commentSchema);

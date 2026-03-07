@@ -81,7 +81,7 @@ const threadSchema = new mongoose.Schema(
 
 /* Thread Virtuals */
 threadSchema.virtual('comments', {
-  ref: 'Comment',
+  ref: 'Forumcomment',
   localField: '_id',
   foreignField: 'thread'
 });
@@ -101,9 +101,9 @@ threadSchema.pre('save', function (next) {
 
 // Cascade delete comments when thread is deleted
 threadSchema.pre('deleteOne', { document: true }, async function (next) {
-  await this.model('Comment').deleteMany({ thread: this._id });
+  await this.model('Forumcomment').deleteMany({ thread: this._id });
   next();
 });
 
 /* Models */
-export const ThreadModel = mongoose.model('Thread', threadSchema);
+export const ThreadModel = mongoose.model('Forumthread', threadSchema);
