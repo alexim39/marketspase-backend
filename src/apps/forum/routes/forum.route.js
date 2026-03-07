@@ -3,7 +3,8 @@ import {
     getThreads, 
     getThreadById, 
     getThreadsByTags,
-    deleteThread
+    deleteThread,
+    updateThread
 } from '../controllers/thread.controller.js'
 import { createThread } from '../controllers/create-thread.controller.js';
 import { toggleThreadLike } from '../controllers/toggle-thread-like.controller.js';
@@ -13,33 +14,39 @@ import {
     toggleLikeComment,
     toggleLikeReply,
     deleteComment,
-    deleteReply
+    deleteReply,
+    updateComment
 } from '../controllers/comment.controller.js';
-const ForumRouter = express.Router();
+const router = express.Router();
 
 // add new thread
-ForumRouter.post('/threads/new', createThread);
+router.post('/threads/new', createThread);
 // get a thread by ID
-ForumRouter.get('/thread/:id', getThreadById);
+router.get('/thread/:id', getThreadById);
 // get all threads
-ForumRouter.get('/threads', getThreads);
+router.get('/threads', getThreads);
+// update a comment by ID  
+router.put('/comments/:commentId', updateComment);
+// update a thread by ID
+router.put('/threads/:threadId', updateThread);
+
 // get comments for a specific thread
 // add a new comment to a thread
-ForumRouter.post('/thread/comment/new', addCommentToThread);
+router.post('/thread/comment/new', addCommentToThread);
 // add comment reply in a thread
-ForumRouter.post('/thread/comment/reply', addCommentReply);
+router.post('/thread/comment/reply', addCommentReply);
 // like/dislike a thread
-ForumRouter.put('/thread/like', toggleThreadLike);
+router.put('/thread/like', toggleThreadLike);
 // get threads by tag
-ForumRouter.get('/threads/tags/:tags', getThreadsByTags);
+router.get('/threads/tags/:tags', getThreadsByTags);
 // Toggle like/dislike for a comment
-ForumRouter.post('/comments/like', toggleLikeComment);
+router.post('/comments/like', toggleLikeComment);
 // Toggle like/dislike for a reply
-ForumRouter.post('/comments/reply/like', toggleLikeReply);
+router.post('/comments/reply/like', toggleLikeReply);
 // delete threads by id
-ForumRouter.delete('/thread/:threadId/:userId', deleteThread);
+router.delete('/thread/:threadId/:userId', deleteThread);
 // delete comment by id
-ForumRouter.delete('/comment/:commentId/:userId', deleteComment);
+router.delete('/comment/:commentId/:userId', deleteComment);
 // delete reply by id
-ForumRouter.delete('/reply/:replyId/:userId', deleteReply);
-export default ForumRouter;
+router.delete('/reply/:replyId/:userId', deleteReply);
+export default router;

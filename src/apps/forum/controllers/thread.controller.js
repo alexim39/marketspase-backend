@@ -63,7 +63,6 @@ export const getThreads = async (req, res) => {
   }
 };
 
-
 /**
  * @desc    Get a single thread by ID with comments and replies
   */
@@ -114,8 +113,6 @@ export const getThreadById = async (req, res) => {
     });
   }
 };
-
-
 
 /**
  * @desc    Get threads by tag
@@ -189,5 +186,42 @@ export const deleteThread = async (req, res) => {
     res.status(200).json({success: true, message: 'Thread deleted successfully' });
   } catch (error) {
     res.status(500).json({success: false, message: 'Error deleting thread', error: error.message });
+  }
+};
+
+// update thread controller
+export const updateThread = async (req, res) => {
+  try {
+    const { threadId } = req.params;
+    const { title, content, tags, userId } = req.body; // userId from auth in production
+
+    // Find thread
+    const thread = await ThreadModel.findById(threadId);
+    if (!thread) {
+      return res.status(404).json({ message: 'Thread not found' });
+    }
+
+    // Verify ownership
+    if (thread.author.toString() !== userId) {
+      return res.status(403).json({ message: 'You are not the author of this thread' });
+    }
+
+    // Update only allowed fields (media stays untouched)
+    if (title !== undefined) thread.title = title;
+    if (content !== undefined) thread.content = content;
+    if (tags !== undefined) thread.tags = tags; // expects array
+
+    await thread.save();
+
+    // Populate author before sending
+    await thread.populate('author', 'displayName username avatar isVerified');
+
+    res.status(200).json({
+      success: true,
+      data: thread
+    });
+  } catch (error) {
+    console.error('Error updating thread:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 };

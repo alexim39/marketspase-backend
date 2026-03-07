@@ -501,3 +501,42 @@ export const deleteComment = async (req, res) => {
     res.status(500).json({ success: false, message: 'Error deleting comment', error: error.message });
   }
 };
+
+// controllers/comment.controller.js (example)
+export const updateComment = async (req, res) => {
+  try {
+    const { commentId } = req.params;
+    const { content, userId } = req.body; // userId passed in body (or from auth middleware)
+
+    // Find comment by ID
+    const comment = await CommentModel.findById(commentId);
+    if (!comment) {
+      return res.status(404).json({ message: 'Comment not found' });
+    }
+
+    // Check if comment is marked as deleted
+    if (comment.isDeleted) {
+      return res.status(400).json({ message: 'Cannot edit a deleted comment' });
+    }
+
+    // Verify ownership
+    if (comment.author.toString() !== userId) {
+      return res.status(403).json({ message: 'You are not the author of this comment' });
+    }
+
+    // Update content
+    comment.content = content;
+    await comment.save();
+
+    // Populate author info before sending back
+    await comment.populate('author', 'displayName username avatar isVerified');
+
+    res.status(200).json({
+      success: true,
+      data: comment
+    });
+  } catch (error) {
+    console.error('Error updating comment:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
