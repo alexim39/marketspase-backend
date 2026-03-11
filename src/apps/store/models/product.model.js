@@ -26,6 +26,8 @@ const productSchema = new mongoose.Schema({
     type: String, 
     maxlength: 2000 
   },
+
+  currency: { type: String, default: 'NGN' },
   
   // Category & Classification
   category: { 
