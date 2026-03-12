@@ -82,9 +82,9 @@ export const createProduct = async (req, res) => {
     } = req.body;
 
 
-    console.log('request body ',req.body)
-    console.log('request userId ',req.params?.userId )
-    console.log('request storeId ',req.params?.storeId )
+    // console.log('request body ',req.body)
+    // console.log('request userId ',req.params?.userId )
+    // console.log('request storeId ',req.params?.storeId )
 
     
     // Validate required fields
@@ -130,10 +130,11 @@ export const createProduct = async (req, res) => {
     }
 
     // Handle image uploads
+    // Handle image/video/gif uploads
     const imageFiles = req.files?.images || [];
     const uploadedImages = [];
 
-    if (imageFiles.length > 0) {
+   /*  if (imageFiles.length > 0) {
       try {
         for (let i = 0; i < imageFiles.length; i++) {
           const file = imageFiles[i];
@@ -158,10 +159,74 @@ export const createProduct = async (req, res) => {
           message: 'Failed to upload product images'
         });
       }
+    } */
+
+    if (imageFiles.length > 0) {
+      try {
+        for (let i = 0; i < imageFiles.length; i++) {
+          const file = imageFiles[i];
+          
+          // Use file.path (Disk Storage) instead of file.buffer
+          const uploadResult = await uploadToCloudinary(
+            file.path, 
+            `stores/${storeId}/products`
+          );
+          
+          uploadedImages.push({
+            url: uploadResult.secure_url,
+            // Use the result's resource_type to know if it's a video or image
+            resourceType: uploadResult.resource_type, 
+            altText: req.body[`altTexts[${i}]`] || name,
+            isMain: i === 0,
+            order: i
+          });
+        }
+      } catch (uploadError) {
+        console.error('File upload failed:', uploadError);
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to upload product media'
+        });
+      }
+    }
+
+    // Handle digital file upload (PDF/etc)
+    let digitalFileData = null;
+    // Check if the array exists and has at least one file
+    if (isDigital && req.files?.digitalFile?.[0]) {
+      try {
+        const digitalFile = req.files.digitalFile[0];
+        
+        // Use file.path (Disk Storage)
+        const uploadResult = await uploadToCloudinary(
+          digitalFile.path,
+          `stores/${storeId}/digital-products`
+        );
+        
+        digitalFileData = {
+          fileUrl: uploadResult.secure_url,
+          fileName: digitalFile.originalname,
+          fileSize: digitalFile.size,
+          // Support for potentially nested digitalProduct object from req.body
+          downloadLimit: typeof digitalProduct === 'string' ? JSON.parse(digitalProduct).downloadLimit : digitalProduct?.downloadLimit || 0,
+          downloadExpiry: typeof digitalProduct === 'string' ? JSON.parse(digitalProduct).downloadExpiry : digitalProduct?.downloadExpiry || 0,
+          downloadCount: 0
+        };
+      } catch (uploadError) {
+        console.error('Digital file upload failed:', uploadError);
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to upload digital product file'
+        });
+      }
     }
 
     // Handle digital file upload
-    let digitalFileData = null;
+   /*  let digitalFileData = null;
     if (isDigital && req.files?.digitalFile) {
       try {
         const digitalFile = req.files.digitalFile[0];
@@ -187,7 +252,7 @@ export const createProduct = async (req, res) => {
           message: 'Failed to upload digital product file'
         });
       }
-    }
+    } */
 
     // Generate unique slug
     const baseSlug = name
