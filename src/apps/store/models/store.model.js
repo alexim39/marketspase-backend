@@ -24,7 +24,25 @@ const storeSchema = new mongoose.Schema({
   
   // WhatsApp integration
   whatsappNumber: String,
-  whatsappTemplates: [String]
+  whatsappTemplates: [String],
+
+  isDeleted: { 
+    type: Boolean, 
+    default: false,
+    index: true 
+  },
+  deletedAt: { 
+    type: Date 
+  },
+  deletedBy: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: "User" 
+  },
+  isActive: { 
+    type: Boolean, 
+    default: true,
+    index: true 
+  }
 }, { timestamps: true });
 
 

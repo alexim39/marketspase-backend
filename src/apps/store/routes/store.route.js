@@ -8,6 +8,7 @@ import { getStoreById } from '../controllers/get-store-byid.controller.js'
 import { setDefaultStore } from '../controllers/set-default-store.controller.js'
 import { getStoreProducts } from '../controllers/store-products.controller.js'
 import { getStoreProduct } from '../controllers/store-product.controller.js'
+import { permanentDeleteStore } from '../controllers/delete-store.controller.js'
 
 const router = express.Router();
 
@@ -16,6 +17,12 @@ router.post('/', upload.single('logo'), createStore);
 
 // Get user's stores
 router.get('/', getUserStores);
+
+// DELETE route - soft delete
+//router.delete('/:storeId/:userId', deleteStore);
+
+// Optional: Permanent delete route
+router.delete('/:storeId/:userId/permanent', permanentDeleteStore);
 
 // Get specific store
 router.get('/:storeId', getStoreById);
