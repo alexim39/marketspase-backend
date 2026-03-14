@@ -32,6 +32,7 @@ import handlePaystackFundingWebhook from './src/apps/wallet/services/paystack-we
 import { initWithdrawalSyncCron } from './src/apps/wallet/jobs/withdrawal-sync.cron.js';
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
 import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
+import { initFileUploadCleanupTask } from './src/apps/utils/cleanup.js';
 
 // Port and Host
 const PORT = process.env.PORT || 8080;
@@ -128,6 +129,7 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
     CampaignSchedulerService.registerCampaignExpiryCron();
     CampaignSchedulerService.registerCampaignExhaustionCron();
     CampaignSchedulerService.registerAutoActivateCampaignsCron();
+    initFileUploadCleanupTask()
 
     // Initialize withdrawal sync cron job
     initWithdrawalSyncCron();
