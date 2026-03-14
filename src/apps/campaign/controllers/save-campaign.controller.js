@@ -1,210 +1,195 @@
+// apps/campaign/controllers/create-campaign.controller.js
+
+import mongoose from "mongoose";
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
-import mongoose from "mongoose";
-import fs from "fs";
+import { sendEmail } from "../../../services/email.service.js";
+import { adminCampaignApprovalTemplate } from "../services/email/adminCampaignApprovalTemplate.js";
+import { buildVideoThumbnailUrl } from "../services/thumbnail-generator.service.js";
+import { uploadToCloudinary } from "../utils/cloudinary.js";
 
-
-/**
- * @description Creates a new campaign. This function handles the validation,
- * reserves the campaign budget from the user's wallet, and securely saves
- * the new campaign to the database using a transaction.
- * @param {object} req - The request object from Express.js.
- * @param {object} res - The response object from Express.js.
- * @returns {Promise<void>}
- */
 export const saveCampaign = async (req, res) => {
   const session = await mongoose.startSession();
-  session.startTransaction();
-
-  // Helper function to safely delete files
-  const deleteUploadedFile = (filePath) => {
-    if (filePath && fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath);
-      } catch (error) {
-        console.error("Error deleting file:", error.message);
-      }
-    }
-  };
 
   try {
-    const {
-      owner,
-      title,
-      caption,
-      link,
-      category,
-      budget,
-      startDate,
-      endDate,
-      currency,
-      enableTarget,
-      campaignType = "standard",
-      priority = "medium",
-      minRating = 0,
-      requirements = "",
-      targetLocations = [],
-      hasEndDate = true,
-      minViewsPerPromotion = 25
-    } = req.body;
+    const campaign = await session.withTransaction(async () => {
+      const {
+        owner,
+        title,
+        caption,
+        link,
+        category,
+        budget,
+        payoutTierId,
+        payoutPerPromotion,
+        minViewsPerPromotion,
+        maxViewsPerPromotion,
+        startDate,
+        endDate,
+        currency = "NGN",
+        enableTarget = false,
+        campaignType = "standard",
+        priority = "medium",
+        minRating = 0,
+        requirements = [],
+        targetLocations = [],
+        hasEndDate,
+        ageTarget = "all",
+      } = req.body;
 
-    // Handle uploaded file and determine media type
-    let mediaUrl = '';
-    let mediaType = '';
-    if (req.file) {
-      // Build a public URL for the uploaded file
-      mediaUrl = `/uploads/campaigns/${req.file.filename}`;
+      //console.log('request ',req.body);
 
-      // Determine media type from file mimetype
-      if (req.file.mimetype.startsWith('image/')) {
-        mediaType = 'image';
-      } else if (req.file.mimetype.startsWith('video/')) {
-        mediaType = 'video';
+      // 1️⃣ VALIDATION
+      if (!owner || !title || !budget || !category) {
+        const err = new Error("Missing required fields.");
+        err.status = 400;
+        throw err;
       }
-    }
 
-    const payoutPerPromotion = 200;
-    const maxPromoters = Math.floor(budget / payoutPerPromotion);
+      const numericBudget = Number(budget);
+      if (!Number.isFinite(numericBudget) || numericBudget < 1000) {
+        const err = new Error("Minimum campaign budget is ₦1000.");
+        err.status = 400;
+        throw err;
+      }
 
-    // Validate required fields
-    if (!owner || !title || !budget || !category) {
-      deleteUploadedFile(req.file?.path);
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({
-        message: "Missing required fields: owner, title, budget, and category are required.",
-        success: false,
+      if (!payoutTierId || !payoutPerPromotion || !minViewsPerPromotion) {
+        const err = new Error("Payout tier selection is required.");
+        err.status = 400;
+        throw err;
+      }
+
+      const numericPayout = Number(payoutPerPromotion);
+      if (!Number.isFinite(numericPayout) || numericPayout <= 0) {
+        const err = new Error("Invalid payout amount.");
+        err.status = 400;
+        throw err;
+      }
+
+      // 2️⃣ LOAD MARKETER + WALLET CHECK
+      const marketer = await UserModel.findById(owner)
+        .session(session)
+        .select("email wallets.marketer.balance");
+
+      if (!marketer) {
+        const err = new Error("Campaign owner not found.");
+        err.status = 404;
+        throw err;
+      }
+
+      // if (marketer.wallets.marketer.balance < numericBudget) {
+      //   const err = new Error("Insufficient wallet balance to create this campaign.");
+      //   err.status = 400;
+      //   throw err;
+      // }
+
+      // 3️⃣ MEDIA HANDLING
+      if (!req.file) {
+        const err = new Error("Campaign media (image or video) is required.");
+        err.status = 400;
+        throw err;
+      }
+
+      let mediaUrl = "";
+      let mediaType = "";
+      let thumbnailUrl = "";
+
+      try {
+        const uploadResult = await uploadToCloudinary(req.file.path, `campaigns/${owner}`);
+        mediaUrl = uploadResult.secure_url;
+        mediaType = uploadResult.resource_type;
+
+        if (mediaType === "video") {
+          thumbnailUrl = buildVideoThumbnailUrl(uploadResult.public_id);
+        } else {
+          thumbnailUrl = mediaUrl;
+        }
+      } catch (uploadError) {
+        console.error("Cloudinary Upload Error:", uploadError);
+        const err = new Error("Failed to upload media to cloud storage.");
+        err.status = 500;
+        throw err;
+      }
+
+      // 4️⃣ MAX PROMOTERS & VIEW ESTIMATION
+      const maxPromoters = Math.floor(numericBudget / numericPayout);
+      if (maxPromoters < 1) {
+        const err = new Error("Budget too low for selected payout tier.");
+        err.status = 400;
+        throw err;
+      }
+
+      const estimatedViews = maxPromoters * Number(minViewsPerPromotion);
+
+      const campaignDoc = new CampaignModel({
+        owner,
+        title,
+        caption,
+        link,
+        category,
+        mediaUrl,
+        mediaType,
+        thumbnailUrl,
+        budget: numericBudget,
+        currency,
+        maxPromoters,
+        currentPromoters: 0,
+        payoutModel: "fixed_per_promoter",
+        payoutTierId,
+        payoutPerPromotion: numericPayout,
+        minViewsPerPromotion,
+        maxViewsPerPromotion,
+        estimatedViews,
+        enableTarget,
+        ageTarget,
+        targetLocations,
+        requirements,
+        minRating,
+        campaignType,
+        priority,
+        startDate: startDate ? new Date(startDate) : new Date(),
+        endDate: endDate ? new Date(endDate) : null,
+        hasEndDate: Boolean(endDate),
+        status: "draft",
+        createdBy: owner,
+        activityLog: [{
+          action: "Campaign Created as draft",
+          details: `Campaign created with budget ₦${numericBudget}`,
+          timestamp: new Date(),
+          performedBy: owner
+        }]
       });
-    }
 
-    // Validate media is provided
-    if (!mediaUrl) {
-      deleteUploadedFile(req.file?.path);
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({
-        message: "Campaign media (image or video) is required.",
-        success: false,
-      });
-    }
-
-    const user = await UserModel.findById(owner).session(session);
-    if (!user) {
-      deleteUploadedFile(req.file?.path);
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(404).json({
-        message: "User not found.",
-        success: false,
-      });
-    }
-
-    // const marketerWallet = user.wallets.marketer;
-    // if (marketerWallet.balance < budget) {
-    //   deleteUploadedFile(req.file?.path);
-    //   await session.abortTransaction();
-    //   session.endSession();
-    //   return res.status(402).json({
-    //     message: "Insufficient funds. Please fund your wallet to create this campaign.",
-    //     success: false,
-    //   });
-    // }
-
-    // Process requirements array if provided as string
-    const requirementsArray = requirements 
-      ? requirements.split(',').map(req => req.trim()).filter(req => req.length > 0)
-      : [];
-
-    // Process target locations
-    const targetLocationsArray = Array.isArray(targetLocations) 
-      ? targetLocations 
-      : (typeof targetLocations === 'string' ? targetLocations.split(',').map(loc => loc.trim()) : []);
-
-    const newCampaign = new CampaignModel({
-      owner,
-      title,
-      caption: caption || "",
-      link: link || "",
-      category,
-      budget: Number(budget),
-      enableTarget: Boolean(enableTarget),
-      targetLocations: targetLocationsArray,
-      requirements: requirementsArray,
-      minRating: Number(minRating),
-      campaignType,
-      priority,
-      hasEndDate: Boolean(hasEndDate),
-      minViewsPerPromotion: Number(minViewsPerPromotion),
-      payoutPerPromotion,
-      maxPromoters,
-      startDate: startDate ? new Date(startDate) : new Date(),
-      endDate: endDate ? new Date(endDate) : undefined,
-      mediaUrl,
-      mediaType,
-      currency: currency || "NGN",
-      status: "draft",
-      createdBy: owner,
-      activityLog: [{ 
-        action: 'Campaign Saved to Draft', 
-        details: 'Initial campaign saved to draft.',
-        performedBy: owner
-      }],
+      await campaignDoc.save({ session });
+      return campaignDoc;
     });
 
-    // Reserve budget from marketer wallet
-    // marketerWallet.balance = Number(marketerWallet.balance) - Number(budget);
-    // marketerWallet.reserved = Number(marketerWallet.reserved) + Number(budget);
-    // marketerWallet.transactions.push({
-    //   amount: budget,
-    //   type: "debit",
-    //   category: "campaign",
-    //   description: `Funds reserved for campaign: "${title}"`,
-    //   relatedCampaign: newCampaign._id,
-    //   status: "reserved",
-    // });
+    // 6️⃣ ADMIN NOTIFICATION (only after transaction commits)
+    await sendEmail({
+      to: ["schooltraz@gmail.com"],
+      subject: "New Campaign Created As Draft",
+      html: adminCampaignApprovalTemplate({
+        title: campaign.title,
+        budget: campaign.budget,
+        owner: campaign.owner,
+        category: campaign.category
+      })
+    }).catch(err => console.error("Email send failed:", err));
 
-    await newCampaign.save({ session });
-    await user.save({ session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    await UserModel.updateOne(
-      { _id: user._id },
-      { $set: { lastSeenAt: new Date() } }
-    );
-
-    res.status(201).json({
-      message: "Campaign saved successfully to draft.",
+    return res.status(201).json({
       success: true,
-      campaignId: newCampaign._id,
-      mediaUrl: mediaUrl ? `${req.protocol}://${req.get('host')}${mediaUrl}` : null,
-      mediaType: mediaType,
+      message: "Campaign created successfully as draft",
+      data: campaign
     });
-
-
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    
-    // Clean up the uploaded file on error
-    deleteUploadedFile(req.file?.path);
-
-    console.error("Error creating campaign:", error.message);
-
-    // Handle specific MongoDB connection errors
-    if (error.code === 'EAI_AGAIN') {
-      return res.status(503).json({
-        message: "Database connection error. Please try again later.",
-        success: false,
-        error: "Database unavailable"
-      });
-    }
-
-    res.status(500).json({
-      message: "Error occurred while creating campaign.",
+    // Error handling for both validation and transaction failures
+    const status = error.status || 400;
+    console.error("Create campaign error:", error);
+    return res.status(status).json({
       success: false,
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      message: error.message || "Failed to create campaign"
     });
+  } finally {
+    await session.endSession();
   }
 };
