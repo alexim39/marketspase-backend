@@ -4,7 +4,7 @@ import { ProductModel } from '../../models/product.model.js';
 import { PromotionTrackingModel } from '../../models/product.model.js';
 import { StoreModel } from '../../models/store.model.js';
 
-export const getPromoterProducts = async (req, res) => {
+export const getPromoterStoreProducts = async (req, res) => {
   try {
     const {
       page = 1,
@@ -27,7 +27,8 @@ export const getPromoterProducts = async (req, res) => {
     // Build base filter query
     let filterQuery = {
       isActive: true,
-      isDeleted: false
+      isDeleted: false,
+      isPublished: true
     };
 
     // Category filter
@@ -150,7 +151,8 @@ export const getPromoterProducts = async (req, res) => {
       {
         $match: {
           isActive: true,
-          isDeleted: false
+          isDeleted: false,
+          isPublished: true
         }
       },
       {
@@ -176,7 +178,8 @@ export const getPromoterProducts = async (req, res) => {
       {
         $match: {
           isActive: true,
-          isDeleted: false
+          isDeleted: false,
+          isPublished: true
         }
       },
       {
@@ -217,110 +220,6 @@ export const getPromoterProducts = async (req, res) => {
       success: false,
       message: 'Server error while fetching products',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
-
-// Simple version without complex aggregations
-export const getPromoterProductsSimple = async (req, res) => {
-  try {
-    const products = await ProductModel.find({
-      isActive: true,
-      isDeleted: false
-    })
-    .populate('store', 'name logo description isVerified verificationTier storeLink')
-    .limit(50); // Limit for testing
-
-    // Transform to match UI
-    const transformedProducts = products.map(product => ({
-      _id: product._id.toString(),
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      originalPrice: product.originalPrice,
-      images: product.images || [],
-      category: product.category,
-      tags: product.tags || [],
-      sku: product.sku,
-      averageRating: product.averageRating || 0,
-      ratingCount: product.ratingCount || 0,
-      purchaseCount: product.purchaseCount || 0,
-      viewCount: product.viewCount || 0,
-      createdAt: product.createdAt,
-      store: {
-        _id: product.store?._id?.toString() || product.store?.toString(),
-        name: product.store?.name || 'Unknown Store',
-        logo: product.store?.logo || '',
-        description: product.store?.description || '',
-        isVerified: product.store?.isVerified || false,
-        verificationTier: product.store?.verificationTier || 'basic',
-        storeLink: product.store?.storeLink || ''
-      },
-      promotion: {
-        commissionRate: 15 + Math.floor(Math.random() * 15), // Random between 15-30%
-        commissionType: 'percentage',
-        isActive: true,
-        isApproved: true,
-        trackingCode: `PROMO-${product._id.toString().substring(0, 8).toUpperCase()}`,
-        viewCount: product.viewCount || Math.floor(Math.random() * 1000),
-        clickCount: Math.floor((product.viewCount || 100) * 0.3),
-        conversionCount: Math.floor((product.viewCount || 100) * 0.05),
-        earnings: (product.price || 0) * 0.15 * Math.floor((product.viewCount || 100) * 0.05)
-      }
-    }));
-
-    // Get categories
-    const categories = await ProductModel.aggregate([
-      {
-        $match: {
-          isActive: true,
-          isDeleted: false
-        }
-      },
-      {
-        $group: {
-          _id: '$category',
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $project: {
-          name: '$_id',
-          count: 1,
-          _id: 0
-        }
-      }
-    ]);
-
-    res.status(200).json({
-      success: true,
-      count: transformedProducts.length,
-      total: transformedProducts.length,
-      totalPages: 1,
-      currentPage: 1,
-      data: transformedProducts,
-      filters: {
-        categories: categories,
-        priceRange: {
-          minPrice: Math.min(...transformedProducts.map(p => p.price)),
-          maxPrice: Math.max(...transformedProducts.map(p => p.price)),
-          avgPrice: transformedProducts.reduce((sum, p) => sum + p.price, 0) / transformedProducts.length
-        },
-        commissionRange: {
-          minCommission: Math.min(...transformedProducts.map(p => p.promotion.commissionRate)),
-          maxCommission: Math.max(...transformedProducts.map(p => p.promotion.commissionRate)),
-          avgCommission: transformedProducts.reduce((sum, p) => sum + p.promotion.commissionRate, 0) / transformedProducts.length,
-          highCommissionCount: transformedProducts.filter(p => p.promotion.commissionRate >= 20).length
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Error fetching products:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
     });
   }
 };

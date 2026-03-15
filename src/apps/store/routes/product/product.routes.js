@@ -3,7 +3,7 @@ import express from "express";
 import { cloudinaryMediaUpload } from "./../../../../services/cloudinary.service.js";
 import { createProduct } from "../../controllers/product/create-product.controller.js";
 import { updateProduct } from "../../controllers/product/update-product.controller.js";
-import { getPromoterProducts } from "../../controllers/product/get-promoter-products.controller.js";
+import { getPromoterStoreProducts } from "../../controllers/product/get-promoter-store-products.controller.js";
 import { getPromoterProductDetails } from "../../controllers/product/get-promoter-product-details.controller.js";
 import { getProductPromotionStatsController } from "../../controllers/product/get-product-promo-stats.controller.js";
 import { trackProductView } from "../../controllers/product/track-product-view.controller.js";
@@ -20,7 +20,7 @@ const router = express.Router();
 // These should come first as they don't have storeId parameters
 
 // Get all products in product collection for promoter to browse
-router.route("/list").get(getPromoterProducts);
+router.route("/list/promoter").get(getPromoterStoreProducts);
 
 router.route("/trending").get(getTrendingProducts);
 
