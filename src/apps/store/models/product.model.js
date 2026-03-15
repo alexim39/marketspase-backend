@@ -242,7 +242,26 @@ const productSchema = new mongoose.Schema({
   },
   deletedAt: { 
     type: Date 
-  }
+  },
+
+  isPublished: { 
+    type: Boolean, 
+    default: false,
+    index: true 
+  },
+  publishedAt: { 
+    type: Date 
+  },
+  publishedBy: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: "User" 
+  },
+  promotionStartDate: { 
+    type: Date 
+  },
+  promotionEndDate: { 
+    type: Date 
+  },
 }, { 
   timestamps: true,
   toJSON: { virtuals: true },
@@ -363,7 +382,7 @@ const promotionTrackingSchema = new mongoose.Schema({
     default: 0,
     min: 0 
   },
-  
+    
   // Tracking Data
   deviceTypes: {
     mobile: { type: Number, default: 0 },
@@ -484,6 +503,7 @@ productSchema.index({ "seo.slug": 1 }, { unique: true, sparse: true });
 productSchema.index({ sku: 1 }, { unique: true, sparse: true });
 productSchema.index({ "variants.sku": 1 }, { sparse: true });
 productSchema.index({ name: "text", description: "text", tags: "text" });
+productSchema.index({ store: 1, isPublished: 1, isActive: 1 });
 
 // Promotion Tracking Indexes
 promotionTrackingSchema.index({ product: 1, promoter: 1 }, { unique: true });

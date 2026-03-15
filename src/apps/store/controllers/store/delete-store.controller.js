@@ -1,9 +1,9 @@
 // controllers/store/delete-store.controller.js
-import { StoreModel } from '../models/store.model.js';
-import { StoreAnalyticsModel } from '../models/store-analytics.model.js';
-import { WhatsAppIntegrationModel } from '../models/whatsapp-integration.model.js';
-import { ProductModel, PromotionTrackingModel, InventoryHistoryModel } from '../models/product.model.js';
-import { deleteMultipleFromCloudinary } from '../utils/cloudinary.js';
+import { StoreModel } from '../../models/store.model.js';
+import { StoreAnalyticsModel } from '../../models/store-analytics.model.js';
+import { WhatsAppIntegrationModel } from '../../models/whatsapp-integration.model.js';
+import { ProductModel, PromotionTrackingModel, InventoryHistoryModel } from '../../models/product.model.js';
+import { deleteMultipleFromCloudinary } from '../../utils/cloudinary.js';
 import mongoose from 'mongoose';
 
 

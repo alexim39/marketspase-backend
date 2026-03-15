@@ -1,6 +1,6 @@
 // store-products.controller.js
-import { ProductModel } from '../models/product.model.js';
-import { StoreModel } from '../models/store.model.js';
+import { ProductModel } from '../../models/product.model.js';
+import { StoreModel } from '../../models/store.model.js';
 import mongoose from "mongoose";
 
 export const getStoreProducts = async (req, res) => {
@@ -89,7 +89,7 @@ export const getStoreProducts = async (req, res) => {
     const totalPages = Math.ceil(total / limit);
 
     // Transform products using the correct field names from your schema
-    const transformedProducts = products.map(product => {
+    /* const transformedProducts = products.map(product => {
       // Get main image
       const mainImage = product.images?.find(img => img.isMain) || product.images?.[0];
       
@@ -163,12 +163,12 @@ export const getStoreProducts = async (req, res) => {
           : 0,
         mainImage: mainImage?.url || null
       };
-    });
+    }); */
 
     return res.status(200).json({
       success: true,
       data: {
-        products: transformedProducts,
+        products: products,
         total,
         page,
         limit,

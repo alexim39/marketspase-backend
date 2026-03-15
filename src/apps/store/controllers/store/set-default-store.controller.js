@@ -1,4 +1,4 @@
-import { StoreModel } from "../models/store.model.js";
+import { StoreModel } from "../../models/store.model.js";
 import mongoose from "mongoose";
 
 export const setDefaultStore = async (req, res) => {
