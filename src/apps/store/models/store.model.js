@@ -42,7 +42,13 @@ const storeSchema = new mongoose.Schema({
     type: Boolean, 
     default: true,
     index: true 
-  }
+  },
+  address: {
+    street: { type: String, trim: true },
+    city: { type: String, trim: true },
+    state: { type: String, trim: true },
+    country: { type: String, trim: true }
+  },
 }, { timestamps: true });
 
 
