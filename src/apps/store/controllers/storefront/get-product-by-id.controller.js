@@ -13,10 +13,6 @@ export const getProductById = async (req, res) => {
     const { productId } = req.params;
     const { track = 'true' } = req.query;
 
-    console.log('req params ', req.params);
-    console.log('productId ', productId);
-    console.log('track ', track);
-
     if (!productId) {
       return res.status(400).json({
         success: false,

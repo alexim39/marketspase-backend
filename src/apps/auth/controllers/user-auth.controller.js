@@ -1,5 +1,5 @@
 import { UserModel } from "../../user/models/user.model.js";
-import { sendEmail } from "../../../services/email.service.js";
+import { sendEmail } from "../../../core/email.service.js";
 import { generateUniqueUsername } from '../services/username-generator.js'; 
 import { adminWelcomeEmailTemplate } from '../services/email/adminTemplate.js'; 
 import { userWelcomeEmailTemplate } from '../services/email/userWelcomeTemplate.js';

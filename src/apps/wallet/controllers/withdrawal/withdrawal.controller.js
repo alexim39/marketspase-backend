@@ -1,6 +1,6 @@
 // controllers/withdrawal.controller.js
 import { UserModel } from '../../../user/models/user.model.js';
-import { sendEmail } from "../../../../services/email.service.js";
+import { sendEmail } from "../../../../core/email.service.js";
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import { assertAccountNotUsedByAnotherUser } from '../../services/account-ownership.service.js';

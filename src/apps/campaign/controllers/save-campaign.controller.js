@@ -3,7 +3,7 @@
 import mongoose from "mongoose";
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user.model.js";
-import { sendEmail } from "../../../services/email.service.js";
+import { sendEmail } from "../../../core/email.service.js";
 import { adminCampaignApprovalTemplate } from "../services/email/adminCampaignApprovalTemplate.js";
 import { buildVideoThumbnailUrl } from "../services/thumbnail-generator.service.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";

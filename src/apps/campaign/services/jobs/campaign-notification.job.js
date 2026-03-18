@@ -3,7 +3,7 @@
 import { CampaignModel } from '../../models/campaign.model.js';
 import { UserModel } from '../../../user/models/user.model.js';
 import { NotificationModel } from '../../../notification/models/notification.model.js';
-import { sendEmail } from '../../../../services/email.service.js';
+import { sendEmail } from '../../../../core/email.service.js';
 import { newCampaignEmailTemplate } from '../email/newCampaignTemplate.js';
 
 const DAILY_LIMIT = 4;   // per user per day

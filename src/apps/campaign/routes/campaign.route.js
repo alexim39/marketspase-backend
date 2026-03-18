@@ -1,5 +1,5 @@
 import express from 'express';
-import { cloudinaryMediaUpload } from "../../../services/cloudinary.service.js";
+import { cloudinaryMediaUpload } from "../../../core/cloudinary.service.js";
 
 import { acceptCampaign } from '../controllers/accept-campaign.controller.js'
 import { createCampaign } from '../controllers/create-campaign.controller.js'

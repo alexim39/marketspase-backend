@@ -1,6 +1,6 @@
 // routes/product.routes.js
 import express from "express";
-import { cloudinaryMediaUpload } from "./../../../../services/cloudinary.service.js";
+import { cloudinaryMediaUpload } from "../../../../core/cloudinary.service.js";
 import { createProduct } from "../../controllers/product/create-product.controller.js";
 import { updateProduct } from "../../controllers/product/update-product.controller.js";
 import { getPromoterStoreProducts } from "../../controllers/product/get-promoter-store-products.controller.js";
