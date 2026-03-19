@@ -1,4 +1,4 @@
-import { UserModel } from '../../user/models/user.model.js';
+import { UserModel } from '../../user/models/user/index.js';
 import { ThreadModel } from './../models/thread.model.js';
 import { CommentModel } from '../models/comment.model.js';
 

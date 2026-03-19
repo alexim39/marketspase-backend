@@ -1,5 +1,5 @@
 // src/apps/financial/controllers/get-withdrawal-by-id.controller.js
-import { UserModel } from '../../user/models/user.model.js';
+import { UserModel } from '../../user/models/user/index.js';
 import mongoose from 'mongoose';
 
 export const getWithdrawalById = async (req, res) => {

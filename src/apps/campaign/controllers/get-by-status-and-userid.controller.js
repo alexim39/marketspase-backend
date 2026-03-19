@@ -1,6 +1,6 @@
 
 import { CampaignModel } from "../models/campaign.model.js";
-import { UserModel } from "../../user/models/user.model.js";
+import { UserModel } from "../../user/models/user/index.js";
 import mongoose from "mongoose";
 
 /**

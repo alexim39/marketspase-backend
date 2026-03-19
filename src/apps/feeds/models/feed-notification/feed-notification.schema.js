@@ -1,4 +1,9 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
+import {
+  NOTIFICATION_TYPE_ARRAY,
+  DEFAULTS,
+  TTL_CONFIG
+} from "./feed-notification.constants.js";
 
 const feedNotificationSchema = new mongoose.Schema({
   recipient: {
@@ -10,17 +15,7 @@ const feedNotificationSchema = new mongoose.Schema({
   
   type: {
     type: String,
-    enum: [
-      'like',
-      'comment',
-      'reply',
-      'mention',
-      'share',
-      'save',
-      'featured',
-      'trending',
-      'milestone'
-    ],
+    enum: NOTIFICATION_TYPE_ARRAY,
     required: true
   },
   
@@ -31,7 +26,7 @@ const feedNotificationSchema = new mongoose.Schema({
   
   comment: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'FeedComment'
+    ref: 'FeedPost.comments'
   },
   
   actor: {
@@ -47,27 +42,47 @@ const feedNotificationSchema = new mongoose.Schema({
   
   isRead: {
     type: Boolean,
-    default: false,
+    default: DEFAULTS.IS_READ,
     index: true
   },
   
   isClicked: {
     type: Boolean,
-    default: false
+    default: DEFAULTS.IS_CLICKED
   },
   
   metadata: {
     type: mongoose.Schema.Types.Mixed,
-    default: {}
+    default: DEFAULTS.METADATA
+  },
+  
+  // Read at timestamp for analytics
+  readAt: {
+    type: Date,
+    default: null
+  },
+  
+  // Clicked at timestamp
+  clickedAt: {
+    type: Date,
+    default: null
+  },
+  
+  // Priority for sorting (optional)
+  priority: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 10
+  },
+  
+  // Group ID for grouping related notifications
+  groupId: {
+    type: String,
+    index: true
   },
   
   createdAt: { type: Date, default: Date.now, index: true }
 });
 
-// TTL index - auto-delete after 30 days
-feedNotificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 2592000 });
-
-// Index for user notifications
-feedNotificationSchema.index({ recipient: 1, isRead: 1, createdAt: -1 });
-
-export const FeedNotificationModel = mongoose.model('FeedNotification', feedNotificationSchema);
+export default feedNotificationSchema;

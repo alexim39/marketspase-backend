@@ -1,4 +1,4 @@
-import { UserModel} from '../../user/models/user.model.js';
+import { UserModel} from '../../user/models/user/index.js';
 import { sendEmail } from "../../../core/email.service.js";
 import { paymentDeclinedEmailTemplate } from '../services/email/paymentDeclinedTemplate.js';
 import { paymentApprovedEmailTemplate } from '../services/email/paymentApprovedTemplate.js';

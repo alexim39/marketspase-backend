@@ -1,7 +1,7 @@
 
 // src/apps/campaign/services/jobs/campaign-notification.job.js
-import { CampaignModel } from '../../models/campaign.model.js';
-import { UserModel } from '../../../user/models/user.model.js';
+import { CampaignModel } from '../../models/index.js';
+import { UserModel } from '../../../user/models/user/index.js';
 import { NotificationModel } from '../../../notification/models/notification.model.js';
 import { sendEmail } from '../../../../core/email.service.js';
 import { newCampaignEmailTemplate } from '../email/newCampaignTemplate.js';

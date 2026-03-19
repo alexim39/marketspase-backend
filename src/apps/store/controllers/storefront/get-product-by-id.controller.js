@@ -1,7 +1,6 @@
 import mongoose from 'mongoose';
-import { ProductModel } from '../../models/product.model.js';
 import { StoreModel } from '../../models/store.model.js';
-import { PromotionTrackingModel } from '../../models/product.model.js';
+import { PromotionTrackingModel, ProductModel } from '../../models/promotion/index.js';
 
 /**
  * @desc    Get product by ID with populated data

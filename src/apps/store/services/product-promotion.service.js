@@ -1,6 +1,5 @@
 // services/product-promotion.service.js
-import { ProductModel } from "../models/product.model.js";
-import { PromotionTrackingModel } from "../models/product.model.js";
+import { ProductModel, PromotionTrackingModel } from "../models/promotion/index.js";
 import mongoose from "mongoose";
 
 export class ProductPromotionService {

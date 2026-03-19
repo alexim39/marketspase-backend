@@ -2,7 +2,7 @@
 
 import mongoose from "mongoose";
 import { CampaignModel } from "../models/campaign.model.js";
-import { UserModel } from "../../user/models/user.model.js";
+import { UserModel } from "../../user/models/user/index.js";
 import { sendEmail } from "../../../core/email.service.js";
 import { adminCampaignApprovalTemplate } from "../services/email/adminCampaignApprovalTemplate.js";
 import { buildVideoThumbnailUrl } from "../services/thumbnail-generator.service.js";

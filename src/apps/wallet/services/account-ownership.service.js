@@ -1,7 +1,7 @@
 
 // src/apps/payments/services/account-ownership.service.js
 import mongoose from 'mongoose';
-import { UserModel } from '../../user/models/user.model.js';
+import { UserModel } from '../../user/models/user/index.js';
 
 /**
  * Normalize accountNumber and accountName to minimize false negatives.

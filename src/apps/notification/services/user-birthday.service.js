@@ -1,6 +1,6 @@
 
 // src/apps/user/services/user-birthday.service.js
-import { UserModel } from './../../user/models/user.model.js';
+import { UserModel } from './../../user/models/user/index.js';
 import { NotificationService } from './notification.service.js';
 import { sendEmail } from '../../../core/email.service.js';
 import { userBirthdayEmailTemplate } from './email/userBirthdayTemplate.js';

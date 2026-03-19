@@ -1,5 +1,5 @@
 // controllers/withdrawal.controller.js
-import { UserModel } from '../../../user/models/user.model.js';
+import { UserModel } from '../../../user/models/user/index.js';
 import { sendEmail } from "../../../../core/email.service.js";
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';

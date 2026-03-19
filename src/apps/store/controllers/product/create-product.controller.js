@@ -1,7 +1,6 @@
 // controllers/product/create-product.controller.js
-import { ProductModel } from '../../models/product.model.js';
+import { ProductModel, InventoryHistoryModel } from '../../models/promotion/index.js';
 import { StoreModel } from '../../models/store.model.js';
-import { InventoryHistoryModel } from '../../models/product.model.js';
 import { uploadToCloudinary } from '../../utils/cloudinary.js';
 import mongoose from 'mongoose';
 

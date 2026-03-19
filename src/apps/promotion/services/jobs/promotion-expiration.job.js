@@ -1,9 +1,9 @@
 
 import cron from 'node-cron';
 import mongoose from 'mongoose';
-import { PromotionModel } from '../../models/promotion.model.js';
-import { UserModel } from '../../../user/models/user.model.js';
-import { CampaignModel } from '../../../campaign/models/campaign.model.js';
+import { PromotionModel } from '../../models/index.js';
+import { UserModel } from '../../../user/models/user/index.js';
+import { CampaignModel } from '../../../campaign/models/index.js';
 import { NotificationService } from '../../../notification/services/notification.service.js';
 
 // Helper function to handle the refund logic

@@ -1,6 +1,6 @@
-import { UserModel } from '../../user/models/user.model.js';
+import { UserModel } from '../../user/models/user/index.js';
 import { FollowModel } from '../models/follow.model.js';
-import { FeedPostModel } from '../../feeds/models/feed.model.js';
+import { FeedPostModel } from '../../feeds/models/feed/index.js';
 import mongoose from 'mongoose';
 
 // Get public profile of a user

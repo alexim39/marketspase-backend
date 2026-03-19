@@ -1,7 +1,4 @@
-import mongoose from 'mongoose';
-import { ProductModel } from '../../models/product.model.js';
-import { PromotionTrackingModel } from '../../models/product.model.js';
-import { StoreModel } from '../../models/store.model.js';
+import { ProductModel, PromotionTrackingModel } from '../../models/promotion/index.js';
 
 // Helper function to generate short URL (example with Bitly)
 async function generateShortUrl(longUrl) {

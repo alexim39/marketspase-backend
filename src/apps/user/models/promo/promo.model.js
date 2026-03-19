@@ -1,4 +1,17 @@
-// models/promo.model.js
+import mongoose from "mongoose";
+import promoSchema from "./promo.schema.js";
+import { setupPromoMethods } from "./promo.methods.js";
+import { setupPromoStatics } from "./promo.statics.js";
+import { setupPromoIndexes } from "./promo.indexes.js";
+
+// Setup all schema extensions
+setupPromoMethods(promoSchema);
+setupPromoStatics(promoSchema);
+setupPromoIndexes(promoSchema);
+
+export const PromoModel = mongoose.model("Promo", promoSchema);
+
+/* // models/promo.model.js
 import mongoose from 'mongoose';
 
 const promoClaimSchema = new mongoose.Schema({
@@ -222,4 +235,4 @@ promoSchema.statics = {
 };
 
 export const PromoModel = mongoose.model('Promo', promoSchema);
-export const PromoClaimModel = mongoose.model('PromoClaim', promoClaimSchema);
+export const PromoClaimModel = mongoose.model('PromoClaim', promoClaimSchema); */

@@ -1,8 +1,6 @@
 // controllers/promoterProduct.controller.js - Updated version
-import mongoose from 'mongoose';
-import { ProductModel } from '../../models/product.model.js';
-import { PromotionTrackingModel } from '../../models/product.model.js';
-import { StoreModel } from '../../models/store.model.js';
+import { ProductModel } from '../../models/promotion/index.js';
+
 
 export const getPromoterStoreProducts = async (req, res) => {
   try {

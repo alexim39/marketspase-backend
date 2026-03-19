@@ -1,6 +1,6 @@
 // controllers/promo.controller.js
-import { PromoModel, PromoClaimModel } from './../../models/promo/promo.model.js';
-import { UserModel } from '../../models/user.model.js';
+import { PromoModel, PromoClaimModel } from './../../models/promo/index.js';
+import { UserModel } from '../../models/user/index.js';
 
 export const PromoController = {
   // Get active promo for marketer dashboard

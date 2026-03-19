@@ -3,7 +3,7 @@
 import mongoose from 'mongoose';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
-import { UserModel } from '../../user/models/user.model.js';
+import { UserModel } from '../../user/models/user/index.js';
 import { ThreadModel } from '../models/thread.model.js';
 
 // ---------- Cloudinary config ----------

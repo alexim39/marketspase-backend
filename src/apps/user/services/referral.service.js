@@ -1,4 +1,4 @@
-import { UserModel } from '../models/user.model.js';
+import { UserModel } from '../models/user/index.js';
 import mongoose from 'mongoose'; // ADD THIS IMPORT
 
 export class ReferralService {

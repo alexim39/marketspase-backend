@@ -1,6 +1,6 @@
 
 // src/apps/user/services/activity.service.js
-import { UserModel } from '../models/user.model.js';
+import { UserModel } from '../models/user/index.js';
 
 /**
  * Append a single activity entry to a user's activityLog atomically.

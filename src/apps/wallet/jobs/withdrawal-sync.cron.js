@@ -1,6 +1,6 @@
 // src/apps/financial/services/withdrawal-sync.cron.js
 import cron from 'node-cron';
-import { UserModel } from '../../user/models/user.model.js';
+import { UserModel } from '../../user/models/user/index.js';
 import axios from 'axios';
 //import { sendEmail } from "../../../services/email.service.js";
 //import { withdrawalSuccessfulTemplate } from '../../wallet/services/email/withdrawalSuccessfulTemplate.js';

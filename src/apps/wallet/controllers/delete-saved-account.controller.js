@@ -1,4 +1,4 @@
-import { UserModel} from '../../user/models/user.model.js';
+import { UserModel} from '../../user/models/user/index.js';
 
 // Delete saved accounts
 export const deleteSavedAccount = async (req, res) => {

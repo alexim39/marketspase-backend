@@ -1,6 +1,6 @@
 import { StoreModel } from '../../models/store.model.js';
-import { ProductModel } from '../../models/product.model.js';
-import { UserModel } from '../../../user/models/user.model.js';
+import { ProductModel } from '../../models/promotion/index.js';
+import { UserModel } from '../../../user/models/user/index.js';
 import { CampaignModel } from '../../../campaign/models/campaign.model.js';
 import { StoreAnalyticsModel } from '../../models/store-analytics.model.js';
 import { WhatsAppIntegrationModel } from '../../models/whatsapp-integration.model.js';

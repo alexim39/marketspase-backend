@@ -1,8 +1,6 @@
 // controllers/product/update-product.controller.js
-import { ProductModel } from '../../models/product.model.js';
+import { ProductModel, InventoryHistoryModel, PriceHistoryModel } from '../../models/promotion/index.js';
 import { StoreModel } from '../../models/store.model.js';
-import { InventoryHistoryModel } from '../../models/product.model.js';
-import { PriceHistoryModel } from '../../models/product.model.js';
 import { uploadToCloudinary, deleteFromCloudinary } from '../../utils/cloudinary.js'; // Add deleteFromCloudinary here
 import mongoose from 'mongoose';
 

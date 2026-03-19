@@ -1,8 +1,8 @@
 // services/notification-scheduler.js
 import cron from "node-cron";
-import { PromotionModel } from "../../../promotion/models/promotion.model.js";
-import { CampaignModel } from "../../../campaign/models/campaign.model.js";
-import { UserModel } from "../../../user/models/user.model.js";
+import { PromotionModel } from "../../../promotion/models/index.js";
+import { CampaignModel } from "../../../campaign/models/index.js";
+import { UserModel } from "../../../user/models/user/index.js";
 import { NotificationService } from "../notification.service.js";
 import { NotificationModel } from "../../models/notification.model.js";
 // import { sendEmail } from "../../../../services/email.service.js";

@@ -1,5 +1,5 @@
 import { StoreModel } from '../../models/store.model.js';
-import { ProductModel } from '../../models/product.model.js';
+import { ProductModel } from '../../models/promotion/index.js';
 import { StoreAnalyticsModel } from '../../models/store-analytics.model.js';
 import mongoose from 'mongoose';
 /**

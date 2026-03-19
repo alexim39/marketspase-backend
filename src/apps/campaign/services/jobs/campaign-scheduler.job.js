@@ -1,5 +1,4 @@
-import { CampaignModel } from '../../models/campaign.model.js';
-//import { UserModel } from '../../../user/models/user.model.js';
+import { CampaignModel } from '../../models/index.js';
 import cron from 'node-cron';
 import mongoose from 'mongoose';
 import { sendEmail } from '../../../../core/email.service.js';

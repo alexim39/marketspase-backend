@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { UserModel} from '../../user/models/user.model.js';
+import { UserModel} from '../../user/models/user/index.js';
 import { sendEmail } from "../../../core/email.service.js";
 import { paymentApprovedEmailTemplate } from './email/paymentApprovedTemplate.js';
 import { ReferralService } from '../../user/services/referral.service.js';

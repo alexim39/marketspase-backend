@@ -1,4 +1,4 @@
-import { UserModel } from '../../user/models/user.model.js';
+import { UserModel } from '../../user/models/user/index.js';
 import { CampaignModel } from '../../campaign/models/campaign.model.js';
 
 export const getCampaignStats = async (req, res) => {

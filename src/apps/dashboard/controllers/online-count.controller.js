@@ -1,4 +1,4 @@
-import { UserModel } from '../../user/models/user.model.js';
+import { UserModel } from '../../user/models/user/index.js';
 
 const ONLINE_WINDOW = 10 * 60 * 1000; // 10 minutes
 

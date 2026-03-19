@@ -2,7 +2,7 @@
 import mongoose from "mongoose";
 import { CampaignModel } from "../models/campaign.model.js";
 import { PromotionModel } from "../../promotion/models/promotion.model.js";
-import { UserModel } from "../../user/models/user.model.js";
+import { UserModel } from "../../user/models/user/index.js";
 import { logUserActivity } from "../../user/services/activity.service.js";
 
 const MAX_TX_RETRIES = 5;
