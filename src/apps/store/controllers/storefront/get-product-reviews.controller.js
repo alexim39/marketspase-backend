@@ -1,5 +1,5 @@
 import { ProductModel } from '../../models/promotion/index.js';
-import { ReviewModel } from '../../models/review.model.js'; // You'll need to create this model
+import { ReviewModel } from '../../models/review/index.js'; // You'll need to create this model
 import mongoose from "mongoose";
 
 /**

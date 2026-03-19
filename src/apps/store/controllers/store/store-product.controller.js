@@ -1,6 +1,6 @@
 // store-products.controller.js
 import { ProductModel } from '../../models/promotion/index.js';
-import { StoreModel } from '../../models/store.model.js';
+import { StoreModel } from '../../models/store/index.js';
 import mongoose from "mongoose";
 
 export const getStoreProduct = async (req, res) => {

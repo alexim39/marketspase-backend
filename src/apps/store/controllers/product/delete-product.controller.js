@@ -1,6 +1,6 @@
 // controllers/product/delete-product.controller.js
 import { ProductModel, PromotionTrackingModel, InventoryHistoryModel } from '../../models/promotion/index.js';
-import { StoreModel } from '../../models/store.model.js';
+import { StoreModel } from '../../models/store/index.js';
 import { deleteFromCloudinary } from '../../utils/cloudinary.js';
 import mongoose from 'mongoose';
 

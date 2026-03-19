@@ -1,4 +1,4 @@
-import { StoreModel } from '../../models/store.model.js';
+import { StoreModel } from '../../models/store/index.js';
 
 /**
  * @desc    Get store verification status

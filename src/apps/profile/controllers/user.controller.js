@@ -1,5 +1,5 @@
 import { UserModel } from '../../user/models/user/index.js';
-import { FollowModel } from '../models/follow.model.js';
+import { FollowModel } from '../models/follow/index.js';
 import { FeedPostModel } from '../../feeds/models/feed/index.js';
 import mongoose from 'mongoose';
 

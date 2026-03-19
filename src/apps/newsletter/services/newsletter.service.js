@@ -1,4 +1,4 @@
-import { NewsletterModel } from '../models/newsletter.model.js';
+import { NewsletterModel } from '../models/index.js';
 import { UserModel } from '../../user/models/user/index.js';
 import { sendEmail } from '../../../core/email.service.js';
 import { newsletterEmailTemplate, newsletterPlainTextTemplate } from './email/newsletter.template.js';

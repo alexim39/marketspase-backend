@@ -1,5 +1,5 @@
 // utils/slugGenerator.js
-import { StoreModel } from '../models/store.model.js';
+import { StoreModel } from '../models/store/index.js';
 
 export async function generateUniqueStoreSlug(name) {
   // Create base slug

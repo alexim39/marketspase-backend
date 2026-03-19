@@ -1,4 +1,4 @@
-import { TestimonialModel } from './../models/testimonial.model.js';
+import { TestimonialModel } from './../models/testimonial/index.js';
 
 // Get all testimonials with optional filtering
 export const adminGetTestimonials = async (req, res) => {

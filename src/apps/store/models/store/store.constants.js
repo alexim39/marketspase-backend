@@ -1,0 +1,83 @@
+// Store Verification Tiers
+export const VERIFICATION_TIER = {
+  BASIC: 'basic',
+  PREMIUM: 'premium'
+};
+
+export const VERIFICATION_TIER_ARRAY = Object.values(VERIFICATION_TIER);
+
+// Store Categories (common e-commerce categories)
+export const STORE_CATEGORY = {
+  FASHION: 'fashion',
+  ELECTRONICS: 'electronics',
+  HOME_AND_GARDEN: 'home_and_garden',
+  BEAUTY_AND_HEALTH: 'beauty_and_health',
+  SPORTS: 'sports',
+  TOYS: 'toys',
+  BOOKS: 'books',
+  AUTOMOTIVE: 'automotive',
+  FOOD_AND_BEVERAGES: 'food_and_beverages',
+  OTHER: 'other'
+};
+
+export const STORE_CATEGORY_ARRAY = Object.values(STORE_CATEGORY);
+
+// Default Values
+export const DEFAULTS = {
+  IS_VERIFIED: false,
+  IS_DEFAULT_STORE: false,
+  IS_ACTIVE: true,
+  IS_DELETED: false,
+  VERIFICATION_TIER: VERIFICATION_TIER.BASIC,
+  ANALYTICS: {
+    totalViews: 0,
+    totalSales: 0,
+    conversionRate: 0,
+    promoterTraffic: 0
+  },
+  ACTIVE_CAMPAIGNS: [],
+  STORE_PRODUCTS: [],
+  WHATSAPP_TEMPLATES: []
+};
+
+// Error Messages
+export const ERROR_MESSAGES = {
+  OWNER_REQUIRED: 'Store owner is required',
+  NAME_REQUIRED: 'Store name is required',
+  STORE_LINK_REQUIRED: 'Store link is required',
+  STORE_LINK_UNIQUE: 'Store link must be unique',
+  STORE_LINK_INVALID: 'Store link can only contain letters, numbers, hyphens and underscores',
+  STORE_NOT_FOUND: 'Store not found',
+  UNAUTHORIZED_ACCESS: 'You are not authorized to access this store',
+  DEFAULT_STORE_EXISTS: 'A default store already exists for this user',
+  WHATSAPP_NUMBER_INVALID: 'Invalid WhatsApp number format',
+  CANNOT_DELETE_DEFAULT_STORE: 'Cannot delete default store. Set another store as default first'
+};
+
+// Success Messages
+export const SUCCESS_MESSAGES = {
+  STORE_CREATED: 'Store created successfully',
+  STORE_UPDATED: 'Store updated successfully',
+  STORE_DELETED: 'Store deleted successfully',
+  STORE_RESTORED: 'Store restored successfully',
+  DEFAULT_STORE_SET: 'Default store updated successfully'
+};
+
+// Validation Rules
+export const VALIDATION = {
+  STORE_LINK: {
+    PATTERN: /^[a-zA-Z0-9_-]+$/,
+    MIN_LENGTH: 3,
+    MAX_LENGTH: 50
+  },
+  NAME: {
+    MIN_LENGTH: 2,
+    MAX_LENGTH: 100
+  },
+  DESCRIPTION: {
+    MAX_LENGTH: 1000
+  },
+  WHATSAPP_NUMBER: {
+    PATTERN: /^\+?[1-9]\d{1,14}$/ // E.164 format
+  }
+};

@@ -1,4 +1,4 @@
-import { StoreModel } from '../../models/store.model.js';
+import { StoreModel } from '../../models/store/index.js';
 import { ProductModel } from '../../models/promotion/index.js';
 
 

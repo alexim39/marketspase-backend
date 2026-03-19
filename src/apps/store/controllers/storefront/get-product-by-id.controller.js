@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { StoreModel } from '../../models/store.model.js';
+import { StoreModel } from '../../models/store/index.js';
 import { PromotionTrackingModel, ProductModel } from '../../models/promotion/index.js';
 
 /**

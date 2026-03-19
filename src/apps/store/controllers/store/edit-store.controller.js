@@ -1,5 +1,5 @@
 // update-store.controller.js
-import { StoreModel } from '../../models/store.model.js';
+import { StoreModel } from '../../models/store/index.js';
 import { uploadToCloudinary } from '../../utils/cloudinary.js';
 
 export const updateStore = async (req, res) => {

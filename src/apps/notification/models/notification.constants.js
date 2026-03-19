@@ -1,0 +1,121 @@
+// Notification Types
+export const NOTIFICATION_TYPE = {
+  // Promotion related
+  PROMOTION_PENDING: 'promotion_pending',
+  PROMOTION_ASSIGNED: 'promotion_assigned',
+  PROMOTION_SUBMITTED: 'promotion_submitted',
+  PROMOTION_VALIDATED: 'promotion_validated',
+  PROMOTION_REJECTED: 'promotion_rejected',
+  
+  // Payment related
+  PAYMENT_PROCESSED: 'payment_processed',
+  PAYOUT_READY: 'payout_ready',
+  REFUND_PROCESSED: 'refund_processed',
+  
+  // Campaign related
+  CAMPAIGN_APPROVED: 'campaign_approved',
+  CAMPAIGN_REJECTED: 'campaign_rejected',
+  CAMPAIGN_COMPLETED: 'campaign_completed',
+  
+  // User related
+  LOW_BALANCE: 'low_balance',
+  BIRTHDAY_GREETING: 'birthday_greeting',
+  
+  // Reminders
+  REMINDER: 'reminder',
+  SUBMISSION_REMINDER: 'submission_reminder',
+  DEADLINE_REMINDER: 'deadline_reminder',
+  
+  // System
+  SYSTEM_ANNOUNCEMENT: 'system_announcement',
+  SYSTEM_REPORT: 'system_report',
+  WEEKLY_SUMMARY: 'weekly_summary'
+};
+
+export const NOTIFICATION_TYPE_ARRAY = Object.values(NOTIFICATION_TYPE);
+
+// Notification Priorities
+export const NOTIFICATION_PRIORITY = {
+  LOW: 'low',
+  MEDIUM: 'medium',
+  HIGH: 'high'
+};
+
+export const NOTIFICATION_PRIORITY_ARRAY = Object.values(NOTIFICATION_PRIORITY);
+
+// Notification Status
+export const NOTIFICATION_STATUS = {
+  UNREAD: 'unread',
+  READ: 'read',
+  DISMISSED: 'dismissed'
+};
+
+export const NOTIFICATION_STATUS_ARRAY = Object.values(NOTIFICATION_STATUS);
+
+// Default Values
+export const DEFAULTS = {
+  PRIORITY: NOTIFICATION_PRIORITY.MEDIUM,
+  STATUS: NOTIFICATION_STATUS.UNREAD,
+  EXPIRY_DAYS: 30, // Notifications expire after 30 days
+  CLEANUP_DAYS: 7 // Clean up read notifications older than 7 days
+};
+
+// Error Messages
+export const ERROR_MESSAGES = {
+  RECIPIENT_REQUIRED: 'Recipient is required',
+  TYPE_REQUIRED: 'Notification type is required',
+  TITLE_REQUIRED: 'Title is required',
+  MESSAGE_REQUIRED: 'Message is required',
+  NOTIFICATION_NOT_FOUND: 'Notification not found',
+  UNAUTHORIZED_ACCESS: 'You are not authorized to access this notification',
+  INVALID_TYPE: 'Invalid notification type',
+  INVALID_STATUS: 'Invalid notification status'
+};
+
+// Success Messages
+export const SUCCESS_MESSAGES = {
+  NOTIFICATION_CREATED: 'Notification created successfully',
+  NOTIFICATION_UPDATED: 'Notification updated successfully',
+  NOTIFICATION_DELETED: 'Notification deleted successfully',
+  NOTIFICATIONS_MARKED_READ: 'Notifications marked as read',
+  NOTIFICATIONS_CLEANED_UP: 'Old notifications cleaned up successfully'
+};
+
+// Notification Titles (templates)
+export const NOTIFICATION_TITLES = {
+  [NOTIFICATION_TYPE.PROMOTION_PENDING]: 'Promotion Pending Approval',
+  [NOTIFICATION_TYPE.PROMOTION_ASSIGNED]: 'New Promotion Assigned',
+  [NOTIFICATION_TYPE.PROMOTION_SUBMITTED]: 'Promotion Submitted',
+  [NOTIFICATION_TYPE.PROMOTION_VALIDATED]: 'Promotion Validated',
+  [NOTIFICATION_TYPE.PROMOTION_REJECTED]: 'Promotion Rejected',
+  [NOTIFICATION_TYPE.PAYMENT_PROCESSED]: 'Payment Processed',
+  [NOTIFICATION_TYPE.PAYOUT_READY]: 'Payout Ready',
+  [NOTIFICATION_TYPE.REFUND_PROCESSED]: 'Refund Processed',
+  [NOTIFICATION_TYPE.CAMPAIGN_APPROVED]: 'Campaign Approved',
+  [NOTIFICATION_TYPE.CAMPAIGN_REJECTED]: 'Campaign Rejected',
+  [NOTIFICATION_TYPE.CAMPAIGN_COMPLETED]: 'Campaign Completed',
+  [NOTIFICATION_TYPE.LOW_BALANCE]: 'Low Balance Alert',
+  [NOTIFICATION_TYPE.BIRTHDAY_GREETING]: 'Happy Birthday!',
+  [NOTIFICATION_TYPE.REMINDER]: 'Reminder',
+  [NOTIFICATION_TYPE.SUBMISSION_REMINDER]: 'Submission Reminder',
+  [NOTIFICATION_TYPE.DEADLINE_REMINDER]: 'Deadline Reminder',
+  [NOTIFICATION_TYPE.SYSTEM_ANNOUNCEMENT]: 'System Announcement',
+  [NOTIFICATION_TYPE.SYSTEM_REPORT]: 'System Report',
+  [NOTIFICATION_TYPE.WEEKLY_SUMMARY]: 'Weekly Summary'
+};
+
+// Action URLs (templates)
+export const ACTION_URLS = {
+  [NOTIFICATION_TYPE.PROMOTION_PENDING]: (id) => `/admin/promotions/${id}`,
+  [NOTIFICATION_TYPE.PROMOTION_ASSIGNED]: (id) => `/promoter/promotions/${id}`,
+  [NOTIFICATION_TYPE.PROMOTION_SUBMITTED]: (id) => `/marketer/promotions/${id}`,
+  [NOTIFICATION_TYPE.PROMOTION_VALIDATED]: (id) => `/promoter/promotions/${id}`,
+  [NOTIFICATION_TYPE.PROMOTION_REJECTED]: (id) => `/promoter/promotions/${id}`,
+  [NOTIFICATION_TYPE.PAYMENT_PROCESSED]: () => '/wallet/transactions',
+  [NOTIFICATION_TYPE.PAYOUT_READY]: () => '/wallet/withdraw',
+  [NOTIFICATION_TYPE.CAMPAIGN_APPROVED]: (id) => `/marketer/campaigns/${id}`,
+  [NOTIFICATION_TYPE.CAMPAIGN_REJECTED]: (id) => `/marketer/campaigns/${id}`,
+  [NOTIFICATION_TYPE.CAMPAIGN_COMPLETED]: (id) => `/marketer/campaigns/${id}`,
+  [NOTIFICATION_TYPE.LOW_BALANCE]: () => '/wallet/fund',
+  [NOTIFICATION_TYPE.WEEKLY_SUMMARY]: () => '/dashboard'
+};

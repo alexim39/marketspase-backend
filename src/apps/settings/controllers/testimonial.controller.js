@@ -1,5 +1,5 @@
 import { UserModel } from './../../user/models/user/index.js';
-import { TestimonialModel } from './../models/testimonial.model.js';
+import { TestimonialModel } from './../models/testimonial/index.js';
 
 /**
  * Create or update user testimonial

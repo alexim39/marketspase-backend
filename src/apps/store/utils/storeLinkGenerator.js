@@ -1,5 +1,5 @@
 // utils/slugGenerator.js
-import { StoreModel } from '../models/store.model.js';
+import { StoreModel } from '../models/store/store.model.js';
 
 export async function generateUniqueStoreLink(storeName) {
   if (!storeName || typeof storeName !== 'string') {
