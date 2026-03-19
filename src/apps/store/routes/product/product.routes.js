@@ -1,5 +1,6 @@
 // routes/product.routes.js
 import express from "express";
+const router = express.Router();
 import { cloudinaryMediaUpload } from "../../../../core/cloudinary.service.js";
 import { createProduct } from "../../controllers/product/create-product.controller.js";
 import { updateProduct } from "../../controllers/product/update-product.controller.js";
@@ -14,7 +15,10 @@ import { generatePromotionLink } from "../../controllers/product/generate-produc
 import { permanentDeleteProduct } from "../../controllers/product/delete-product.controller.js";
 import ProductPromotionController from "../../controllers/product/product-promotion.controller.js";
 
-const router = express.Router();
+import PromotionRouters from './promotion/promotion.routes.js';
+
+// Mount promotion routes
+router.use('/promotions', PromotionRouters);
 
 // =========== PUBLIC/PROMOTER ROUTES (NO STORE ID REQUIRED) ===========
 // These should come first as they don't have storeId parameters

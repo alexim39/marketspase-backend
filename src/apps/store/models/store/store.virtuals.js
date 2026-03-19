@@ -1,3 +1,5 @@
+import { calculatePerformanceScore, isEligibleForPremiumVerification } from './store.utils.js';
+
 export const setupStoreVirtuals = (schema) => {
   // Virtual for product count
   schema.virtual('productCount').get(function() {
@@ -29,13 +31,11 @@ export const setupStoreVirtuals = (schema) => {
 
   // Virtual for performance score
   schema.virtual('performanceScore').get(function() {
-    const { calculatePerformanceScore } = require('./store.utils.js');
     return calculatePerformanceScore(this.analytics);
   });
 
   // Virtual for is premium eligible
   schema.virtual('isPremiumEligible').get(function() {
-    const { isEligibleForPremiumVerification } = require('./store.utils.js');
     return isEligibleForPremiumVerification(this);
   });
 
