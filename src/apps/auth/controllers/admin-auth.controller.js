@@ -118,9 +118,7 @@ export const getAdmin = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    const { password: _, ...userObject } = user.toJSON(); // Remove password from response
-
-    res.status(200).json({success: true,  user: userObject});
+    res.status(200).json({success: true,  user: user.getProfile()});
     
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

@@ -61,23 +61,4 @@ export const setupAdminMiddleware = (schema) => {
     doc.passwordResetExpires = undefined;
     doc.refreshToken = undefined;
   });
-
-  // Post-find middleware to sanitize output
-  schema.post(/^find/, function(docs) {
-    if (!docs) return;
-    
-    const sanitize = (doc) => {
-      if (doc.password) doc.password = undefined;
-      if (doc.twoFactorSecret) doc.twoFactorSecret = undefined;
-      if (doc.passwordResetToken) doc.passwordResetToken = undefined;
-      if (doc.passwordResetExpires) doc.passwordResetExpires = undefined;
-      if (doc.refreshToken) doc.refreshToken = undefined;
-    };
-
-    if (Array.isArray(docs)) {
-      docs.forEach(sanitize);
-    } else {
-      sanitize(docs);
-    }
-  });
 };

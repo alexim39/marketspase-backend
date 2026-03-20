@@ -104,7 +104,7 @@ export const getPromoterStoreProducts = async (req, res) => {
       // For now, use default promotion data since we don't have real promotion tracking
       // In production, you would fetch actual promotion data
       const defaultPromotion = {
-        commissionRate: 7, // Default commission rate
+        commissionRate: 10, // Default commission rate
         commissionType: 'percentage',
         fixedCommission: 0,
         isActive: true,
