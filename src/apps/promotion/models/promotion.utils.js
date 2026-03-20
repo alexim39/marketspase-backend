@@ -1,3 +1,6 @@
+import { PROMOTION_STATUS } from "./promotion.constants.js";
+
+
 /**
  * Utility function to add timeout to promises
  * @param {Promise} p - The promise to add timeout to

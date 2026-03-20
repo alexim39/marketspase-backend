@@ -11,7 +11,7 @@ export const setupAdminMethods = (schema) => {
   // Get admin profile (sanitized)
   schema.methods.getProfile = function() {
     return {
-      id: this._id,
+      _id: this._id,
       email: this.email,
       name: this.name,
       role: this.role,
