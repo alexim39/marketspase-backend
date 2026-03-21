@@ -1,7 +1,8 @@
 import { generateUniqueUpi } from "./../utils/generateUniqueUpi.js";
-import { NOTIFICATION_TYPES, DEFAULTS } from "./promotion.constants.js";
-import { createActivityEntry } from "./promotion.utils.js";
+import { NOTIFICATION_TYPES, DEFAULTS, SERVICE_TIMEOUTS } from "./promotion.constants.js";
+import { createActivityEntry, withTimeout  } from "./promotion.utils.js";
 import mongoose from "mongoose";
+import { NotificationService } from "../../notification/services/notification.service.js";
 
 export const setupPromotionMiddleware = (schema) => {
   // Pre-save middleware
@@ -56,12 +57,21 @@ export const setupPromotionMiddleware = (schema) => {
       }
     }
 
-    // Set default values for new documents
+    // ✅ FIX: Only set default values if they haven't been explicitly set
     if (this.isNew) {
-      this.hasReservedFromMarketer = DEFAULTS.HAS_RESERVED_FROM_MARKETER;
-      this.hasReservedForPromoter = DEFAULTS.HAS_RESERVED_FOR_PROMOTER;
-      this.hasBeenPaid = DEFAULTS.HAS_BEEN_PAID;
-      this.hasBeenRefunded = DEFAULTS.HAS_BEEN_REFUNDED;
+      // Only set if not already defined (to preserve values set in controller)
+      if (this.hasReservedFromMarketer === undefined) {
+        this.hasReservedFromMarketer = DEFAULTS.HAS_RESERVED_FROM_MARKETER;
+      }
+      if (this.hasReservedForPromoter === undefined) {
+        this.hasReservedForPromoter = DEFAULTS.HAS_RESERVED_FOR_PROMOTER;
+      }
+      if (this.hasBeenPaid === undefined) {
+        this.hasBeenPaid = DEFAULTS.HAS_BEEN_PAID;
+      }
+      if (this.hasBeenRefunded === undefined) {
+        this.hasBeenRefunded = DEFAULTS.HAS_BEEN_REFUNDED;
+      }
       
       if (!this.reminders) {
         this.reminders = {
@@ -81,13 +91,15 @@ export const setupPromotionMiddleware = (schema) => {
     const { type, timestamp } = doc._pendingNotification;
     delete doc._pendingNotification; // Clean up
 
-    // Import here to avoid circular dependencies
-    const { NotificationService } = await import('../../notification/services/notification.service.js');
-    const { withTimeout, SERVICE_TIMEOUTS } = await import('./promotion.utils.js');
-
     // Run notification in background
     setImmediate(async () => {
       try {
+        // Check if NOTIFICATION_TYPES is defined
+        if (!NOTIFICATION_TYPES) {
+          console.error('NOTIFICATION_TYPES is undefined. Check import in promotion.middleware.js');
+          return;
+        }
+
         const PromotionModel = doc.constructor;
         
         // Check if notification already sent

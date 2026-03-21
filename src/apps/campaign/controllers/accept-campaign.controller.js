@@ -1,7 +1,7 @@
 // apps/campaign/controllers/accept-campaign.controller.js
 import mongoose from "mongoose";
-import { CampaignModel } from "../models/campaign.model.js";
-import { PromotionModel } from "../../promotion/models/promotion.model.js";
+import { CampaignModel } from "../models/index.js";
+import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { logUserActivity } from "../../user/services/activity.service.js";
 
