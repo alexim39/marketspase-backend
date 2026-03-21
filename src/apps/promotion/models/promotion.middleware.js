@@ -1,6 +1,7 @@
 import { generateUniqueUpi } from "./../utils/generateUniqueUpi.js";
 import { NOTIFICATION_TYPES, DEFAULTS } from "./promotion.constants.js";
 import { createActivityEntry } from "./promotion.utils.js";
+import mongoose from "mongoose";
 
 export const setupPromotionMiddleware = (schema) => {
   // Pre-save middleware
