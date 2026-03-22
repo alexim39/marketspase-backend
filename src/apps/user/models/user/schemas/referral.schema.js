@@ -9,7 +9,7 @@ export const referralSchema = new mongoose.Schema({
   role: String,
   status: {
     type: String,
-    enum: ['pending', 'active', 'converted', 'expired'],
+    enum: ['pending', 'active', 'converted', 'expired', 'paid'],
     default: 'pending'
   },
   signedUpAt: Date,
