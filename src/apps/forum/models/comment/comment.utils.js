@@ -194,3 +194,35 @@ export const sortComments = (comments, sortBy = 'newest') => {
       return sorted;
   }
 };
+
+// In comment.utils.js - Add this function
+export const populateComment = (query, options = {}) => {
+  const { 
+    populateAuthor = true,
+    populateLikedBy = true,
+    populateMentions = true,
+    populateReplies = false 
+  } = options;
+
+  if (populateAuthor) {
+    query = query.populate('author', 'username displayName avatar');
+  }
+  
+  if (populateLikedBy) {
+    query = query.populate('likedBy', 'username');
+  }
+  
+  if (populateMentions) {
+    query = query.populate('mentions.user', 'username displayName');
+  }
+  
+  if (populateReplies) {
+    query = query.populate({
+      path: 'replies',
+      match: { isDeleted: false },
+      populate: { path: 'author', select: 'username displayName avatar' }
+    });
+  }
+  
+  return query;
+};

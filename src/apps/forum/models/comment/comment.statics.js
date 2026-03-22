@@ -18,23 +18,26 @@ export const setupCommentStatics = (schema) => {
       isDeleted: false
     };
 
-    // If parentComment is specified, get replies to that comment
     if (parentComment !== null) {
       query.parentComment = parentComment;
     } else if (!includeReplies) {
-      // Only get root comments
       query.parentComment = { $exists: false };
     }
 
-    let comments = await this.find(query)
+    let commentsQuery = this.find(query)
       .populate('author', 'username displayName avatar')
       .populate('likedBy', 'username')
-      .populate('mentions.user', 'username displayName')
-      .populate({
+      .populate('mentions.user', 'username displayName');
+
+    // Only populate replies if needed and not using lean
+    if (includeReplies) {
+      commentsQuery = commentsQuery.populate({
         path: 'replies',
         populate: { path: 'author', select: 'username displayName avatar' }
-      })
-      .lean();
+      });
+    }
+
+    let comments = await commentsQuery.lean(); // Use .lean() for better performance
 
     // Sort comments
     comments = sortComments(comments, sortBy);
@@ -47,7 +50,6 @@ export const setupCommentStatics = (schema) => {
       comments = buildCommentTree(comments);
     }
 
-    // Get total count
     const total = await this.countDocuments({ thread: threadId, isDeleted: false });
 
     return {

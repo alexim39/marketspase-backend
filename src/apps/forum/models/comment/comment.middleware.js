@@ -70,46 +70,6 @@ export const setupCommentMiddleware = (schema) => {
     next();
   });
 
-  // Post-save middleware
-  schema.post('save', function(doc) {
-    // Update parent comment's metadata if this is a reply
-    if (doc.parentComment) {
-      // Could update parent's reply count or last reply time
-      // This would be handled by the parent comment's pre-save hook
-    }
-
-    // Create notifications for mentions
-    if (doc.mentions && doc.mentions.length > 0) {
-      // Queue mention notifications
-      // This would be handled by a notification service
-    }
-  });
-
-  // Post-find middleware
-  schema.post(/^find/, async function(docs) {
-    if (!docs) return;
-
-    const populateFields = async (doc) => {
-      if (doc.populate) {
-        await doc.populate('author', 'username displayName avatar')
-                 .populate('likedBy', 'username')
-                 .populate('mentions.user', 'username displayName')
-                 .populate({
-                   path: 'replies',
-                   match: { isDeleted: false },
-                   populate: { path: 'author', select: 'username displayName avatar' }
-                 })
-                 .execPopulate();
-      }
-    };
-
-    if (Array.isArray(docs)) {
-      await Promise.all(docs.map(populateFields));
-    } else {
-      await populateFields(docs);
-    }
-  });
-
   // Pre-delete middleware
   schema.pre('remove', async function(next) {
     // Delete all replies when a comment is deleted
