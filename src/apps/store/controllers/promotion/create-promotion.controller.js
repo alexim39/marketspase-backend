@@ -3,14 +3,15 @@ import { PromotionTrackingModel } from '../../models/promotion/index.js';
 
 // Helper function to generate unique code
 const generateUniqueCode = () => {
-  const random = Math.random().toString(36).substring(2, 10).toUpperCase();
-  return `promo-${random}`;
+  const random = Math.random().toString(36).substring(2, 10).toLowerCase();
+  // return `promo-${random}`;
+  return `${random}`;
 };
 
 // Helper function to generate unique ID
 const generateUniqueId = (promoterId, productId) => {
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 6).toLowerCase();
   const promoterShort = promoterId.toString().substring(0, 4);
   const productShort = productId.toString().substring(0, 4);
   return `${promoterShort}-${productShort}-${timestamp}-${random}`;
@@ -20,7 +21,7 @@ export const createPromotion = async (req, res) => {
   try {
     const { productId, promoterId, storeId, commissionRate, commissionType, fixedCommission } = req.body;
 
-    console.log('Request body:', req.body);
+    //console.log('Request body:', req.body);
 
     // Validate required fields
     if (!productId || !promoterId || !storeId) {
