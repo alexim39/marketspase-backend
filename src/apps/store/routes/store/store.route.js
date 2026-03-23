@@ -1,14 +1,14 @@
 // routes/store.routes.js
 import express from 'express';
-import { upload } from '../middleware/upload.middleware.js';
-import { createStore } from '../controllers/store/create-store.controller.js'
-import { updateStore } from '../controllers/store/edit-store.controller.js'
-import { getUserStores } from '../controllers/store/get-stores.controller.js'
-import { getStoreById } from '../controllers/store/get-store-byid.controller.js'
-import { setDefaultStore } from '../controllers/store/set-default-store.controller.js'
-import { getStoreProducts } from '../controllers/store/store-products.controller.js'
-import { getStoreProduct } from '../controllers/store/store-product.controller.js'
-import { permanentDeleteStore } from '../controllers/store/delete-store.controller.js'
+import { upload } from '../../middleware/upload.middleware.js';
+import { createStore } from '../../controllers/store/create-store.controller.js'
+import { updateStore } from '../../controllers/store/edit-store.controller.js'
+import { getUserStores } from '../../controllers/store/get-stores.controller.js'
+import { getStoreById } from '../../controllers/store/get-store-byid.controller.js'
+import { setDefaultStore } from '../../controllers/store/set-default-store.controller.js'
+import { getStoreProducts } from '../../controllers/store/store-products.controller.js'
+import { getStoreProduct } from '../../controllers/store/store-product.controller.js'
+import { permanentDeleteStore } from '../../controllers/store/delete-store.controller.js'
 
 const router = express.Router();
 

@@ -1,53 +1,6 @@
 // controllers/promotion.controller.js
-import { PromotionTrackingModel, ProductModel } from '../../../models/promotion/index.js';
+import { PromotionTrackingModel } from '../../models/promotion/index.js';
 
-export const createPromotion = async (req, res) => {
-  try {
-    const { productId, promoterId, storeId, commissionRate, commissionType, fixedCommission } = req.body;
-
-    // Check if promotion already exists
-    let existingPromotion = await PromotionTrackingModel.findOne({
-      product: productId,
-      promoter: promoterId,
-      isActive: true
-    });
-
-    if (existingPromotion) {
-      return res.status(200).json({
-        success: true,
-        data: existingPromotion,
-        message: 'Promotion already exists'
-      });
-    }
-
-    // Create new promotion
-    const promotion = new PromotionTrackingModel({
-      product: productId,
-      promoter: promoterId,
-      store: storeId,
-      commissionRate,
-      commissionType,
-      fixedCommission: fixedCommission || 0,
-      isActive: true,
-      isApproved: true, // Set based on your business logic
-      startDate: new Date()
-    });
-
-    await promotion.save();
-
-    res.status(201).json({
-      success: true,
-      data: promotion,
-      message: 'Promotion created successfully'
-    });
-  } catch (error) {
-    console.error('Error creating promotion:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create promotion'
-    });
-  }
-};
 
 export const getPromoterPromotions = async (req, res) => {
   try {
@@ -165,60 +118,6 @@ export const getPromotionDashboard = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch dashboard data'
-    });
-  }
-};
-
-// Tracking endpoint for clicks
-export const trackClick = async (req, res) => {
-  try {
-    const { uniqueCode } = req.params;
-    const { deviceType = 'desktop', source } = req.query;
-
-    const promotion = await PromotionTrackingModel.findOne({ uniqueCode });
-
-    if (!promotion) {
-      return res.status(404).json({
-        success: false,
-        message: 'Invalid tracking code'
-      });
-    }
-
-    // Increment click count
-    promotion.clickCount += 1;
-    promotion.lastActivityAt = new Date();
-    
-    // Track device type
-    if (deviceType && ['mobile', 'desktop', 'tablet'].includes(deviceType)) {
-      promotion.deviceTypes[deviceType] += 1;
-    }
-
-    // Track source if provided
-    if (source) {
-      const sourceIndex = promotion.referralSources.findIndex(s => s.source === source);
-      if (sourceIndex > -1) {
-        promotion.referralSources[sourceIndex].count += 1;
-      } else {
-        promotion.referralSources.push({ source, count: 1 });
-      }
-    }
-
-    // Calculate CTR
-    if (promotion.viewCount > 0) {
-      promotion.clickThroughRate = (promotion.clickCount / promotion.viewCount) * 100;
-    }
-
-    await promotion.save();
-
-    // Redirect to product page with tracking
-    const product = await ProductModel.findById(promotion.product);
-    res.redirect(`/products/${product.slug}?ref=${promotion.uniqueId}&track=${uniqueCode}`);
-    
-  } catch (error) {
-    console.error('Error tracking click:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to track click'
     });
   }
 };
