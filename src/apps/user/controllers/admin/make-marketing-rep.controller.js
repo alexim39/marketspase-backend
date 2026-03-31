@@ -1,4 +1,4 @@
-import { UserModel } from '../../models/user.model.js';
+import { UserModel } from '../../models/user/index.js';
 
 // controllers/user.controller.js
 export const markMarketingRep = async (req, res) => {

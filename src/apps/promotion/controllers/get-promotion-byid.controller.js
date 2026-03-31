@@ -1,5 +1,5 @@
 // promotion.controller.js
-import { PromotionModel } from "../models/promotion.model.js";
+import { PromotionModel } from "../models/index.js";
 import mongoose from "mongoose";
 import { isPromotionExpired, calculateTimeRemaining, calculateViewsNeeded, calculateProgressPercentage } from '../services/utils.js'
 

@@ -1,9 +1,5 @@
 // admin-financial.controller.js
-import { UserModel } from '../../user/models/user.model.js';
-import { CampaignModel } from '../../campaign/models/campaign.model.js';
-import { PromotionModel } from '../../promotion/models/promotion.model.js';
-import mongoose from 'mongoose';
-import { transformTransaction } from '../services/transform-transaction.service.js';
+import { UserModel } from '../../user/models/user/index.js';
 
 
 

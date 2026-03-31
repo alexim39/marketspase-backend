@@ -38,7 +38,7 @@ export const adminCampaignApprovalTemplate = (campaignData) => {
           </tr>
           <tr>
             <td style="padding:8px 0;color:#4a5568;"><strong>Budget:</strong></td>
-            <td style="padding:8px 0;color:#2d3748;text-align:right;">₦${campaignData.budget.toLocaleString()}</td>
+            <td style="padding:8px 0;color:#2d3748;text-align:right;">₦${campaignData.budget}</td>
           </tr>
           <tr>
             <td style="padding:8px 0;color:#4a5568;"><strong>Category:</strong></td>

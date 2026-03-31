@@ -1,5 +1,5 @@
 
-import { UserModel } from "../../../user/models/user.model.js";
+import { UserModel } from "../../../user/models/user/index.js";
 
 /**
  * Removes entries older than 14 days from users' activityLog arrays.

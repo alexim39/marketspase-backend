@@ -2,7 +2,7 @@
 // src/apps/user/controllers/profile-update.controller.js
 
 import mongoose from 'mongoose';
-import { UserModel } from './../models/user.model.js';
+import { UserModel } from './../models/user/index.js';
 
 // Country phone list (ADJUST this path to your backend location)
 import { COUNTRY_PHONE_MAP } from '../utils/country-phones.js';

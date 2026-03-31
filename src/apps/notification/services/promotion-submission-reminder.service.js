@@ -2,7 +2,7 @@
 
 import { PromotionModel } from './../../promotion/models/promotion.model.js';
 import { NotificationService } from './notification.service.js';
-import { sendEmail } from "../../../services/email.service.js";
+import { sendEmail } from "../../../core/email.service.js";
 import { promotionExpiringTemplate } from "../../promotion/services/email/promotionExpiringTemplate.js";
 
 export const promotionSubmissionReminder = async () => {

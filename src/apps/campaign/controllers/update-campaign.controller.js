@@ -1,8 +1,8 @@
 import mongoose from "mongoose";
 import { CampaignModel } from "../models/campaign.model.js";
-import { UserModel } from "../../user/models/user.model.js";
+import { UserModel } from "../../user/models/user/index.js";
 
-import { sendEmail } from "../../../services/email.service.js";
+import { sendEmail } from "../../../core/email.service.js";
 import { campaignApprovedTemplate } from "../services/email/campaignApprovedTemplate.js";
 import { campaignRejectedTemplate } from "../services/email/campaignRejectedTemplate.js";
 import { NotificationService } from "../../notification/services/notification.service.js";
@@ -53,6 +53,7 @@ export const UpdateCampaignStatus = async (req, res) => {
         message: "Invalid campaign status"
       });
     }
+    
 
     const campaign = await CampaignModel.findById(id).session(session);
 
@@ -61,6 +62,35 @@ export const UpdateCampaignStatus = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Campaign not found"
+      });
+    }
+
+    //console.log('campaign ',campaign);
+
+    // 2️⃣ LOAD MARKETER + WALLET CHECK
+    const marketer = await UserModel.findById(campaign.owner)
+      .session(session)
+      .select("email wallets.marketer.balance");
+
+    if (!marketer) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign owner not found"
+      });
+    }
+
+    const numericBudget = Number(campaign.budget);
+    if (!Number.isFinite(numericBudget) || numericBudget < 1000) {
+       return res.status(400).json({
+        success: false,
+        message: "Minimum campaign budget is ₦1000."
+      });
+    }
+
+    if (marketer.wallets.marketer.balance < numericBudget) {
+      return res.status(400).json({
+        success: false,
+        message: "Insufficient wallet balance to activate this campaign."
       });
     }
 
@@ -90,7 +120,7 @@ export const UpdateCampaignStatus = async (req, res) => {
         });
       }
 
-      if (!campaign.budget || campaign.budget < 500) {
+      if (!campaign.budget || campaign.budget < 1000) {
         await session.abortTransaction();
         return res.status(400).json({
           success: false,

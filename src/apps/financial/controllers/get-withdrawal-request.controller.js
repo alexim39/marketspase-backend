@@ -1,4 +1,4 @@
-import { UserModel } from '../../user/models/user.model.js';
+import { UserModel } from '../../user/models/user/index.js';
 
 export const getWithdrawalRequests = async (req, res) => {
   try {

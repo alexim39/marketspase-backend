@@ -1,5 +1,5 @@
 // controllers/banner-message.controller.js
-import { BannerMessageModel, UserDismissalModel } from '../models/banner-message.model.js';
+import { BannerMessageModel, UserDismissalModel } from '../models/banner-message/index.js';
 
 export const getActiveNotifications = async (req, res) => {
   try {

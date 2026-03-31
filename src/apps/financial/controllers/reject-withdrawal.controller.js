@@ -1,5 +1,5 @@
 // reject-withdrawal.controller.js
-import { UserModel } from '../../user/models/user.model.js';
+import { UserModel } from '../../user/models/user/index.js';
 
 export const rejectWithdrawal = async (req, res) => {
   try {

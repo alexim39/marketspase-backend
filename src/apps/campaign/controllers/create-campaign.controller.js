@@ -1,215 +1,175 @@
- // apps/campaign/controllers/create-campaign.controller.js
+// apps/campaign/controllers/create-campaign.controller.js
 
 import mongoose from "mongoose";
 import { CampaignModel } from "../models/campaign.model.js";
-import { UserModel } from "../../user/models/user.model.js";
-import { sendEmail } from "../../../services/email.service.js";
+import { UserModel } from "../../user/models/user/index.js";
+import { sendEmail } from "../../../core/email.service.js";
 import { adminCampaignApprovalTemplate } from "../services/email/adminCampaignApprovalTemplate.js";
-import { GenerateVideoThumbnail, buildVideoThumbnailUrl } from "../services/thumbnail-generator.service.js";
+import { buildVideoThumbnailUrl } from "../services/thumbnail-generator.service.js";
+import { uploadToCloudinary } from "../utils/cloudinary.js";
 
 export const createCampaign = async (req, res) => {
   const session = await mongoose.startSession();
-  session.startTransaction();
 
   try {
-    const {
-      owner,
-      title,
-      caption,
-      link,
-      category,
-      budget,
+    const campaign = await session.withTransaction(async () => {
+      const {
+        owner,
+        title,
+        caption,
+        link,
+        category,
+        budget,
+        payoutTierId,
+        payoutPerPromotion,
+        minViewsPerPromotion,
+        maxViewsPerPromotion,
+        startDate,
+        endDate,
+        currency = "NGN",
+        enableTarget = false,
+        campaignType = "standard",
+        priority = "medium",
+        minRating = 0,
+        requirements = [],
+        targetLocations = [],
+        hasEndDate,
+        ageTarget = "all",
+      } = req.body;
 
-      payoutTierId,
-      payoutPerPromotion,
-      minViewsPerPromotion,
-      maxViewsPerPromotion,
-
-      startDate,
-      endDate,
-      currency = "NGN",
-      enableTarget = false,
-      campaignType = "standard",
-      priority = "medium",
-      minRating = 0,
-      requirements = [],
-      targetLocations = [],
-      hasEndDate,
-      ageTarget = "all",
-    } = req.body;
-
-
-     //  1️⃣ BASIC VALIDATION
-    if (!owner || !title || !budget || !category) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields."
-      });
-    }
-
-    const numericBudget = Number(budget);
-    if (!Number.isFinite(numericBudget) || numericBudget < 1000) {
-      return res.status(400).json({
-        success: false,
-        message: "Minimum campaign budget is ₦1000."
-      });
-    }
-
-    if (!payoutTierId || !payoutPerPromotion || !minViewsPerPromotion) {
-      return res.status(400).json({
-        success: false,
-        message: "Payout tier selection is required."
-      });
-    }
-
-    const numericPayout = Number(payoutPerPromotion);
-    if (!Number.isFinite(numericPayout) || numericPayout <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid payout amount."
-      });
-    }
-
-     //  2️⃣ LOAD MARKETER & WALLET CHECK (NEW)
-    const marketer = await UserModel.findById(owner)
-      .session(session)
-      .select("email wallets.marketer.balance");
-
-    if (!marketer) {
-      return res.status(404).json({
-        success: false,
-        message: "Campaign owner not found."
-      });
-    }
-
-    if (marketer.wallets.marketer.balance < numericBudget) {
-      return res.status(400).json({
-        success: false,
-        message: "Insufficient wallet balance to create this campaign."
-      });
-    }
-
-     //  3️⃣ MEDIA HANDLING
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "Campaign media (image or video) is required."
-      });
-    }
-
-    let mediaUrl = req.file.path;
-    let mediaType = "";
-    let thumbnailUrl = "";
-
-    if (req.file.mimetype.startsWith("image/")) {
-      mediaType = "image";
-      thumbnailUrl = mediaUrl;
-        
-    } else if (req.file.mimetype.startsWith("video/")) {
-      mediaType = "video";
-
-      // Try to use Multer-Cloudinary's .filename as the public_id first
-      let publicId = req.file.filename;
-
-      // Fallback: extract public_id from a Cloudinary URL if path is a secure_url
-      if ((!publicId || typeof publicId !== "string") && typeof req.file.path === "string" && req.file.path.includes("res.cloudinary.com")) {
-        try {
-          const url = new URL(req.file.path);
-          // /<cloud>/<resource_type>/upload/v<ver>/<folder>/<id>.<ext>
-          const parts = url.pathname.split("/").filter(Boolean);
-          const uploadIdx = parts.findIndex(p => p === "upload");
-          // if a version segment (starting with 'v') exists, skip it
-          const afterUpload = parts.slice(uploadIdx + 1);
-          const versionIdx = afterUpload[0]?.startsWith("v") ? 1 : 0;
-          const publicPath = afterUpload.slice(versionIdx + 0).join("/");
-          publicId = publicPath.replace(/\.[^/.]+$/, "");
-        } catch (_) { /* ignore; we'll use a placeholder below */ }
+      // 1️⃣ VALIDATION
+      if (!owner || !title || !budget || !category) {
+        const err = new Error("Missing required fields.");
+        err.status = 400;
+        throw err;
       }
 
-      // Build the thumbnail URL without blocking
-      thumbnailUrl = publicId
-        ? buildVideoThumbnailUrl(publicId)
-        : "/static/placeholders/video-thumb.png";
-    } else {
-      throw new Error("Unsupported media type");
-    }
+      const numericBudget = Number(budget);
+      if (!Number.isFinite(numericBudget) || numericBudget < 1000) {
+        const err = new Error("Minimum campaign budget is ₦1000.");
+        err.status = 400;
+        throw err;
+      }
+
+      if (!payoutTierId || !payoutPerPromotion || !minViewsPerPromotion) {
+        const err = new Error("Payout tier selection is required.");
+        err.status = 400;
+        throw err;
+      }
+
+      const numericPayout = Number(payoutPerPromotion);
+      if (!Number.isFinite(numericPayout) || numericPayout <= 0) {
+        const err = new Error("Invalid payout amount.");
+        err.status = 400;
+        throw err;
+      }
+
+      // 2️⃣ LOAD MARKETER + WALLET CHECK
+      const marketer = await UserModel.findById(owner)
+        .session(session)
+        .select("email wallets.marketer.balance");
+
+      if (!marketer) {
+        const err = new Error("Campaign owner not found.");
+        err.status = 404;
+        throw err;
+      }
+
+      if (marketer.wallets.marketer.balance < numericBudget) {
+        const err = new Error("Insufficient wallet balance to create this campaign.");
+        err.status = 400;
+        throw err;
+      }
+
+      // 3️⃣ MEDIA HANDLING
+      if (!req.file) {
+        const err = new Error("Campaign media (image or video) is required.");
+        err.status = 400;
+        throw err;
+      }
+
+      let mediaUrl = "";
+      let mediaType = "";
+      let thumbnailUrl = "";
+
+      try {
+        const uploadResult = await uploadToCloudinary(req.file.path, `campaigns/${owner}`);
+        mediaUrl = uploadResult.secure_url;
+        mediaType = uploadResult.resource_type;
+
+        if (mediaType === "video") {
+          thumbnailUrl = buildVideoThumbnailUrl(uploadResult.public_id);
+        } else {
+          thumbnailUrl = mediaUrl;
+        }
+      } catch (uploadError) {
+        console.error("Cloudinary Upload Error:", uploadError);
+        const err = new Error("Failed to upload media to cloud storage.");
+        err.status = 500;
+        throw err;
+      }
 
       // 4️⃣ MAX PROMOTERS & VIEW ESTIMATION
-    const maxPromoters = Math.floor(numericBudget / numericPayout);
-    if (maxPromoters < 1) {
-      return res.status(400).json({
-        success: false,
-        message: "Budget too low for selected payout tier."
+      const maxPromoters = Math.floor(numericBudget / numericPayout);
+      if (maxPromoters < 1) {
+        const err = new Error("Budget too low for selected payout tier.");
+        err.status = 400;
+        throw err;
+      }
+
+      const estimatedViews = maxPromoters * Number(minViewsPerPromotion);
+
+      const campaignDoc = new CampaignModel({
+        owner,
+        title,
+        caption,
+        link,
+        category,
+        mediaUrl,
+        mediaType,
+        thumbnailUrl,
+        budget: numericBudget,
+        currency,
+        maxPromoters,
+        currentPromoters: 0,
+        payoutModel: "fixed_per_promoter",
+        payoutTierId,
+        payoutPerPromotion: numericPayout,
+        minViewsPerPromotion,
+        maxViewsPerPromotion,
+        estimatedViews,
+        enableTarget,
+        ageTarget,
+        targetLocations,
+        requirements,
+        minRating,
+        campaignType,
+        priority,
+        startDate: startDate ? new Date(startDate) : new Date(),
+        endDate: endDate ? new Date(endDate) : null,
+        hasEndDate: Boolean(endDate),
+        status: "pending",
+        createdBy: owner,
+        activityLog: [{
+          action: "Campaign Created",
+          details: `Campaign created with budget ₦${numericBudget}`,
+          timestamp: new Date(),
+          performedBy: owner
+        }]
       });
-    }
 
-    const estimatedViews = maxPromoters * Number(minViewsPerPromotion);
-
-     //  5️⃣ CREATE CAMPAIGN (NO FUND MOVEMENT)
-    const campaign = new CampaignModel({
-      owner,
-      title,
-      caption,
-      link,
-      category,
-      mediaUrl,
-      mediaType,
-      thumbnailUrl,
-
-      budget: numericBudget,
-      currency,
-
-      maxPromoters,
-      currentPromoters: 0,
-
-      payoutModel: "fixed_per_promoter",
-      payoutTierId,
-      payoutPerPromotion: numericPayout,
-      minViewsPerPromotion,
-      maxViewsPerPromotion,
-
-      estimatedViews,
-
-      enableTarget,
-      ageTarget,
-      targetLocations,
-      requirements,
-      minRating,
-
-      campaignType,
-      priority,
-
-      startDate: startDate ? new Date(startDate) : new Date(),
-      endDate: endDate ? new Date(endDate) : null,
-      hasEndDate: endDate ? true : false,
-
-      status: "pending", // Admin approval still required
-      createdBy: owner,
-
-      activityLog: [{
-        action: "Campaign Created",
-        details: `Campaign created with budget ₦${numericBudget}`,
-        timestamp: new Date(),
-        performedBy: owner
-      }]
+      await campaignDoc.save({ session });
+      return campaignDoc;
     });
 
-    await campaign.save({ session });
-
-    
-
-    await session.commitTransaction();
-    session.endSession();
-
-    //  6️⃣ ADMIN NOTIFICATION
+    // 6️⃣ ADMIN NOTIFICATION (only after transaction commits)
     await sendEmail({
-      to: ['schooltraz@gmail.com'],
-      // to: process.env.ADMIN_EMAIL,
+      to: ["schooltraz@gmail.com"],
       subject: "New Campaign Pending Approval",
       html: adminCampaignApprovalTemplate({
         title: campaign.title,
         budget: campaign.budget,
-        owner: marketer.email,
+        owner: campaign.owner,
         category: campaign.category
       })
     }).catch(err => console.error("Email send failed:", err));
@@ -217,18 +177,17 @@ export const createCampaign = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Campaign created successfully and pending approval",
-      data: campaign.toJSON()
+      data: campaign
     });
-
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-
+    // Error handling for both validation and transaction failures
+    const status = error.status || 400;
     console.error("Create campaign error:", error);
-
-    return res.status(400).json({
+    return res.status(status).json({
       success: false,
       message: error.message || "Failed to create campaign"
     });
+  } finally {
+    await session.endSession();
   }
 };

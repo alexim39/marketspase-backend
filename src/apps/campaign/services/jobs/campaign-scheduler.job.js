@@ -1,8 +1,7 @@
-import { CampaignModel } from '../../models/campaign.model.js';
-//import { UserModel } from '../../../user/models/user.model.js';
+import { CampaignModel } from '../../models/index.js';
 import cron from 'node-cron';
 import mongoose from 'mongoose';
-import { sendEmail } from '../../../../services/email.service.js';
+import { sendEmail } from '../../../../core/email.service.js';
 import { campaignApprovedTemplate } from '../../services/email/campaignApprovedTemplate.js';
 import { NotificationService } from '../../../notification/services/notification.service.js';
 

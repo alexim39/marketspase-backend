@@ -18,7 +18,6 @@ IndexRouter.post('/verify-and-record', verifyAndRecordPayment);
 // payment verification usng reference retry
 IndexRouter.get('/verify-payment/:reference', verifyPaymentStatus);
 
-
 // Withdrawal endpoints
 IndexRouter.post('/withdraw-request', withdrawRequest);
 

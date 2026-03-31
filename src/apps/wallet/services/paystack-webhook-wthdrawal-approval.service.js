@@ -1,6 +1,6 @@
 // api/webhook/paystack/approval.js
-import { UserModel } from '../../user/models/user.model.js';
-import { sendEmail } from "../../../services/email.service.js";
+import { UserModel } from '../../user/models/user/index.js';
+import { sendEmail } from "../../../core/email.service.js";
 import { withdrawalSuccessfulTemplate } from './email/withdrawalSuccessfulTemplate.js';
 import { withdrawalFailedTemplate } from './email/withdrawalFailedTemplate.js';
 import mongoose from 'mongoose';

@@ -1,7 +1,7 @@
 
-import { CampaignModel } from "../../campaign/models/campaign.model.js";
-import { PromotionModel } from "../../promotion/models/promotion.model.js";
-import { UserModel } from "../../user/models/user.model.js";
+import { CampaignModel } from "../../campaign/models/index.js";
+import { PromotionModel } from "../../promotion/models/index.js";
+import { UserModel } from "../../user/models/user/index.js";
 import mongoose from "mongoose";
 
 const MAX_RETRIES = 5;

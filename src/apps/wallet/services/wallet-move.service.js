@@ -1,6 +1,6 @@
 
 // src/services/wallet-move.service.js
-import { UserModel } from "../..//user/models/user.model.js";
+import { UserModel } from "../..//user/models/user/index.js";
 
 /**
  * Move funds within a single wallet side (e.g., balance -> reserved).

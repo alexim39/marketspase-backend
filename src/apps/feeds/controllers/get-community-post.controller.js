@@ -1,4 +1,4 @@
-import { FeedPostModel } from '../models/feed.model.js';
+import { FeedPostModel } from '../models/feed/index.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 

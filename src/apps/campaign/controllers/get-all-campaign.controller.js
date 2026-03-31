@@ -98,7 +98,97 @@ const fetchCampaigns = async (query = {}) => {
 /**
  * Controller to get campaigns with pagination and performance optimizations
  */
+
 export const getAllCampaigns = async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit, 
+      status, 
+      category,
+      search,
+      startDate, 
+      endDate 
+    } = req.query;
+
+    // Build filters from query params
+    const filters = {};
+    
+    // Handle multiple status values
+    if (status) {
+      const statusArray = Array.isArray(status) ? status : [status];
+      if (statusArray.length > 0) {
+        filters.status = { $in: statusArray };
+      }
+    }
+    
+    // Handle multiple category values
+    if (category) {
+      const categoryArray = Array.isArray(category) ? category : [category];
+      if (categoryArray.length > 0) {
+        filters.category = { $in: categoryArray };
+      }
+    }
+    
+    // Handle search
+    if (search) {
+      filters.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { 'owner.displayName': { $regex: search, $options: 'i' } },
+        { 'owner.email': { $regex: search, $options: 'i' } },
+        { category: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    if (startDate || endDate) {
+      filters.createdAt = {};
+      if (startDate) filters.createdAt.$gte = new Date(startDate);
+      if (endDate) filters.createdAt.$lte = new Date(endDate);
+    }
+
+    const { campaigns, pagination } = await fetchCampaigns({
+      page: parseInt(page, 10),
+      limit: limit ? parseInt(limit, 10) : undefined,
+      filters,
+    });
+
+    // Set cache headers for CDN/browser caching
+    res.set({
+      "Cache-Control": "public, max-age=60", // Cache for 1 minute
+      "X-Total-Count": pagination.total,
+      "X-Page": pagination.page,
+      "X-Page-Size": pagination.limit,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Campaigns fetched successfully.",
+      data: campaigns,
+      pagination, // Include pagination data in response
+    });
+  } catch (error) {
+    console.error("Error fetching campaigns:", error);
+
+    // Handle specific MongoDB errors
+    if (error.name === "MongoError" || error.name === "MongoServerError") {
+      if (error.code === 16500) {
+        return res.status(429).json({
+          success: false,
+          message: "Database resources temporarily exceeded. Please try again later.",
+          retryAfter: 60,
+        });
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "An error occurred while fetching campaigns.",
+      ...(process.env.NODE_ENV === "development" && { error: error.message }),
+    });
+  }
+};
+
+/* export const getAllCampaigns = async (req, res) => {
   try {
     const { page = 1, limit, status, startDate, endDate } = req.query;
 
@@ -153,4 +243,4 @@ export const getAllCampaigns = async (req, res) => {
       ...(process.env.NODE_ENV === "development" && { error: error.message }),
     });
   }
-};
+}; */

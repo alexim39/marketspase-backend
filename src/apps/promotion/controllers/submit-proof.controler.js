@@ -1,7 +1,7 @@
 
 // promotion.controller.js (patched)
-import { PromotionModel } from "../../promotion/models/promotion.model.js";
-import { CampaignModel } from "../../campaign/models/campaign.model.js";
+import { PromotionModel } from "../../promotion/models/index.js";
+import { CampaignModel } from "../../campaign/models/index.js";
 import mongoose from "mongoose";
 import { validateProofSubmission } from "../../promotion/services/validator.js";
 import { isPromotionExpired, isNearingExpiration } from './../services/utils.js';

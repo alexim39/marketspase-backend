@@ -1,7 +1,5 @@
 import mongoose from 'mongoose';
-import { ProductModel } from '../../models/product.model.js';
-import { PromotionTrackingModel } from '../../models/product.model.js';
-import { StoreModel } from '../../models/store.model.js';
+import { ProductModel, PromotionTrackingModel } from '../../models/promotion/index.js';
 
 // Helper function to get product promotion stats
 async function getProductPromotionStats(productId) {
@@ -58,9 +56,9 @@ async function getProductPromotionStats(productId) {
 export const getPromoterProductDetails = async (req, res) => {
   try {
     const { id } = req.params;
-    const { promoterId } = req.query;
+    const { userId } = req.query;
 
-    console.log('Fetching product details for ID:', id, 'by promoter:', promoterId);
+    //console.log('Fetching product details for ID:', id, 'by promoter:', userId);
 
     // Validate product ID
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -83,7 +81,7 @@ export const getPromoterProductDetails = async (req, res) => {
       });
     }
 
-    console.log('Product fetched from DB:', product);
+    //.log('Product fetched from DB:', product);
 
     // Get promotion details
     const promotion = await PromotionTrackingModel.findOne({
@@ -95,21 +93,21 @@ export const getPromoterProductDetails = async (req, res) => {
       console.warn('No active promotion found for this product');
     }
 
-    console.log('Promotion details fetched from DB:', promotion);
+    //console.log('Promotion details fetched from DB:', promotion);
 
     // Get product statistics
     const stats = await getProductPromotionStats(id);
-    console.log('Product stats:', stats);
+    //console.log('Product stats:', stats);
 
     // If promoter is logged in, check if they have tracked this product
     let userPromotion = null;
-    if (promoterId) {
+    if (userId) {
       userPromotion = await PromotionTrackingModel.findOne({
         product: id,
-        promoter: promoterId,
+        promoter: userId,
         isActive: true
       });
-      console.log('User promotion details:', userPromotion);
+      //console.log('User promotion details:', userPromotion);
     }
 
     // Format response
@@ -163,7 +161,7 @@ export const getPromoterProductDetails = async (req, res) => {
     };
 
     // Record view if promoter is logged in
-    if (promoterId && userPromotion) {
+    if (userId && userPromotion) {
       await PromotionTrackingModel.findByIdAndUpdate(
         userPromotion._id,
         { $inc: { viewCount: 1 } }
@@ -176,7 +174,7 @@ export const getPromoterProductDetails = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching product details:', error);
+    //console.error('Error fetching product details:', error);
     res.status(500).json({
       success: false,
       message: 'Server error while fetching product details',

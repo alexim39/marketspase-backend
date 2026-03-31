@@ -1,7 +1,6 @@
-import { FeedPostModel } from '../models/feed.model.js';
-import { FeedNotificationModel } from '../models/feed-notification.model.js';
-import { UserModel } from '../../user/models/user.model.js';
-import { CampaignModel } from '../../campaign/models/campaign.model.js';
+import { FeedPostModel } from '../models/feed/index.js';
+import { UserModel } from '../../user/models/user/index.js';
+import { CampaignModel } from '../../campaign/models/index.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -12,7 +11,7 @@ export const createFeedPost = asyncHandler(async (req, res) => {
   const { content, campaignId, hashtags, userId, settings } = req.body;
 
   // Get user details
-  const user = await UserModel.findById(userId).select('username displayName avatar role');
+  const user = await UserModel.findById(userId).select('username displayName avatar role activitySettings activityLog');
   if (!user) {
     throw new ApiError(404, 'User not found');
   }
@@ -67,7 +66,6 @@ export const createFeedPost = asyncHandler(async (req, res) => {
 
   // Log activity
   await user.logActivity('campaign_update', `Created an update for campaign: ${campaign.title}`, {
-    resourceType: 'feed',
     resourceId: post._id,
     metadata: { campaignId: campaign._id }
   });

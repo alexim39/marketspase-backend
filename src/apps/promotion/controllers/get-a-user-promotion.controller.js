@@ -1,6 +1,6 @@
 // promotion.controller.js
-import { PromotionModel } from "../../promotion/models/promotion.model.js";
-import { UserModel } from "../../user/models/user.model.js";
+import { PromotionModel } from "../../promotion/models/index.js";
+import { UserModel } from "../../user/models/user/index.js";
 import { isPromotionExpired, calculateTimeRemaining, calculateProgressPercentage } from './../services/utils.js';
 
 

@@ -1,6 +1,6 @@
 // settings.controller.js (add this method)
 
-import { UserModel } from '../../user/models/user.model.js';
+import { UserModel } from '../../user/models/user/index.js';
 
 export const updateThemePreferences = async (req, res) => {
   try {

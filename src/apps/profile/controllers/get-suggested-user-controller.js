@@ -1,5 +1,5 @@
-import { UserModel } from '../../user/models/user.model.js';
-import { FollowModel } from '../models/follow.model.js';
+import { UserModel } from '../../user/models/user/index.js';
+import { FollowModel } from '../models/follow/index.js';
 
 
 export const getSuggestedUsers = async (req, res) => {

@@ -1,6 +1,6 @@
 // controllers/withdrawal.controller.js
-import { UserModel } from '../../../user/models/user.model.js';
-import { sendEmail } from "../../../../services/email.service.js";
+import { UserModel } from '../../../user/models/user/index.js';
+import { sendEmail } from "../../../../core/email.service.js";
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import { assertAccountNotUsedByAnotherUser } from '../../services/account-ownership.service.js';
@@ -41,11 +41,14 @@ export const withdrawRequest = async (req, res) => {
     userId,
     saveAccount,
     bankName,
+    role,
     payableAmount,
-    bankCode
+    bankCode,
+    currency,
+    finalAmount
   } = req.body;
 
-  console.log('Withdrawal request body:', req.body);
+  //console.log('Withdrawal request body:', req.body);
 
   if (!userId || !amount || !bank || !accountNumber || !accountName) {
     return res.status(400).json({
@@ -62,10 +65,6 @@ export const withdrawRequest = async (req, res) => {
       code: "INVALID_AMOUNT",
     });
   }
-    
-  // Calculate fee (18%)
-  const serviceFee = Math.round(amount * 0.20);
-  // const amountPayable = withdrawalAmount - serviceFee;
 
   try {
     // 1) Load user & basic checks
@@ -119,16 +118,43 @@ export const withdrawRequest = async (req, res) => {
     }
 
     // 5) Balance check & initial deduction
-    const promoterWallet = user.wallets.promoter;
-    if (promoterWallet.balance < amount) {
-      return res.status(400).json({ 
-        message: "Insufficient balance.", 
-        success: false 
-      });
+
+    let userWallet; 
+    let serviceFee;
+
+    if (role === 'promoter') {
+      serviceFee = Math.round(finalAmount * 0.20);
+      const amountPayable = finalAmount - serviceFee;
+
+      userWallet = user.wallets.promoter; 
+      
+      if (userWallet.balance < amount) {
+        return res.status(400).json({ message: "Insufficient balance.", success: false });
+      }
+      
+      if (amountPayable !== payableAmount) {
+        return res.status(400).json({ message: "invalid withdrawal amount or service charge must apply.", success: false });
+      }
     }
+
+    if (role === 'marketer') {
+      serviceFee = 0;
+      const amountPayable = finalAmount - serviceFee;
+
+      userWallet = user.wallets.marketer; 
+      
+      if (userWallet.balance < amount) {
+        return res.status(400).json({ message: "Insufficient balance.", success: false });
+      }
+
+      if (amountPayable !== payableAmount) {
+        return res.status(400).json({ message: "invalid withdrawal amount.", success: false });
+      }
+    }
+
     
     // Deduct gross amount from user balance
-    promoterWallet.balance -= amount;
+    userWallet.balance -= amount;
 
     // 6) Create transaction
     const tx = {
@@ -161,11 +187,11 @@ export const withdrawRequest = async (req, res) => {
       },
     };
 
-    promoterWallet.transactions.push(tx);
-    const txRef = promoterWallet.transactions[promoterWallet.transactions.length - 1];
+    userWallet.transactions.push(tx);
+    const txRef = userWallet.transactions[userWallet.transactions.length - 1];
 
     // 7) Process payment through Paystack
-    console.log('Initiating payment with reference:', txRef.reference);
+    //console.log('Initiating payment with reference:', txRef.reference);
     const paymentResponse = await processPayment(
       bank,
       accountNumber,
@@ -212,40 +238,35 @@ export const withdrawRequest = async (req, res) => {
   // Check if transfer was blocked
   if (paymentResponse.status === "blocked" || paymentResponse.data?.status === "blocked") {
     // Refund gross
-    promoterWallet.balance += amount;
+    userWallet.balance += amount;
     txRef.status = "failed";
     txRef.failureReason = "Transfer blocked by provider";
     txRef.processedAt = new Date();
-    cleanInvalidTransactionIds(promoterWallet);
+    cleanInvalidTransactionIds(userWallet);
     await user.save();
     
     return res.status(200).json({
       success: false,
       message: "Withdrawal failed (blocked).",
-      data: { balance: promoterWallet.balance, transaction: txRef },
+      data: { balance: userWallet.balance, transaction: txRef },
     });
   }
 
     // Handle immediate failures
     if (!paymentResponse.success) {
       // Refund the user
-      promoterWallet.balance += amount;
+      userWallet.balance += amount;
       txRef.status = "failed";
       txRef.failureReason = paymentResponse.message || "Transfer failed";
       txRef.processedAt = new Date();
       
-      cleanInvalidTransactionIds(promoterWallet);
+      cleanInvalidTransactionIds(userWallet);
       await user.save();
 
       // Send failure notification
       // if (user.email) {
       //   try {
-      //     const emailTemplate = withdrawalFailedTemplate(
-      //       user.displayName || user.username,
-      //       (amount / 100).toFixed(2),
-      //       paymentResponse.message || 'Transfer failed',
-      //       new Date().toLocaleDateString()
-      //     );
+      //     const emailTemplate = withdrawalFailedTemplate(user);
       //     await sendEmail({
       //       to: user.email,
       //       subject: 'Withdrawal Failed - Funds Refunded',
@@ -260,7 +281,7 @@ export const withdrawRequest = async (req, res) => {
         success: false,
         message: "Withdrawal failed: " + (paymentResponse.message || "Unknown error"),
         data: { 
-          balance: promoterWallet.balance, 
+          balance: userWallet.balance, 
           transaction: txRef,
           refunded: true
         },
@@ -275,13 +296,7 @@ export const withdrawRequest = async (req, res) => {
       // Send success email
       // if (user.email) {
       //   try {
-      //     const emailTemplate = withdrawalSuccessfulTemplate(
-      //       user.displayName || user.username,
-      //       (amount / 100).toFixed(2),
-      //       accountNumber.slice(-4),
-      //       bankName || bank,
-      //       new Date().toLocaleDateString()
-      //     );
+      //     const emailTemplate = withdrawalSuccessfulTemplate(user);
       //     await sendEmail({
       //       to: user.email,
       //       subject: 'Withdrawal Successful',
@@ -337,7 +352,7 @@ export const withdrawRequest = async (req, res) => {
       }
     }
 
-    cleanInvalidTransactionIds(promoterWallet);
+    cleanInvalidTransactionIds(userWallet);
     await user.save();
 
     return res.status(200).json({
@@ -346,7 +361,7 @@ export const withdrawRequest = async (req, res) => {
         : "Withdrawal request is being processed.",
       success: true,
       data: { 
-        balance: promoterWallet.balance, 
+        balance: userWallet.balance, 
         transaction: txRef,
         status: txRef.status,
         providerStatus: paymentResponse.status
@@ -360,13 +375,13 @@ export const withdrawRequest = async (req, res) => {
     try {
       const user = await UserModel.findById(userId);
       if (user && user.wallets?.promoter) {
-        const promoterWallet = user.wallets.promoter;
-        const transaction = promoterWallet.transactions.find(
+        const userWallet = user.wallets.promoter;
+        const transaction = userWallet.transactions.find(
           t => t.reference === `WD_${Date.now()}_${Math.random().toString(36).slice(2, 15)}`
         );
         
         if (transaction && transaction.status === 'processing') {
-          promoterWallet.balance += transaction.amount;
+          userWallet.balance += transaction.amount;
           transaction.status = 'failed';
           transaction.failureReason = 'System error: ' + error.message;
           await user.save();

@@ -1,7 +1,95 @@
-import { StoreModel } from '../../models/store.model.js';
-import { ProductModel, PromotionTrackingModel } from '../../models/product.model.js';
-import { StoreAnalyticsModel } from '../../models/store-analytics.model.js';
+import { StoreModel } from '../../models/store/index.js';
+import { ProductModel, PromotionTrackingModel } from '../../models/promotion/index.js';
+import { StoreAnalyticsModel } from '../../models/store-analytics/index.js';
 import mongoose from 'mongoose';
+
+
+
+/**
+ * @desc    Increment store views
+ * @route   POST /api/stores/:storeId/views
+ * @access  Public
+ */
+export const incrementStoreViews = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const { referrer } = req.body;
+
+    await StoreModel.findByIdAndUpdate(storeId, {
+      $inc: { 'analytics.totalViews': 1 },
+      $currentDate: { updatedAt: true }
+    });
+
+    // Update daily analytics
+    await updateDailyAnalytics(storeId, 'view', referrer);
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Increment store views error:', error);
+    res.status(500).json({ success: false });
+  }
+};
+
+/**
+ * @desc    Get store analytics
+ * @route   GET /api/stores/:storeId/analytics
+ * @access  Private (Store Owner)
+ */
+export const getStoreAnalytics = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const { period = 'month' } = req.query;
+
+    // Verify store ownership
+    if (req.user._id.toString() !== store.owner.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to view store analytics'
+      });
+    }
+
+    const analytics = await getStoreAnalyticsData(storeId, period);
+
+    res.status(200).json({
+      success: true,
+      data: analytics
+    });
+  } catch (error) {
+    console.error('Get store analytics error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
+
+
+/**
+ * @desc    Track store interaction
+ * @route   POST /api/stores/:storeId/interactions
+ * @access  Public
+ */
+export const trackStoreInteraction = async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const { interaction } = req.body;
+
+    if (!['click', 'share', 'save'].includes(interaction)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid interaction type'
+      });
+    }
+
+    // Update interaction analytics
+    await updateDailyAnalytics(storeId, interaction);
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Track store interaction error:', error);
+    res.status(500).json({ success: false });
+  }
+};
 
 /**
  * @desc    Get store by store link
@@ -88,398 +176,6 @@ export const getStoreByLink = async (req, res) => {
   }
 };
 
-/**
- * @desc    Get store products with filters
- * @route   GET /api/stores/:storeId/products
- * @access  Public
- */
-export const getStorefrontProducts = async (req, res) => {
-  try {
-    const { storeId } = req.params;
-    const {
-      page = 1,
-      limit = 12,
-      category,
-      sortBy = 'newest',
-      minPrice,
-      maxPrice,
-      inStock,
-      featured,
-      search
-    } = req.query;
-
-    // Validate store
-    const store = await StoreModel.findById(storeId);
-    if (!store) {
-      return res.status(404).json({
-        success: false,
-        message: 'Store not found'
-      });
-    }
-
-    // Build query
-    const query = {
-      store: storeId,
-      isActive: true,
-      isDeleted: { $ne: true }
-    };
-
-    // Apply filters
-    if (category) {
-      query.category = category;
-    }
-
-    if (minPrice || maxPrice) {
-      query.price = {};
-      if (minPrice) query.price.$gte = Number(minPrice);
-      if (maxPrice) query.price.$lte = Number(maxPrice);
-    }
-
-    if (inStock === 'true') {
-      query.$or = [
-        { manageStock: false },
-        { manageStock: true, quantity: { $gt: 0 } }
-      ];
-    }
-
-    if (featured === 'true') {
-      query.isFeatured = true;
-    }
-
-    // Apply search
-    if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { tags: { $regex: search, $options: 'i' } },
-        { 'attributes.values': { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    // Build sort options
-    let sortOptions = {};
-    switch (sortBy) {
-      case 'price-low':
-        sortOptions = { price: 1 };
-        break;
-      case 'price-high':
-        sortOptions = { price: -1 };
-        break;
-      case 'popular':
-        sortOptions = { purchaseCount: -1 };
-        break;
-      case 'rating':
-        sortOptions = { averageRating: -1 };
-        break;
-      case 'featured':
-        sortOptions = { isFeatured: -1, createdAt: -1 };
-        break;
-      default: // 'newest'
-        sortOptions = { createdAt: -1 };
-    }
-
-    // Execute query with pagination
-    const skip = (Number(page) - 1) * Number(limit);
-    
-    const [products, total] = await Promise.all([
-      ProductModel.find(query)
-        .sort(sortOptions)
-        .skip(skip)
-        .limit(Number(limit))
-        .select('name description price originalPrice images category tags quantity manageStock lowStockAlert averageRating ratingCount viewCount purchaseCount isActive isFeatured createdAt updatedAt'),
-      ProductModel.countDocuments(query)
-    ]);
-
-    const totalPages = Math.ceil(total / Number(limit));
-
-    res.status(200).json({
-      success: true,
-      data: products,
-      total,
-      page: Number(page),
-      totalPages
-    });
-  } catch (error) {
-    console.error('Get store products error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
-  }
-};
-
-/**
- * @desc    Get store categories
- * @route   GET /api/stores/:storeId/categories
- * @access  Public
- */
-export const getStoreCategories = async (req, res) => {
-  try {
-    const { storeId } = req.params;
-
-    const categories = await ProductModel.distinct('category', {
-      store: storeId,
-      isActive: true,
-      isDeleted: { $ne: true }
-    });
-
-    res.status(200).json({
-      success: true,
-      data: categories.filter(Boolean) // Remove null/empty values
-    });
-  } catch (error) {
-    console.error('Get store categories error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
-  }
-};
-
-/**
- * @desc    Increment store views
- * @route   POST /api/stores/:storeId/views
- * @access  Public
- */
-export const incrementStoreViews = async (req, res) => {
-  try {
-    const { storeId } = req.params;
-    const { referrer } = req.body;
-
-    await StoreModel.findByIdAndUpdate(storeId, {
-      $inc: { 'analytics.totalViews': 1 },
-      $currentDate: { updatedAt: true }
-    });
-
-    // Update daily analytics
-    await updateDailyAnalytics(storeId, 'view', referrer);
-
-    res.status(200).json({ success: true });
-  } catch (error) {
-    console.error('Increment store views error:', error);
-    res.status(500).json({ success: false });
-  }
-};
-
-/**
- * @desc    Get store analytics
- * @route   GET /api/stores/:storeId/analytics
- * @access  Private (Store Owner)
- */
-export const getStoreAnalytics = async (req, res) => {
-  try {
-    const { storeId } = req.params;
-    const { period = 'month' } = req.query;
-
-    // Verify store ownership
-    if (req.user._id.toString() !== store.owner.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to view store analytics'
-      });
-    }
-
-    const analytics = await getStoreAnalyticsData(storeId, period);
-
-    res.status(200).json({
-      success: true,
-      data: analytics
-    });
-  } catch (error) {
-    console.error('Get store analytics error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
-  }
-};
-
-/**
- * @desc    Search stores
- * @route   GET /api/stores/search
- * @access  Public
- */
-export const searchStores = async (req, res) => {
-  try {
-    const { query, page = 1, limit = 10 } = req.query;
-
-    if (!query || query.trim().length < 2) {
-      return res.status(400).json({
-        success: false,
-        message: 'Search query must be at least 2 characters'
-      });
-    }
-
-    const searchQuery = {
-      $or: [
-        { name: { $regex: query, $options: 'i' } },
-        { description: { $regex: query, $options: 'i' } },
-        { category: { $regex: query, $options: 'i' } }
-      ],
-      isVerified: true,
-      isDeleted: { $ne: true }
-    };
-
-    const skip = (Number(page) - 1) * Number(limit);
-
-    const [stores, total] = await Promise.all([
-      StoreModel.find(searchQuery)
-        .sort({ 'analytics.totalViews': -1, 'analytics.totalSales': -1 })
-        .skip(skip)
-        .limit(Number(limit))
-        .select('name description logo category isVerified verificationTier storeLink analytics createdAt'),
-      StoreModel.countDocuments(searchQuery)
-    ]);
-
-    const totalPages = Math.ceil(total / Number(limit));
-
-    res.status(200).json({
-      success: true,
-      data: stores,
-      total,
-      page: Number(page),
-      totalPages
-    });
-  } catch (error) {
-    console.error('Search stores error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
-  }
-};
-
-/**
- * @desc    Get trending stores
- * @route   GET /api/stores/trending
- * @access  Public
- */
-export const getTrendingStores = async (req, res) => {
-  try {
-    const { limit = 8 } = req.query;
-
-    const stores = await StoreModel.find({
-      isVerified: true,
-      isDeleted: { $ne: true },
-      'analytics.totalViews': { $gt: 0 }
-    })
-    .sort({ 'analytics.totalViews': -1, 'analytics.conversionRate': -1 })
-    .limit(Number(limit))
-    .select('name description logo category isVerified verificationTier storeLink analytics')
-    .populate('owner', 'name profilePicture');
-
-    res.status(200).json({
-      success: true,
-      data: stores
-    });
-  } catch (error) {
-    console.error('Get trending stores error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
-  }
-};
-
-/**
- * @desc    Check store link availability
- * @route   GET /api/stores/check-link/:storeLink
- * @access  Public
- */
-export const checkStoreLinkAvailability = async (req, res) => {
-  try {
-    const { storeLink } = req.params;
-
-    if (!storeLink) {
-      return res.status(400).json({
-        success: false,
-        message: 'Store link is required'
-      });
-    }
-
-    // Check if link exists
-    const existingStore = await StoreModel.findOne({
-      storeLink,
-      isDeleted: { $ne: true }
-    });
-
-    // Check if link meets requirements
-    const isValid = /^[a-z0-9-]+$/.test(storeLink);
-    const isTooShort = storeLink.length < 3;
-    const isTooLong = storeLink.length > 50;
-    const isReserved = ['admin', 'api', 'store', 'dashboard', 'promoter'].includes(storeLink);
-
-    res.status(200).json({
-      available: !existingStore && isValid && !isTooShort && !isTooLong && !isReserved,
-      suggestions: existingStore ? await generateLinkSuggestions(storeLink) : []
-    });
-  } catch (error) {
-    console.error('Check store link availability error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
-  }
-};
-
-/**
- * @desc    Track store interaction
- * @route   POST /api/stores/:storeId/interactions
- * @access  Public
- */
-export const trackStoreInteraction = async (req, res) => {
-  try {
-    const { storeId } = req.params;
-    const { interaction } = req.body;
-
-    if (!['click', 'share', 'save'].includes(interaction)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid interaction type'
-      });
-    }
-
-    // Update interaction analytics
-    await updateDailyAnalytics(storeId, interaction);
-
-    res.status(200).json({ success: true });
-  } catch (error) {
-    console.error('Track store interaction error:', error);
-    res.status(500).json({ success: false });
-  }
-};
-
-/**
- * @desc    Get store verification status
- * @route   GET /api/stores/:storeId/verification-status
- * @access  Public
- */
-export const getStoreVerificationStatus = async (req, res) => {
-  try {
-    const { storeId } = req.params;
-
-    const store = await StoreModel.findById(storeId).select('isVerified verificationTier verificationDate');
-
-    if (!store) {
-      return res.status(404).json({
-        success: false,
-        message: 'Store not found'
-      });
-    }
-
-    res.status(200).json({
-      verified: store.isVerified,
-      tier: store.verificationTier,
-      verificationDate: store.verificationDate
-    });
-  } catch (error) {
-    console.error('Get verification status error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
-  }
-};
 
 // Helper Functions
 
@@ -717,25 +413,6 @@ const updateDailyAnalytics = async (storeId, type, referrer = null) => {
   }
 };
 
-/* const updateDailyAnalytics = async (storeId, type, referrer = null) => {
-  const today = new Date().toISOString().split('T')[0];
-  
-  try {
-    await StoreAnalyticsModel.findOneAndUpdate(
-      { store: storeId, 'dailyViews.date': today },
-      {
-        $inc: {
-          'dailyViews.$.views': type === 'view' ? 1 : 0,
-          'dailyViews.$.uniqueVisitors': type === 'view' && !referrer ? 1 : 0,
-          'dailyViews.$.promoterTraffic': referrer ? 1 : 0
-        }
-      },
-      { upsert: true, new: true }
-    );
-  } catch (error) {
-    console.error('Update daily analytics error:', error);
-  }
-}; */
 
 /**
  * Track store referral
