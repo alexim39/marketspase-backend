@@ -9,6 +9,7 @@ export const createStore = async (req, res) => {
   try {
 
     //console.log('Create store request body:', req.body);
+    
       
     const userId = req.body.userId;
     if (!userId) {
