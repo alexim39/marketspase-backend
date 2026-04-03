@@ -1,4 +1,4 @@
-import { PromotionTrackingModel } from '../../models/promotion/index.js';
+/* import { PromotionTrackingModel } from '../../models/promotion/index.js';
 
 
 export const getPromoterPromotions = async (req, res) => {
@@ -25,3 +25,4 @@ export const getPromoterPromotions = async (req, res) => {
     });
   }
 };
+ */

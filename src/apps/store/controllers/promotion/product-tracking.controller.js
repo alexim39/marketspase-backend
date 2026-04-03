@@ -150,7 +150,7 @@ export const trackClick = async (req, res) => {
 /**
  * Get promotion performance data for a product
  */
-export const getPromotionPerformance = async (req, res) => {
+/* export const getPromotionPerformance = async (req, res) => {
   try {
     const { productId } = req.params;
     const { promoterId } = req.query;
@@ -202,4 +202,4 @@ export const getPromotionPerformance = async (req, res) => {
       message: 'Failed to fetch promotion performance'
     });
   }
-};
+}; */

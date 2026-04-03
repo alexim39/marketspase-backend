@@ -1,4 +1,4 @@
-// controllers/promotion.controller.js
+/* // controllers/promotion.controller.js
 import { PromotionTrackingModel } from '../../models/promotion/index.js';
 
 export const getPromotionStats = async (req, res) => {
@@ -47,3 +47,4 @@ export const getPromotionStats = async (req, res) => {
   }
 };
 
+ */

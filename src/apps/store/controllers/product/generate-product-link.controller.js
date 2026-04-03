@@ -30,7 +30,7 @@ async function generateShortUrl(longUrl) {
  * @route   POST /api/promoter/products/:id/generate-link
  * @access  Private/Promoter
  */
-export const generatePromotionLink = async (req, res) => {
+/* export const generatePromotionLink = async (req, res) => {
   try {
     const { id } = req.params;
     const promoterId = req.user?._id;
@@ -117,4 +117,4 @@ export const generatePromotionLink = async (req, res) => {
       error: error.message
     });
   }
-};
+}; */

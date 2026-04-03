@@ -1,4 +1,4 @@
-import { PromotionTrackingModel } from '../../models/promotion/index.js';
+/* import { PromotionTrackingModel } from '../../models/promotion/index.js';
 
 export const getPromotionDashboard = async (req, res) => {
   try {
@@ -116,4 +116,4 @@ function calculatePerformanceRating(stats) {
     return 'low';
   }
   return 'medium';
-}
+} */
