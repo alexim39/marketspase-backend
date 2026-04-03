@@ -1,22 +1,6 @@
 // controllers/promotion/create-promotion.controller.js
 import { PromotionTrackingModel } from '../../models/promotion/index.js';
 
-// Helper function to generate unique code
-const generateUniqueCode = () => {
-  const random = Math.random().toString(36).substring(2, 10).toLowerCase();
-  // return `promo-${random}`;
-  return `${random}`;
-};
-
-// Helper function to generate unique ID
-const generateUniqueId = (promoterId, productId) => {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 6).toLowerCase();
-  const promoterShort = promoterId.toString().substring(0, 4);
-  const productShort = productId.toString().substring(0, 4);
-  return `${promoterShort}-${productShort}-${timestamp}-${random}`;
-};
-
 export const createPromotion = async (req, res) => {
   try {
     const { productId, promoterId, storeId, commissionRate, commissionType, fixedCommission } = req.body;
@@ -46,13 +30,6 @@ export const createPromotion = async (req, res) => {
       });
     }
 
-    // Generate unique codes
-    const uniqueCode = generateUniqueCode();
-    const uniqueId = generateUniqueId(promoterId, productId);
-
-    console.log('Generated uniqueCode:', uniqueCode);
-    console.log('Generated uniqueId:', uniqueId);
-
     // Create new promotion with explicit codes
     const promotionData = {
       product: productId,
@@ -64,8 +41,6 @@ export const createPromotion = async (req, res) => {
       isActive: true,
       isApproved: true,
       startDate: new Date(),
-      uniqueCode: uniqueCode, // Explicitly set
-      uniqueId: uniqueId,     // Explicitly set
       // Initialize default values
       viewCount: 0,
       clickCount: 0,
@@ -83,11 +58,7 @@ export const createPromotion = async (req, res) => {
 
     const promotion = new PromotionTrackingModel(promotionData);
 
-    console.log('Promotion before save:', promotion);
-
     await promotion.save();
-
-    console.log('Promotion saved successfully:', promotion._id);
 
     res.status(201).json({
       success: true,

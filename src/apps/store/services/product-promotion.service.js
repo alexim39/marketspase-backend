@@ -16,13 +16,6 @@ export class ProductPromotionService {
         isDeleted: false
       });
 
-      // console.log('Found products:', products.map(p => ({ 
-      //   id: p._id, 
-      //   name: p.name, 
-      //   isPublished: p.isPublished,
-      //   isActive: p.isActive 
-      // })));
-
       if (products.length === 0) {
         throw new Error("No valid products found to publish");
       }
@@ -39,11 +32,6 @@ export class ProductPromotionService {
 
       for (const product of products) {
         try {
-          // console.log(`Processing product ${product._id}:`, {
-          //   isActive: product.isActive,
-          //   quantity: product.quantity,
-          //   manageStock: product.manageStock
-          // });
 
           if (!product.isActive) {
             results.skipped++;
@@ -75,14 +63,6 @@ export class ProductPromotionService {
           product.publishedBy = userId;
           product.promotionStartDate = new Date();
           product.promotionEndDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-          // console.log('Saving product with updates:', {
-          //   id: product._id,
-          //   before: beforeUpdate.isPublished,
-          //   after: product.isPublished,
-          //   publishedAt: product.publishedAt,
-          //   publishedBy: product.publishedBy
-          // });
 
           await product.save();
           
@@ -247,7 +227,8 @@ export class ProductPromotionService {
           product: product._id,
           promoter: userId,
           store: product.store,
-          uniqueCode: `PROMO-${product._id.toString().slice(-6)}-${Date.now().toString(36)}`,
+          uniqueCode: `${product._id.toString().slice(-6)}-${Date.now().toString(36)}`,
+          // uniqueCode: `PROMO-${product._id.toString().slice(-6)}-${Date.now().toString(36)}`,
           uniqueId: `${userId.toString().substring(0, 4)}-${product._id.toString().substring(0, 4)}-${Date.now().toString(36)}`,
           commissionRate: 10,
           commissionType: 'percentage',
