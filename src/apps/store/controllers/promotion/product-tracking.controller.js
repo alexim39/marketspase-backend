@@ -84,6 +84,8 @@ export const trackClick = async (req, res) => {
     const { uniqueCode } = req.params;
     const { deviceType = 'desktop', source, productId } = req.query;
 
+    console.log('uniqueCode ',uniqueCode)
+
     const promotion = await PromotionTrackingModel.findOne({ uniqueCode });
 
     if (!promotion) {
