@@ -3,15 +3,29 @@ import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 
- // Get community feed posts (simplified version for dashboard)
+// Get community feed posts with proper pagination
 export const getCommunityFeed = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, userId, type, hashtag } = req.query;
+  const { page = 1, limit = 20, userId, type, hashtag, search } = req.query;
 
-  const skip = (parseInt(page) - 1) * parseInt(limit);
+  const pageNum = parseInt(page);
+  const limitNum = parseInt(limit);
+  const skip = (pageNum - 1) * limitNum;
 
   const query = { status: 'published' };
   if (type) query.type = type;
   if (hashtag) query['hashtags.tag'] = hashtag.toLowerCase();
+  
+  // Add search functionality
+  if (search) {
+    query.$or = [
+      { content: { $regex: search, $options: 'i' } },
+      { 'hashtags.tag': { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  // Get total count for pagination
+  const total = await FeedPostModel.countDocuments(query);
+  const pages = Math.ceil(total / limitNum);
 
   const posts = await FeedPostModel.find(query)
     .populate({
@@ -20,9 +34,8 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
     })
     .sort({ createdAt: -1 })
     .skip(skip)
-    .limit(parseInt(limit))
+    .limit(limitNum)
     .lean();
-
 
   // Add engagement counts and interaction flags
   posts.forEach(post => {
@@ -32,16 +45,14 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
     post.phone = post.author?.personalInfo?.phone || '';
 
     if (userId) {
-      post.isLiked =
-        post.likes?.some(like => like.user?.toString() === userId.toString()) || false;
-
-      post.isSaved =
-        post.savedBy?.some(saved => saved.user?.toString() === userId.toString()) || false;
+      post.isLiked = post.likes?.some(like => like.user?.toString() === userId.toString()) || false;
+      post.isSaved = post.savedBy?.some(saved => saved.user?.toString() === userId.toString()) || false;
     } else {
       post.isLiked = false;
       post.isSaved = false;
     }
 
+    // Clean up
     delete post.likes;
     delete post.savedBy;
     delete post.shares;
@@ -79,7 +90,12 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
           topHashtag: trendingHashtags[0]?.tag || ''
         },
         trendingHashtags,
-        pagination: { page: parseInt(page), limit: parseInt(limit) }
+        pagination: { 
+          page: pageNum, 
+          limit: limitNum, 
+          total, 
+          pages 
+        }
       },
       'Community feed fetched successfully'
     )
