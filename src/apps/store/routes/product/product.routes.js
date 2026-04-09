@@ -11,7 +11,7 @@ import { trackProductView } from "../../controllers/product/track-product-view.c
 import { getTrendingProducts } from "../../controllers/product/get-trending-products.controller.js";
 import { getHighCommissionProducts } from "../../controllers/product/get-high-comm-products.controller.js";
 import { getRecommendedProducts } from "../../controllers/product/get-recomm-product.controller.js";
-import { generatePromotionLink } from "../../controllers/product/generate-product-link.controller.js";
+//import { generatePromotionLink } from "../../controllers/product/generate-product-link.controller.js";
 import { permanentDeleteProduct } from "../../controllers/product/delete-product.controller.js";
 import ProductPromotionController from "../../controllers/product/product-promotion.controller.js";
 
@@ -84,6 +84,6 @@ router.route("/:id/stats").get(getProductPromotionStatsController);
 router.route("/:id/view").post(trackProductView);
 
 // Generate promotion link
-router.route("/:id/generate-link").post(generatePromotionLink);
+//router.route("/:id/generate-link").post(generatePromotionLink);
 
 export default router;

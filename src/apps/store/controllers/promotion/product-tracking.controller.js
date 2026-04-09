@@ -84,6 +84,8 @@ export const trackClick = async (req, res) => {
     const { uniqueCode } = req.params;
     const { deviceType = 'desktop', source, productId } = req.query;
 
+    console.log('uniqueCode ',uniqueCode)
+
     const promotion = await PromotionTrackingModel.findOne({ uniqueCode });
 
     if (!promotion) {
@@ -150,7 +152,7 @@ export const trackClick = async (req, res) => {
 /**
  * Get promotion performance data for a product
  */
-export const getPromotionPerformance = async (req, res) => {
+/* export const getPromotionPerformance = async (req, res) => {
   try {
     const { productId } = req.params;
     const { promoterId } = req.query;
@@ -202,4 +204,4 @@ export const getPromotionPerformance = async (req, res) => {
       message: 'Failed to fetch promotion performance'
     });
   }
-};
+}; */

@@ -1,4 +1,5 @@
 import { extractHashtags, extractMentions } from "./feed.utils.js";
+import mongoose from "mongoose";
 
 export const setupFeedMiddleware = (schema) => {
   // Pre-save middleware
