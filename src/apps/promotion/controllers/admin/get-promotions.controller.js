@@ -100,7 +100,7 @@ export const GetAdminPromotions = async (req, res) => {
     // Get promotions with population
     const promotions = await PromotionModel.find(filter)
       .populate('campaign', 'title category payoutPerPromotion owner')
-      .populate('promoter', 'displayName email username avatar')
+      .populate('promoter', 'displayName email username avatar personalInfo.phoneDetails')
       .populate('validatedBy', 'displayName')
       .populate('paidBy', 'displayName')
       .sort(sortConfig)
