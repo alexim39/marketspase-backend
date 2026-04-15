@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 import { UserModel } from '../../../user/models/user/index.js';
 import { TransactionModel } from '../../../user/models/transaction/index.js';
-//import { TRANSACTION_CATEGORIES, TRANSACTION_STATUSES, TRANSACTION_TYPES } from '../../../user/models/transaction/transaction.constants.js';
+import { transferNotificationEmailTemplate } from './../../services/email/transferTemplate.js';
+import { sendEmail } from "../../../../core/email.service.js";
 
 /**
  * Transfer funds between wallets
@@ -116,6 +117,10 @@ export const transferFunds = async (req, res) => {
     }
 
     const destinationWallet = destinationUser.wallets[destinationWalletType];
+
+    // Store balances before update for email
+    const sourceOldBalance = sourceUser.wallets.promoter.balance;
+    const destinationOldBalance = destinationWallet.balance;
 
     // Deduct from source promoter wallet
     sourceUser.wallets.promoter.balance -= transferAmount;
@@ -240,6 +245,83 @@ export const transferFunds = async (req, res) => {
 
     await session.commitTransaction();
 
+    // ==============================================
+    // SEND EMAIL NOTIFICATIONS
+    // ==============================================
+    
+    // Format user display names
+    const sourceDisplayName = sourceUser.displayName || sourceUser.username || 'User';
+    const destDisplayName = destinationUser.displayName || destinationUser.username || 'User';
+    const otherPartyName = isSelfTransfer ? sourceDisplayName : destDisplayName;
+
+    // 1. Send email to source user (the one who sent funds)
+    const sourceEmailSubject = isSelfTransfer 
+      ? `Funds Transferred to Marketer Wallet - ₦${transferAmount.toLocaleString()}`
+      : `Funds Sent Successfully - ₦${transferAmount.toLocaleString()}`;
+    
+    const sourceEmailHtml = transferNotificationEmailTemplate({
+      userName: sourceDisplayName,
+      transferType,
+      transactionType: 'debit',
+      amount: transferAmount,
+      reference: sourceTransaction.reference,
+      otherPartyName: otherPartyName,
+      destinationWalletType: isSelfTransfer ? 'marketer' : destinationWalletType,
+      marketerLocked: marketerLockedTransfer,
+      note: note || null,
+      newBalance: sourceUser.wallets.promoter.balance
+    });
+
+    await sendEmail(sourceUser.email, sourceEmailSubject, sourceEmailHtml).catch(err => {
+      console.error('Failed to send email to source user:', err);
+      // Don't throw - email failure shouldn't break the transfer
+    });
+
+    // 2. Send email to destination user (if not self-transfer)
+    if (!isSelfTransfer && destinationUser.email) {
+      const destEmailSubject = `Funds Received - ₦${transferAmount.toLocaleString()} from ${sourceDisplayName}`;
+      
+      const destEmailHtml = transferNotificationEmailTemplate({
+        userName: destDisplayName,
+        transferType,
+        transactionType: 'credit',
+        amount: transferAmount,
+        reference: destinationTransaction.reference,
+        otherPartyName: sourceDisplayName,
+        destinationWalletType: destinationWalletType,
+        marketerLocked: marketerLockedTransfer,
+        note: note || null,
+        newBalance: destinationWallet.balance
+      });
+
+      await sendEmail(destinationUser.email, destEmailSubject, destEmailHtml).catch(err => {
+        console.error('Failed to send email to destination user:', err);
+        // Don't throw - email failure shouldn't break the transfer
+      });
+    }
+
+    // 3. For self-transfer, also send a credit notification to the marketer wallet
+    if (isSelfTransfer && sourceUser.email) {
+      const selfCreditSubject = `Marketer Wallet Credited - ₦${transferAmount.toLocaleString()}`;
+      
+      const selfCreditHtml = transferNotificationEmailTemplate({
+        userName: sourceDisplayName,
+        transferType: 'self',
+        transactionType: 'credit',
+        amount: transferAmount,
+        reference: destinationTransaction.reference,
+        otherPartyName: sourceDisplayName,
+        destinationWalletType: 'marketer',
+        marketerLocked: true,
+        note: note || null,
+        newBalance: destinationWallet.balance
+      });
+
+      await sendEmail(sourceUser.email, selfCreditSubject, selfCreditHtml).catch(err => {
+        console.error('Failed to send self-credit email:', err);
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: isSelfTransfer ? 'Funds transferred to your marketer wallet successfully' : `Funds transferred to ${destinationUser.displayName} successfully`,
@@ -338,7 +420,7 @@ export const searchUsers = async (req, res) => {
     }
 
     const users = await UserModel.find(query)
-      .select('_id username displayName avatar role')
+      .select('_id username displayName avatar role email')
       .limit(10);
 
     res.status(200).json({
