@@ -195,14 +195,19 @@ export const updateThread = async (req, res) => {
     const { threadId } = req.params;
     const { title, content, tags, userId } = req.body; // userId from auth in production
 
+    if (!threadId || !userId) {
+      return res.status(400).json({ success: false, message: 'Thread ID and User ID are required' });
+    }
+
     // Find thread
     const thread = await ThreadModel.findById(threadId);
     if (!thread) {
       return res.status(404).json({ message: 'Thread not found' });
     }
 
+
     // Verify ownership
-    if (thread.author.toString() !== userId) {
+    if (thread.author._id.toString() !== userId) {
       return res.status(403).json({ message: 'You are not the author of this thread' });
     }
 
@@ -223,5 +228,144 @@ export const updateThread = async (req, res) => {
   } catch (error) {
     console.error('Error updating thread:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+};
+
+
+/**
+ * @desc    Search threads with filters and sorting
+ * @route   GET /api/forum/threads/search
+ * @access  Public
+ */
+export const searchThreads = async (req, res) => {
+  try {
+    const {
+      q,
+      page = 1,
+      limit = 20,
+      sortBy = 'newest',
+      category,
+      tags,
+      author
+    } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Build query
+    const query = { isDeleted: false };
+    
+    if (q) {
+      query.$or = [
+        { title: { $regex: q, $options: 'i' } },
+        { content: { $regex: q, $options: 'i' } }
+      ];
+    }
+    
+    if (category) {
+      query.category = category;
+    }
+    
+    if (tags) {
+      const tagArray = Array.isArray(tags) ? tags : tags.split(',');
+      query.tags = { $in: tagArray };
+    }
+    
+    if (author) {
+      query.author = author;
+    }
+
+    // Build sort
+    let sort = {};
+    switch (sortBy) {
+      case 'newest':
+        sort = { createdAt: -1 };
+        break;
+      case 'oldest':
+        sort = { createdAt: 1 };
+        break;
+      case 'most_liked':
+        sort = { likeCount: -1, createdAt: -1 };
+        break;
+      case 'most_commented':
+        sort = { commentCount: -1, createdAt: -1 };
+        break;
+      case 'most_viewed':
+        sort = { viewCount: -1, createdAt: -1 };
+        break;
+      case 'trending':
+        sort = { trendingScore: -1, createdAt: -1 };
+        break;
+      default:
+        sort = { createdAt: -1 };
+    }
+
+    const [threads, total] = await Promise.all([
+      ThreadModel.find(query)
+        .populate('author', 'displayName username avatar')
+        .sort(sort)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      ThreadModel.countDocuments(query)
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: threads,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit)),
+        hasMore: skip + threads.length < total
+      }
+    });
+
+  } catch (error) {
+    console.error('Error searching threads:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to search threads',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * @desc    Get thread categories with counts
+ * @route   GET /api/forum/categories
+ * @access  Public
+ */
+export const getCategories = async (req, res) => {
+  try {
+    const categories = await ThreadModel.aggregate([
+      {
+        $match: { isDeleted: false }
+      },
+      {
+        $group: {
+          _id: '$category',
+          count: { $sum: 1 },
+          totalLikes: { $sum: '$likeCount' },
+          totalComments: { $sum: '$commentCount' }
+        }
+      },
+      {
+        $sort: { count: -1 }
+      }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: categories
+    });
+
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch categories',
+      error: error.message
+    });
   }
 };

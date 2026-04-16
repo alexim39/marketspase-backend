@@ -50,6 +50,12 @@ const userSchema = new mongoose.Schema(
       enum: USER_ROLES_ARRAY,
       default: 'marketer',
     },
+
+    type: {
+      type: String,
+      enum: ['user', 'admin', 'moderator'], // Can be extended in the future
+      default: 'user', // This can be used for permission checks and other logic and is only editable by admins
+    },
     
     isMarketingRep: { type: Boolean, default: DEFAULTS.IS_MARKETING_REP },
 

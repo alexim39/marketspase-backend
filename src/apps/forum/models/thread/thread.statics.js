@@ -144,7 +144,7 @@ export const setupThreadStatics = (schema) => {
     const thread = new this(data);
     await thread.save();
     
-    await thread.populate('author', 'username displayName avatar').execPopulate();
+    await thread.populate('author', 'username displayName avatar');
     
     return thread;
   };

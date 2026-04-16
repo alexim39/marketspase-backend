@@ -248,8 +248,6 @@ export const deleteComment_soft = async (req, res) => {
   try {
     const { commentId, userId } = req.params;
 
-    //console.log('Delete comment request:', { commentId, userId });return;
-
     if (!commentId || !userId) {
       return res.status(400).json({success: false, message: 'Comment ID and User ID are required' });
     }
@@ -261,7 +259,9 @@ export const deleteComment_soft = async (req, res) => {
     }
 
     // Check if the user is the author or an admin
-    if (!comment.author.equals(userId) && req.user.role !== 'admin') {
+    // Fix: Pass user role from auth middleware or request body
+    const userRole = req.user?.role || req.body.userRole;
+    if (!comment.author.equals(userId) && userRole !== 'admin') {
       return res.status(403).json({success: false, message: 'Not authorized to delete this comment' });
     }
 
@@ -269,10 +269,7 @@ export const deleteComment_soft = async (req, res) => {
     comment.isDeleted = true;
     await comment.save();
 
-    // Or for hard delete:
-    // await CommentModel.deleteOne({ _id: commentId });
-
-    // Decrement comment count on the thread (if hard delete)
+    // Decrement comment count on the thread
     await ThreadModel.updateOne(
       { _id: comment.thread },
       { $inc: { commentCount: -1 } }

@@ -179,7 +179,47 @@ const threadSchema = new mongoose.Schema(
     hashtags: [{
       tag: String,
       count: { type: Number, default: 1 }
-    }]
+    }],
+
+    pinnedAt: {
+      type: Date,
+      default: null
+    },
+    
+    pinnedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    
+    trendingScore: {
+      type: Number,
+      default: 0,
+      index: -1
+    },
+
+     isPinned: { 
+    type: Boolean, 
+    default: false,
+    index: true
+  },
+  
+  pinnedAt: {
+    type: Date,
+    default: null
+  },
+  
+  pinnedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  
+  pinOrder: {
+    type: Number,
+    default: null,
+    index: true
+  },
+  
   },
   {
     timestamps: true,
