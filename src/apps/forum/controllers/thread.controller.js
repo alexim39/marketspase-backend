@@ -5,7 +5,9 @@ import { CommentModel } from '../models/comment/index.js';
 
 
 /**
-* @desc    Get all forum threads with pagination, sorting, and filtering
+ * @desc    Get all forum threads with pagination, sorting, and filtering (Simplified)
+ * @route   GET /api/forum/threads
+ * @access  Public
  */
 export const getThreads = async (req, res) => {
   try {
@@ -18,8 +20,10 @@ export const getThreads = async (req, res) => {
     const sortBy = req.query.sortBy || 'createdAt';
     const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
 
-    // Filtering
+    // Build filter query - KEEP IT SIMPLE
     const filters = {};
+    
+    // Add filters only if they exist
     if (req.query.category) {
       filters.category = req.query.category;
     }
@@ -30,17 +34,56 @@ export const getThreads = async (req, res) => {
       filters.$text = { $search: req.query.search };
     }
 
-    // Get threads with pagination and sorting
-    const threads = await ThreadModel.find(filters)
-      .sort({ [sortBy]: sortOrder, _id: 1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('author', 'displayName username avatar')
-      .select('-__v') // Exclude version key
-      .lean();
+    // Don't filter by isDeleted if it doesn't exist on all documents
+    // Instead, filter out deleted threads in the query
+    filters.$or = [
+      { isDeleted: false },
+      { isDeleted: { $exists: false } }
+    ];
+
+    //console.log('Filters:', filters);
 
     // Get total count for pagination
     const totalThreads = await ThreadModel.countDocuments(filters);
+    //console.log('Total threads:', totalThreads);
+
+    // Build sort object - PINNED FIRST, then by user preference
+    const sortOptions = {};
+    
+    // First sort by pinned status (pinned threads first)
+    sortOptions.isPinned = -1;
+    
+    // Then by pinned date for pinned threads
+    sortOptions.pinnedAt = -1;
+    
+    // Then by the user's sort preference
+    if (sortBy === 'createdAt') {
+      sortOptions.createdAt = sortOrder;
+    } else if (sortBy === 'likeCount') {
+      sortOptions.likeCount = sortOrder;
+      sortOptions.createdAt = -1;
+    } else if (sortBy === 'commentCount') {
+      sortOptions.commentCount = sortOrder;
+      sortOptions.createdAt = -1;
+    } else if (sortBy === 'viewCount') {
+      sortOptions.viewCount = sortOrder;
+      sortOptions.createdAt = -1;
+    } else {
+      sortOptions.createdAt = -1;
+    }
+
+    //console.log('Sort options:', sortOptions);
+
+    // Get threads with pagination and sorting
+    const threads = await ThreadModel.find(filters)
+      .sort(sortOptions)
+      .skip(skip)
+      .limit(limit)
+      .populate('author', 'displayName username avatar')
+      .select('-__v')
+      .lean();
+
+    //console.log('Threads found:', threads.length);
 
     res.status(200).json({
       success: true,
@@ -49,12 +92,13 @@ export const getThreads = async (req, res) => {
         page,
         limit,
         total: totalThreads,
-        totalPages: Math.ceil(totalThreads / limit)
+        totalPages: Math.ceil(totalThreads / limit),
+        hasMore: skip + threads.length < totalThreads
       }
     });
 
   } catch (error) {
-    console.error('Error fetching threads:', error);
+    //console.error('Error fetching threads:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch threads',
@@ -119,9 +163,17 @@ export const getThreadById = async (req, res) => {
  * @route   GET /api/forum/threads/tags/:tag
  * @access  Public
  */
+/**
+ * @desc    Get threads by tag
+ * @route   GET /api/forum/threads/tags/:tags
+ * @access  Public
+ */
 export const getThreadsByTags = async (req, res) => {
   try {
     const { tags } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
     
     if (!tags) {
       return res.status(400).json({ success: false, message: 'Tags parameter is required' });
@@ -129,18 +181,71 @@ export const getThreadsByTags = async (req, res) => {
 
     const tagArray = Array.isArray(tags) ? tags : [tags];
     
-    const threads = await ThreadModel.find({ 
-      tags: { $in: tagArray } 
-    })
-    .populate('author', 'displayName username avatar')
-    .select('-__v') // Exclude version key
-    .sort({ createdAt: -1 })
-    .lean();
+    const filters = { 
+      tags: { $in: tagArray },
+      isDeleted: false
+    };
+
+    const totalThreads = await ThreadModel.countDocuments(filters);
+
+    // Use aggregation to sort pinned threads first
+    const threads = await ThreadModel.aggregate([
+      { $match: filters },
+      {
+        $addFields: {
+          sortPriority: { $cond: ['$isPinned', 0, 1] }
+        }
+      },
+      {
+        $sort: {
+          sortPriority: 1,
+          pinnedAt: -1,
+          createdAt: -1
+        }
+      },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'author',
+          foreignField: '_id',
+          as: 'author'
+        }
+      },
+      { $unwind: { path: '$author', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          title: 1,
+          content: 1,
+          author: {
+            _id: 1,
+            displayName: 1,
+            username: 1,
+            avatar: 1
+          },
+          tags: 1,
+          media: 1,
+          likeCount: 1,
+          commentCount: 1,
+          viewCount: 1,
+          isPinned: 1,
+          createdAt: 1,
+          pinnedAt: 1
+        }
+      }
+    ]);
 
     res.status(200).json({
-      data: threads, 
-      success: true, 
-      message: 'Threads fetched successfully'
+      success: true,
+      data: threads,
+      pagination: {
+        page,
+        limit,
+        total: totalThreads,
+        totalPages: Math.ceil(totalThreads / limit),
+        hasMore: skip + threads.length < totalThreads
+      }
     });
   } catch (error) {
     res.status(500).json({ 
@@ -237,6 +342,11 @@ export const updateThread = async (req, res) => {
  * @route   GET /api/forum/threads/search
  * @access  Public
  */
+/**
+ * @desc    Search threads with filters and sorting
+ * @route   GET /api/forum/threads/search
+ * @access  Public
+ */
 export const searchThreads = async (req, res) => {
   try {
     const {
@@ -274,39 +384,80 @@ export const searchThreads = async (req, res) => {
       query.author = author;
     }
 
-    // Build sort
-    let sort = {};
+    // Build sort based on user preference
+    let sortField = {};
     switch (sortBy) {
       case 'newest':
-        sort = { createdAt: -1 };
+        sortField = { createdAt: -1 };
         break;
       case 'oldest':
-        sort = { createdAt: 1 };
+        sortField = { createdAt: 1 };
         break;
       case 'most_liked':
-        sort = { likeCount: -1, createdAt: -1 };
+        sortField = { likeCount: -1, createdAt: -1 };
         break;
       case 'most_commented':
-        sort = { commentCount: -1, createdAt: -1 };
+        sortField = { commentCount: -1, createdAt: -1 };
         break;
       case 'most_viewed':
-        sort = { viewCount: -1, createdAt: -1 };
+        sortField = { viewCount: -1, createdAt: -1 };
         break;
       case 'trending':
-        sort = { trendingScore: -1, createdAt: -1 };
+        sortField = { trendingScore: -1, createdAt: -1 };
         break;
       default:
-        sort = { createdAt: -1 };
+        sortField = { createdAt: -1 };
     }
 
-    const [threads, total] = await Promise.all([
-      ThreadModel.find(query)
-        .populate('author', 'displayName username avatar')
-        .sort(sort)
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean(),
-      ThreadModel.countDocuments(query)
+    const totalThreads = await ThreadModel.countDocuments(query);
+
+    // Use aggregation to sort pinned threads first, then by user's preference
+    const threads = await ThreadModel.aggregate([
+      { $match: query },
+      {
+        $addFields: {
+          sortPriority: { $cond: ['$isPinned', 0, 1] }
+        }
+      },
+      {
+        $sort: {
+          sortPriority: 1,
+          pinnedAt: -1,
+          ...sortField
+        }
+      },
+      { $skip: skip },
+      { $limit: parseInt(limit) },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'author',
+          foreignField: '_id',
+          as: 'author'
+        }
+      },
+      { $unwind: { path: '$author', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          title: 1,
+          content: 1,
+          author: {
+            _id: 1,
+            displayName: 1,
+            username: 1,
+            avatar: 1
+          },
+          tags: 1,
+          media: 1,
+          likeCount: 1,
+          commentCount: 1,
+          viewCount: 1,
+          isPinned: 1,
+          createdAt: 1,
+          pinnedAt: 1,
+          trendingScore: 1
+        }
+      }
     ]);
 
     res.status(200).json({
@@ -315,9 +466,9 @@ export const searchThreads = async (req, res) => {
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total,
-        totalPages: Math.ceil(total / parseInt(limit)),
-        hasMore: skip + threads.length < total
+        total: totalThreads,
+        totalPages: Math.ceil(totalThreads / parseInt(limit)),
+        hasMore: skip + threads.length < totalThreads
       }
     });
 
