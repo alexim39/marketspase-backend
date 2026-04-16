@@ -4,8 +4,10 @@ import {
     getThreadById, 
     getThreadsByTags,
     deleteThread,
-    updateThread
-} from '../controllers/thread.controller.js'
+    updateThread,
+    searchThreads,
+    getCategories
+} from '../controllers/thread.controller.js';
 import { createThread } from '../controllers/create-thread.controller.js';
 import { toggleThreadLike } from '../controllers/toggle-thread-like.controller.js';
 import {
@@ -17,36 +19,107 @@ import {
     deleteReply,
     updateComment
 } from '../controllers/comment.controller.js';
+import {
+    getCommunityStats,
+    getPinnedThreads,
+    getTrendingThreads,
+    getActiveUsers,
+    getPopularTags
+} from '../controllers/forum-stats.controller.js';
+import {
+    pinThread,
+    unpinThread,
+    reorderPinnedThreads,
+    getAllPinnedThreads,
+    togglePinThread
+} from '../controllers/pin-thread.controller.js';
+
 const router = express.Router();
 
-// add new thread
+// ==================== Thread Routes ====================
+
+// Create new thread
 router.post('/threads/new', createThread);
-// get a thread by ID
-router.get('/thread/:id', getThreadById);
-// get all threads
+
+// Get all threads (with pagination and filters)
 router.get('/threads', getThreads);
-// update a comment by ID  
-router.put('/comments/:commentId', updateComment);
-// update a thread by ID
+
+// Search threads
+router.get('/threads/search', searchThreads);
+
+// Get threads by tag
+router.get('/threads/tags/:tags', getThreadsByTags);
+
+// Get a single thread by ID
+router.get('/thread/:id', getThreadById);
+
+// Update a thread by ID
 router.put('/threads/:threadId', updateThread);
 
-// get comments for a specific thread
-// add a new comment to a thread
-router.post('/thread/comment/new', addCommentToThread);
-// add comment reply in a thread
-router.post('/thread/comment/reply', addCommentReply);
-// like/dislike a thread
-router.put('/thread/like', toggleThreadLike);
-// get threads by tag
-router.get('/threads/tags/:tags', getThreadsByTags);
-// Toggle like/dislike for a comment
-router.post('/comments/like', toggleLikeComment);
-// Toggle like/dislike for a reply
-router.post('/comments/reply/like', toggleLikeReply);
-// delete threads by id
+// Delete a thread by ID
 router.delete('/thread/:threadId/:userId', deleteThread);
-// delete comment by id
+
+// Like/unlike a thread
+router.put('/thread/like', toggleThreadLike);
+
+// ==================== Comment Routes ====================
+
+// Add a new comment to a thread
+router.post('/thread/comment/new', addCommentToThread);
+
+// Add a reply to a comment
+router.post('/thread/comment/reply', addCommentReply);
+
+// Update a comment by ID
+router.put('/comments/:commentId', updateComment);
+
+// Toggle like on a comment
+router.post('/comments/like', toggleLikeComment);
+
+// Toggle like on a reply
+router.post('/comments/reply/like', toggleLikeReply);
+
+// Delete a comment by ID
 router.delete('/comment/:commentId/:userId', deleteComment);
-// delete reply by id
+
+// Delete a reply by ID
 router.delete('/reply/:replyId/:userId', deleteReply);
+
+// ==================== Community Stats Routes ====================
+
+// Get community statistics (members, discussions, comments, etc.)
+router.get('/stats', getCommunityStats);
+
+// Get pinned/featured threads
+router.get('/threads/pinned', getPinnedThreads);
+
+// Get trending threads
+router.get('/threads/trending', getTrendingThreads);
+
+// Get active users/contributors
+router.get('/users/active', getActiveUsers);
+
+// Get popular tags
+router.get('/tags/popular', getPopularTags);
+
+// Get thread categories with counts
+router.get('/categories', getCategories);
+
+// ==================== Pin Thread Routes ====================
+
+// Get all pinned threads with full details
+router.get('/threads/pinned/all', getAllPinnedThreads);
+
+// Pin a thread (Admin/Moderator only)
+router.put('/threads/:threadId/pin', pinThread);
+
+// Unpin a thread (Admin/Moderator only)
+router.put('/threads/:threadId/unpin', unpinThread);
+
+// Toggle pin status (convenience method)
+router.put('/threads/:threadId/toggle-pin', togglePinThread);
+
+// Reorder pinned threads (Admin/Moderator only)
+router.put('/threads/pinned/reorder', reorderPinnedThreads);
+
 export default router;

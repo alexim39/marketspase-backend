@@ -361,6 +361,7 @@ export const GetUser = async (req, res) => {
           email: 1,
           avatar: 1,
           role: 1,
+          type: 1,
           isActive: 1,
           isVerified: 1,
           isMarketingRep: 1,
