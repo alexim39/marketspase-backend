@@ -5,6 +5,7 @@ app.use(express.urlencoded({extended: false})); // Use formdata middleware
 
 import IndexRouter from './wallet.route.js';
 import TransferRouter from './transfer/transfer.routes.js';
+import TransactionRouter from './transactions/transaction.routes.js';
 
 const WalletRouter = express.Router();
 
@@ -12,6 +13,8 @@ const WalletRouter = express.Router();
 WalletRouter.use('/', IndexRouter);
 // Mount transfer routes
 WalletRouter.use('/transfer', TransferRouter);
+// Mount transaction routes
+WalletRouter.use('/transactions', TransactionRouter);
 
 
 export default WalletRouter;
