@@ -1,6 +1,7 @@
-import { ProductModel } from '../../models/product.model.js';
 import mongoose from "mongoose";
-import { StoreModel } from '../../models/store.model.js';
+import { StoreModel } from '../../models/store/index.js';
+import { ProductModel } from '../../models/promotion/index.js';
+
 
 export const searchStoreProducts = async (req, res) => {
   try {
