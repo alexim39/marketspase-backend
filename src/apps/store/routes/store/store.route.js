@@ -9,8 +9,12 @@ import { setDefaultStore } from '../../controllers/store/set-default-store.contr
 import { getStoreProducts } from '../../controllers/store/store-products.controller.js'
 import { getStoreProduct } from '../../controllers/store/store-product.controller.js'
 import { permanentDeleteStore } from '../../controllers/store/delete-store.controller.js'
+import PromoterStoreListRouter from './promoter-store-list.route.js';
 
 const router = express.Router();
+
+// Mount store routes
+router.use('/promoter-store-list', PromoterStoreListRouter);
 
 // Create store (with file upload for logo)
 router.post('/', upload.single('logo'), createStore);

@@ -21,6 +21,54 @@ export const updateThemePreferences = async (req, res) => {
       });
     }
 
+    // Update only theme preferences
+    user.preferences.theme = {
+      ...user.preferences.theme,
+      ...preferences.theme
+    };
+
+    // Save with validation options
+    await user.save({ 
+      validateBeforeSave: true,
+      validateModifiedOnly: true  // Only validate modified paths
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Theme preferences updated successfully',
+      data: {
+        theme: user.preferences.theme
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating theme preferences:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+};
+
+/* export const updateThemePreferences = async (req, res) => {
+  try {
+    const { userId, preferences } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required'
+      });
+    }
+
+    const user = await UserModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
     // Update theme preferences
     user.preferences.theme = {
       ...user.preferences.theme,
@@ -56,4 +104,4 @@ export const updateThemePreferences = async (req, res) => {
       message: 'Internal server error'
     });
   }
-};
+}; */

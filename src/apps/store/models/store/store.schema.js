@@ -130,7 +130,12 @@ const storeSchema = new mongoose.Schema({
     timezone: { type: String, default: 'Africa/Lagos' },
     autoApproveReviews: { type: Boolean, default: false },
     notifyOnNewOrder: { type: Boolean, default: true }
-  }
+  },
+
+  followers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
   
 }, { 
   timestamps: true,
