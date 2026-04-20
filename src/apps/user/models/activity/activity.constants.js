@@ -36,6 +36,13 @@ export const ACTIVITY_ACTIONS = {
   PROMOTION_VALIDATED: 'promotion_validated',
   PROMOTION_DOWNLOADED: 'promotion_downloaded',
   
+  // Thread & Forum Activities (ADD THIS NEW SECTION)
+  THREAD_PINNED: 'thread_pinned',
+  THREAD_PINNED_BY_MOD: 'thread_pinned_by_mod',
+  THREAD_CREATED: 'thread_created',
+  THREAD_DELETED: 'thread_deleted',
+  THREAD_UPDATED: 'thread_updated',
+  
   // Notification & Settings
   NOTIFICATION_SETTINGS_UPDATE: 'notification_settings_update',
   PREFERENCES_UPDATE: 'preferences_update',
@@ -66,7 +73,8 @@ export const RESOURCE_TYPES = {
   DEVICE: 'device',
   PAYOUT_ACCOUNT: 'payout_account',
   BONUS: 'bonus',
-  REFERRAL: 'referral'
+  REFERRAL: 'referral',
+  THREAD: 'thread'  // ADD THIS NEW RESOURCE TYPE
 };
 
 // Resource Types Array (for schema enum)
@@ -81,7 +89,8 @@ export const ACTIVITY_CATEGORIES = {
   PROMOTION: 'promotion',
   SETTINGS: 'settings',
   ACCOUNT: 'account',
-  SYSTEM: 'system'
+  SYSTEM: 'system',
+  FORUM: 'forum'  // ADD THIS NEW CATEGORY
 };
 
 // Map actions to categories for easier filtering
@@ -110,6 +119,13 @@ export const ACTION_TO_CATEGORY = {
   // Promotion
   [ACTIVITY_ACTIONS.PROMOTION_SUBMIT]: ACTIVITY_CATEGORIES.PROMOTION,
   [ACTIVITY_ACTIONS.PROMOTION_APPROVE]: ACTIVITY_CATEGORIES.PROMOTION,
+  
+  // Thread & Forum Activities (ADD THESE MAPPINGS)
+  [ACTIVITY_ACTIONS.THREAD_PINNED]: ACTIVITY_CATEGORIES.FORUM,
+  [ACTIVITY_ACTIONS.THREAD_PINNED_BY_MOD]: ACTIVITY_CATEGORIES.FORUM,
+  [ACTIVITY_ACTIONS.THREAD_CREATED]: ACTIVITY_CATEGORIES.FORUM,
+  [ACTIVITY_ACTIONS.THREAD_DELETED]: ACTIVITY_CATEGORIES.FORUM,
+  [ACTIVITY_ACTIONS.THREAD_UPDATED]: ACTIVITY_CATEGORIES.FORUM,
   
   // Settings
   [ACTIVITY_ACTIONS.NOTIFICATION_SETTINGS_UPDATE]: ACTIVITY_CATEGORIES.SETTINGS,

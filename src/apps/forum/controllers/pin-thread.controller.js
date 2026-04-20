@@ -105,10 +105,9 @@ export const pinThread = async (req, res) => {
       {
         $push: {
           activityLog: {
-            action: 'preferences_update',
-            //action: 'thread_pinned',
+            action: 'thread_pinned',
             description: `Pinned thread: ${thread.title}`,
-            resourceType: 'user',
+            resourceType: 'thread',
             resourceId: thread._id,
             timestamp: new Date(),
             metadata: { threadTitle: thread.title }
@@ -125,10 +124,9 @@ export const pinThread = async (req, res) => {
         {
           $push: {
             activityLog: {
-              action: 'preferences_update',
-              // action: 'thread_pinned_by_mod',
+              action: 'thread_pinned_by_mod',
               description: `Your thread "${thread.title}" was pinned by a moderator`,
-              resourceType: 'user',
+              resourceType: 'thread',
               resourceId: thread._id,
               timestamp: new Date(),
               metadata: { pinnedBy: userId }
@@ -248,10 +246,9 @@ export const unpinThread = async (req, res) => {
       {
         $push: {
           activityLog: {
-            action: 'preferences_update',
-            // action: 'thread_unpinned',
+            action: 'thread_unpinned',
             description: `Unpinned thread: ${thread.title}`,
-            resourceType: 'user',
+            resourceType: 'thread',
             resourceId: thread._id,
             timestamp: new Date(),
             metadata: { threadTitle: thread.title }
@@ -348,10 +345,9 @@ export const reorderPinnedThreads = async (req, res) => {
       {
         $push: {
           activityLog: {
-            action: 'preferences_update',
-            // action: 'pinned_threads_reordered',
+            action: 'pinned_threads_reordered',
             description: 'Reordered pinned threads',
-            resourceType: 'user',
+            resourceType: 'thread',
             timestamp: new Date(),
             metadata: { orders: threadOrders }
           }
