@@ -1,6 +1,9 @@
 // routes/promo.routes.js
 import express from 'express';
 import { AdminRefundController } from '../controllers/refund.controller.js';
+import { UserModel } from '../../user/models/user/index.js';
+
+
 const RefundRouter = express.Router();
 
 /**
@@ -52,8 +55,7 @@ RefundRouter.get('/search', async (req, res) => {
       });
     }
 
-    // You need to import UserModel and search for promoters
-    const UserModel = (await import('../../user/models/user.model.js')).UserModel;
+
     
     const promoters = await UserModel.find({
       $or: [
