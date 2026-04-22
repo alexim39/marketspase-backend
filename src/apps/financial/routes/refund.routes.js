@@ -41,7 +41,7 @@ RefundRouter.get('/history', async (req, res) => {
 
 /**
  * @route GET /api/financial/refund/search
- * @description Search promoters for refund
+ * @description Search users for refund (returns both wallets)
  * @access Admin only
  */
 RefundRouter.get('/search', async (req, res) => {
@@ -54,51 +54,77 @@ RefundRouter.get('/search', async (req, res) => {
         data: []
       });
     }
-
-
     
-    const promoters = await UserModel.find({
+    const users = await UserModel.find({
       $or: [
         { username: { $regex: query, $options: 'i' } },
         { email: { $regex: query, $options: 'i' } },
         { displayName: { $regex: query, $options: 'i' } }
       ],
-      role: { $in: ['promoter', 'marketer'] }, // Search both roles
+      // Search BOTH promoters and marketers
+      role: { $in: ['promoter', 'marketer'] },
       isActive: true,
       isDeleted: false
     })
     .limit(10)
-    .select('_id username email displayName role wallets.promoter wallets.marketer isActive isVerified createdAt');
+    .select('_id username email displayName role wallets isActive isVerified createdAt');
 
-    // Format the response to include wallet balances
-    const formattedPromoters = promoters.map(promoter => {
-      const walletType = promoter.role === 'promoter' ? 'promoter' : 'marketer';
-      const wallet = promoter.wallets?.[walletType] || {};
+    // Format the response to include BOTH wallets for each user
+    const formattedUsers = users.map(user => {
+      const wallets = {};
+      
+      // Always include promoter wallet if it exists
+      if (user.wallets?.promoter) {
+        wallets.promoter = {
+          balance: user.wallets.promoter.balance || 0,
+          reserved: user.wallets.promoter.reserved || 0,
+          currency: user.wallets.promoter.currency || 'NGN'
+        };
+      }
+      
+      // Always include marketer wallet if it exists
+      if (user.wallets?.marketer) {
+        wallets.marketer = {
+          balance: user.wallets.marketer.balance || 0,
+          reserved: user.wallets.marketer.reserved || 0,
+          currency: user.wallets.marketer.currency || 'NGN'
+        };
+      }
+      
+      // If no wallets exist, create empty ones based on user's role
+      if (Object.keys(wallets).length === 0) {
+        const defaultWallet = {
+          balance: 0,
+          reserved: 0,
+          currency: 'NGN'
+        };
+        
+        if (user.role === 'promoter') {
+          wallets.promoter = defaultWallet;
+        } else if (user.role === 'marketer') {
+          wallets.marketer = defaultWallet;
+        }
+      }
       
       return {
-        _id: promoter._id,
-        username: promoter.username,
-        email: promoter.email,
-        displayName: promoter.displayName,
-        role: promoter.role,
-        wallets: {
-          [walletType]: {
-            balance: wallet.balance || 0,
-            currency: wallet.currency || 'NGN'
-          }
-        },
-        isActive: promoter.isActive,
-        isVerified: promoter.isVerified,
-        createdAt: promoter.createdAt
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        displayName: user.displayName,
+        role: user.role,
+        wallets: wallets, // Now includes BOTH wallets
+        isActive: user.isActive,
+        isVerified: user.isVerified,
+        createdAt: user.createdAt
       };
     });
 
     res.status(200).json({
       success: true,
-      data: formattedPromoters
+      data: formattedUsers
     });
   } catch (error) {
-    console.error('Search promoters error:', error);
+    console.error('Search users error:', error);
     res.status(400).json({
       success: false,
       error: error.message
@@ -230,17 +256,24 @@ RefundRouter.get('/:identifier/refund-history', async (req, res) => {
   }
 })
 
+// routes/refund.routes.js - Updated POST endpoint
+
 /**
  * @route POST /api/financial/refund/
- * @description Refund balance to a promoter
+ * @description Refund balance to a user's specific wallet
  * @access Admin only
  */
 RefundRouter.post('/', async (req, res) => {
   try {
-    const { promoterUserId, amount, reason, metadata, adminId } = req.body;
-    //const adminId = req.user?.id || req.user?._id; // Handle both id and _id
+    const { promoterUserId, amount, reason, walletType, metadata, adminId } = req.body;
 
-    //console.log('Refund request:', { promoterUserId, amount, reason, metadata, adminId });
+    console.log('Refund request received:', { 
+      promoterUserId, 
+      amount, 
+      reason, 
+      walletType,  // Log wallet type
+      adminId 
+    });
 
     if (!adminId) {
       return res.status(401).json({
@@ -249,10 +282,25 @@ RefundRouter.post('/', async (req, res) => {
       });
     }
 
-    const result = await AdminRefundController.refundPromoterBalance({
+    if (!walletType) {
+      return res.status(400).json({
+        success: false,
+        error: 'Wallet type is required (promoter or marketer)'
+      });
+    }
+
+    if (!['promoter', 'marketer'].includes(walletType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid wallet type. Must be "promoter" or "marketer"'
+      });
+    }
+
+    const result = await AdminRefundController.refundToWallet({
       promoterUserId,
       amount,
       reason,
+      walletType,  // Pass wallet type to controller
       adminId,
       metadata
     });
