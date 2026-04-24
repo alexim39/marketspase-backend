@@ -1,10 +1,11 @@
-// store.controller.js
+// promoter-store-list.controller.js
 import { ProductModel } from '../../models/promotion/index.js';
 import { StoreModel } from '../../models/store/index.js';
 import { StoreAnalyticsModel } from '../../models/store-analytics/index.js';
+import mongoose from 'mongoose';
 
 export const storeController = {
-  // Get all stores for promoter browsing (with pagination)
+  // Get stores for promoter with following status
   async getStoresForPromoter(req, res) {
     try {
       const {
@@ -15,8 +16,19 @@ export const storeController = {
         verificationTier = '',
         sortBy = 'createdAt',
         sortOrder = 'desc',
-        minProducts = 0
+        minProducts = 0,
+        userId  // Get userId from request body
       } = req.query;
+
+      // Also check body for userId if not in query
+      const currentUserId = userId || req.body.userId;
+
+      if (!currentUserId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized: User ID required'
+        });
+      }
 
       const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -37,12 +49,12 @@ export const storeController = {
 
       // Category filter
       if (category) {
-        filter.category = category;
+        filter.category = { $in: category.split(',') };
       }
 
       // Verification tier filter
       if (verificationTier) {
-        filter.verificationTier = verificationTier;
+        filter.verificationTier = { $in: verificationTier.split(',') };
         filter.isVerified = true;
       }
 
@@ -59,9 +71,6 @@ export const storeController = {
         case 'name':
           sort.name = sortOrder === 'asc' ? 1 : -1;
           break;
-        case 'rating':
-          sort.rating = sortOrder === 'asc' ? 1 : -1;
-          break;
         case 'productCount':
           sort.productCount = sortOrder === 'asc' ? 1 : -1;
           break;
@@ -73,7 +82,7 @@ export const storeController = {
           sort.createdAt = sortOrder === 'asc' ? 1 : -1;
       }
 
-      // Execute query with aggregation for product count
+      // Execute query with aggregation for product count and following status
       const stores = await StoreModel.aggregate([
         { $match: filter },
         {
@@ -87,7 +96,29 @@ export const storeController = {
         {
           $addFields: {
             productCount: { $size: '$productsList' },
-            productPreview: { $slice: ['$productsList', 5] }
+            productPreview: {
+              $map: {
+                input: { $slice: ['$productsList', 5] },
+                as: 'product',
+                in: {
+                  _id: '$$product._id',
+                  name: '$$product.name',
+                  price: '$$product.price',
+                  images: '$$product.images',
+                  promotion: {
+                    $ifNull: ['$$product.promotion', {
+                      commissionRate: 0,
+                      commissionType: 'percentage',
+                      fixedCommission: 0
+                    }]
+                  }
+                }
+              }
+            },
+            // Add following status using the userId from request
+            isFollowing: {
+              $in: [new mongoose.Types.ObjectId(currentUserId), { $ifNull: ['$followers', []] }]
+            }
           }
         },
         {
@@ -115,13 +146,8 @@ export const storeController = {
             createdAt: 1,
             analytics: 1,
             productCount: 1,
-            productPreview: {
-              _id: 1,
-              name: 1,
-              price: 1,
-              images: 1,
-              promotion: 1
-            },
+            productPreview: 1,
+            isFollowing: 1,
             ownerInfo: {
               username: 1,
               displayName: 1,
@@ -161,125 +187,23 @@ export const storeController = {
     }
   },
 
-  // Get single store details with products
-  async getStoreDetails(req, res) {
-    try {
-      const { storeId } = req.params;
-      const { page = 1, limit = 12 } = req.query;
-
-      const store = await StoreModel.findById(storeId)
-        .populate('owner', 'username displayName avatar email')
-        .lean();
-
-      if (!store || store.isDeleted) {
-        return res.status(404).json({
-          success: false,
-          message: 'Store not found'
-        });
-      }
-
-      // Get products with pagination
-      const skip = (parseInt(page) - 1) * parseInt(limit);
-      const products = await ProductModel.find({
-        _id: { $in: store.storeProducts },
-        isDeleted: false,
-        isActive: true
-      })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean();
-
-      const totalProducts = await ProductModel.countDocuments({
-        _id: { $in: store.storeProducts },
-        isDeleted: false,
-        isActive: true
-      });
-
-      // Get store analytics
-      const analytics = await StoreAnalyticsModel.findOne({ store: storeId }).lean();
-
-      res.status(200).json({
-        success: true,
-        data: {
-          ...store,
-          productCount: totalProducts,
-          products,
-          analytics: analytics?.toResponse() || null,
-          pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
-            total: totalProducts,
-            totalPages: Math.ceil(totalProducts / parseInt(limit))
-          }
-        }
-      });
-    } catch (error) {
-      console.error('Error fetching store details:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to fetch store details',
-        error: error.message
-      });
-    }
-  },
-
-  // Get store products for promotion
-  async getStoreProducts(req, res) {
-    try {
-      const { storeId } = req.params;
-      const { page = 1, limit = 20, search = '' } = req.query;
-
-      const store = await StoreModel.findById(storeId);
-      if (!store || store.isDeleted) {
-        return res.status(404).json({
-          success: false,
-          message: 'Store not found'
-        });
-      }
-
-      const filter = {
-        _id: { $in: store.storeProducts },
-        isDeleted: false,
-        isActive: true
-      };
-
-      if (search) {
-        filter.name = { $regex: search, $options: 'i' };
-      }
-
-      const skip = (parseInt(page) - 1) * parseInt(limit);
-      const products = await ProductModel.find(filter)
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean();
-
-      const total = await ProductModel.countDocuments(filter);
-
-      res.status(200).json({
-        success: true,
-        data: products,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          totalPages: Math.ceil(total / parseInt(limit))
-        }
-      });
-    } catch (error) {
-      console.error('Error fetching store products:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to fetch store products',
-        error: error.message
-      });
-    }
-  },
-
-  // Follow/unfollow store
+  // Toggle follow store - receives userId from request body
   async toggleFollowStore(req, res) {
     try {
+      // console.log('body:', req.body);
+      // console.log('query:', req.query);
+      // console.log('param:', req.params);
+
+      
       const { storeId } = req.params;
-      const userId = req.user._id;
+      const { userId } = req.body; // Get userId from request body (sent from frontend)
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized: User ID required'
+        });
+      }
 
       const store = await StoreModel.findById(storeId);
       if (!store || store.isDeleted) {
@@ -289,11 +213,11 @@ export const storeController = {
         });
       }
 
-      // You'll need to add a 'followers' array to the store schema
-      // For now, I'll assume it exists
-      const isFollowing = store.followers?.includes(userId);
+      // Check if already following
+      const isFollowing = store.followers?.some(id => id.toString() === userId.toString());
 
       if (isFollowing) {
+        // Unfollow
         store.followers = store.followers.filter(id => id.toString() !== userId.toString());
         await store.save();
         res.status(200).json({
@@ -302,6 +226,7 @@ export const storeController = {
           isFollowing: false
         });
       } else {
+        // Follow
         store.followers = store.followers || [];
         store.followers.push(userId);
         await store.save();
@@ -321,12 +246,19 @@ export const storeController = {
     }
   },
 
-  // Get followed stores for promoter
+  // Get followed stores for current user
   async getFollowedStores(req, res) {
     try {
-      const userId = req.user._id;
-      const { page = 1, limit = 20 } = req.query;
+      const { userId } = req.query; // Get userId from query params
+      
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized: User ID required'
+        });
+      }
 
+      const { page = 1, limit = 20 } = req.query;
       const skip = (parseInt(page) - 1) * parseInt(limit);
 
       const stores = await StoreModel.find({
@@ -338,6 +270,12 @@ export const storeController = {
         .limit(parseInt(limit))
         .lean();
 
+      // Add isFollowing flag to each store
+      const storesWithFlag = stores.map(store => ({
+        ...store,
+        isFollowing: true
+      }));
+
       const total = await StoreModel.countDocuments({
         followers: userId,
         isDeleted: false,
@@ -346,7 +284,7 @@ export const storeController = {
 
       res.status(200).json({
         success: true,
-        data: stores,
+        data: storesWithFlag,
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
@@ -362,7 +300,131 @@ export const storeController = {
         error: error.message
       });
     }
-  }
+  },
+
+  // Get single store details with products
+  
+  // async getStoreDetails(req, res) {
+  //   try {
+  //     const { storeId } = req.params;
+  //     const { page = 1, limit = 12, userId } = req.query;
+
+  //     const store = await StoreModel.findById(storeId)
+  //       .populate('owner', 'username displayName avatar email')
+  //       .lean();
+
+  //     if (!store || store.isDeleted) {
+  //       return res.status(404).json({
+  //         success: false,
+  //         message: 'Store not found'
+  //       });
+  //     }
+
+  //     // Add following status if userId provided
+  //     let isFollowing = false;
+  //     if (userId) {
+  //       isFollowing = store.followers?.some(id => id.toString() === userId.toString()) || false;
+  //     }
+
+  //     // Get products with pagination
+  //     const skip = (parseInt(page) - 1) * parseInt(limit);
+  //     const products = await ProductModel.find({
+  //       _id: { $in: store.storeProducts },
+  //       isDeleted: false,
+  //       isActive: true
+  //     })
+  //       .skip(skip)
+  //       .limit(parseInt(limit))
+  //       .lean();
+
+  //     const totalProducts = await ProductModel.countDocuments({
+  //       _id: { $in: store.storeProducts },
+  //       isDeleted: false,
+  //       isActive: true
+  //     });
+
+  //     // Get store analytics
+  //     const analytics = await StoreAnalyticsModel.findOne({ store: storeId }).lean();
+
+  //     res.status(200).json({
+  //       success: true,
+  //       data: {
+  //         ...store,
+  //         isFollowing,
+  //         productCount: totalProducts,
+  //         products,
+  //         analytics: analytics?.toResponse?.() || null,
+  //         pagination: {
+  //           page: parseInt(page),
+  //           limit: parseInt(limit),
+  //           total: totalProducts,
+  //           totalPages: Math.ceil(totalProducts / parseInt(limit))
+  //         }
+  //       }
+  //     });
+  //   } catch (error) {
+  //     console.error('Error fetching store details:', error);
+  //     res.status(500).json({
+  //       success: false,
+  //       message: 'Failed to fetch store details',
+  //       error: error.message
+  //     });
+  //   }
+  // },
+
+  // Get store products for promotion
+
+  // async getStoreProducts(req, res) {
+  //   try {
+  //     const { storeId } = req.params;
+  //     const { page = 1, limit = 20, search = '' } = req.query;
+
+  //     const store = await StoreModel.findById(storeId);
+  //     if (!store || store.isDeleted) {
+  //       return res.status(404).json({
+  //         success: false,
+  //         message: 'Store not found'
+  //       });
+  //     }
+
+  //     const filter = {
+  //       _id: { $in: store.storeProducts },
+  //       isDeleted: false,
+  //       isActive: true
+  //     };
+
+  //     if (search) {
+  //       filter.name = { $regex: search, $options: 'i' };
+  //     }
+
+  //     const skip = (parseInt(page) - 1) * parseInt(limit);
+  //     const products = await ProductModel.find(filter)
+  //       .skip(skip)
+  //       .limit(parseInt(limit))
+  //       .lean();
+
+  //     const total = await ProductModel.countDocuments(filter);
+
+  //     res.status(200).json({
+  //       success: true,
+  //       data: products,
+  //       pagination: {
+  //         page: parseInt(page),
+  //         limit: parseInt(limit),
+  //         total,
+  //         totalPages: Math.ceil(total / parseInt(limit))
+  //       }
+  //     });
+  //   } catch (error) {
+  //     console.error('Error fetching store products:', error);
+  //     res.status(500).json({
+  //       success: false,
+  //       message: 'Failed to fetch store products',
+  //       error: error.message
+  //     });
+  //   }
+  // }
+
 };
 
 // Helper function to get filter options
