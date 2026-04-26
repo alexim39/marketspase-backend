@@ -23,6 +23,7 @@ import StoreIndexRouter from './src/apps/store/routes/index.js';
 import ForumIndexRouter from './src/apps/forum/routes/index.js';
 import FeedsIndexRouter from './src/apps/feeds/routes/index.js';
 import ProfileIndexRouter from './src/apps/profile/routes/index.js';
+import TutorialIndexRouter from './src/apps/tutorial/routes/index.js';
 
 // paystack transaction webhook imports
 import handlePaystackWithdrawalWebhook from './src/apps/wallet/services/paystack-webhook-wthdrawal-approval.service.js';
@@ -114,6 +115,7 @@ app.use('/stores', StoreIndexRouter);
 app.use('/forum', ForumIndexRouter);
 app.use('/feed', FeedsIndexRouter);
 app.use('/profile', ProfileIndexRouter);
+app.use('/tutorials', TutorialIndexRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
