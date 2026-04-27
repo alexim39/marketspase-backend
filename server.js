@@ -34,6 +34,7 @@ import { initWithdrawalSyncCron } from './src/apps/wallet/jobs/withdrawal-sync.c
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
 import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
 import { initFileUploadCleanupTask } from './src/utils/cleanup.js';
+import { updateVideoViewsJob } from './src/apps/tutorial/jobs/update-video-views.job.js';
 
 // Port and Host
 const PORT = process.env.PORT || 8080;
@@ -132,6 +133,7 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
     CampaignSchedulerService.registerCampaignExhaustionCron();
     CampaignSchedulerService.registerAutoActivateCampaignsCron();
     initFileUploadCleanupTask()
+    updateVideoViewsJob.start();
 
     // Initialize withdrawal sync cron job
     initWithdrawalSyncCron();

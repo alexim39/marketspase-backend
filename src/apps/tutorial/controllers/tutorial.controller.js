@@ -39,9 +39,10 @@ class TutorialController {
             videoType: 'youtube',
             tags: v.tags,
             difficulty: v.difficulty,
-            views: 0,
+            views: v.views || 0, 
             isNew: v.isNew,
-            isPopular: v.isFeatured
+            isPopular: v.isFeatured,
+            views: v.views || 0
           }))
       }));
 
@@ -110,7 +111,8 @@ class TutorialController {
         difficulty: difficulty || 'beginner',
         isFeatured: isFeatured || false,
         isNew: isNew || false,
-        order: section.videos.length
+        order: section.videos.length,
+        views: videoDetails.views || 0 
       });
 
       await section.save();
@@ -258,7 +260,7 @@ class TutorialController {
         `https://www.googleapis.com/youtube/v3/videos`,
         {
           params: {
-            part: 'snippet,contentDetails',
+            part: 'snippet,contentDetails,statistics',
             id: videoId,
             key: YOUTUBE_API_KEY
           }
@@ -281,7 +283,8 @@ class TutorialController {
                    snippet.thumbnails?.high?.url || 
                    snippet.thumbnails?.medium?.url || 
                    snippet.thumbnails?.default?.url || '',
-        tags: snippet.tags || []
+        tags: snippet.tags || [],
+        views: views 
       };
     } catch (error) {
       console.error('Error fetching video details:', error.response?.data || error.message);
@@ -347,7 +350,8 @@ class TutorialController {
               difficulty: 'beginner',
               isActive: true,
               isFeatured: false,
-              isNew: false
+              isNew: false,
+              views: video.statistics?.viewCount || 0
             });
           });
         }
@@ -357,7 +361,6 @@ class TutorialController {
     } catch (error) {
       console.error('Error fetching playlist:', error.response?.data || error.message);
     }
-
     return videos;
   }
 
@@ -376,6 +379,86 @@ class TutorialController {
       return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }
+
+
+
+  // Add this new method to your controller
+  updateAllVideoViews = async (req, res) => {
+    try {
+      const sections = await TutorialSection.find({ isActive: true });
+      let totalUpdated = 0;
+
+      for (const section of sections) {
+        for (const video of section.videos) {
+          if (video.isActive && video.youtubeId) {
+            try {
+              const details = await this.fetchYouTubeVideoDetails(video.youtubeId);
+              if (details.views !== video.views) {
+                video.views = details.views;
+                totalUpdated++;
+              }
+              // Small delay to avoid hitting API rate limits
+              await new Promise(resolve => setTimeout(resolve, 100));
+            } catch (error) {
+              console.error(`Failed to update views for video ${video.youtubeId}:`, error.message);
+            }
+          }
+        }
+        if (section.isModified()) {
+          await section.save();
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `Updated views for ${totalUpdated} videos`,
+        totalUpdated
+      });
+    } catch (error) {
+      console.error('Error updating video views:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  // Add a method to update views for a single section
+  updateSectionVideoViews = async (req, res) => {
+    try {
+      const { sectionId } = req.params;
+      const section = await TutorialSection.findById(sectionId);
+      
+      if (!section) {
+        return res.status(404).json({ error: 'Section not found' });
+      }
+
+      let updatedCount = 0;
+      
+      for (const video of section.videos) {
+        if (video.isActive && video.youtubeId) {
+          try {
+            const details = await this.fetchYouTubeVideoDetails(video.youtubeId);
+            if (details.views !== video.views) {
+              video.views = details.views;
+              updatedCount++;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+          } catch (error) {
+            console.error(`Failed to update views for video ${video.youtubeId}:`, error.message);
+          }
+        }
+      }
+
+      await section.save();
+
+      res.json({
+        success: true,
+        message: `Updated views for ${updatedCount} videos in section`,
+        data: section
+      });
+    } catch (error) {
+      console.error('Error updating section video views:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
 }
 

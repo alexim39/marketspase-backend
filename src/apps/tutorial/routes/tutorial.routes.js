@@ -14,4 +14,8 @@ router.put('/section/:sectionId/video/:videoId', (req, res) => TutorialControlle
 router.delete('/section/:sectionId/video/:videoId', (req, res) => TutorialController.removeVideo(req, res));
 router.post('/sync-playlist', (req, res) => TutorialController.syncFromPlaylist(req, res));
 
+// View update routes
+router.post('/update-all-views', (req, res) => TutorialController.updateAllVideoViews(req, res));
+router.post('/section/:sectionId/update-views', (req, res) => TutorialController.updateSectionVideoViews(req, res));
+
 export default router;

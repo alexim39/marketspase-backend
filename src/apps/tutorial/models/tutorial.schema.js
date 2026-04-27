@@ -13,6 +13,7 @@ const videoSchema = new mongoose.Schema({
     enum: ['beginner', 'intermediate', 'advanced'],
     default: 'beginner'
   },
+  views: { type: Number, default: 0 }, // 👈 ADD THIS LINE
   order: { type: Number, default: 0 },
   isActive: { type: Boolean, default: true },
   isFeatured: { type: Boolean, default: false },
