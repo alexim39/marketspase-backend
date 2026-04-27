@@ -5,6 +5,7 @@ app.use(express.urlencoded({extended: false})); // Use formdata middleware
 
 import router from './financial.routes.js';
 import RefundRouter from './refund.routes.js';
+import TransferRouter from './transfer.routes.js';
 
 const FinancialRouter = express.Router();
 
@@ -15,6 +16,8 @@ FinancialRouter.use('/', router);
 
 // Mount refundRouter under adminIndexRouter
 FinancialRouter.use('/refund', RefundRouter);
+// Mount transferRouter under adminIndexRouter
+FinancialRouter.use('/transfer', TransferRouter);
 
 
 

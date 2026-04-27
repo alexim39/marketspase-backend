@@ -9,13 +9,13 @@ router.get('/stores',
   storeController.getStoresForPromoter
 );
 
-router.get('/:storeId',
-  storeController.getStoreDetails
-);
+// router.get('/:storeId',
+//   storeController.getStoreDetails
+// );
 
-router.get('/:storeId/products',
-  storeController.getStoreProducts
-);
+// router.get('/:storeId/products',
+//   storeController.getStoreProducts
+// );
 
 // Follow routes
 router.post('/:storeId/follow',

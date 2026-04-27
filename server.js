@@ -23,6 +23,7 @@ import StoreIndexRouter from './src/apps/store/routes/index.js';
 import ForumIndexRouter from './src/apps/forum/routes/index.js';
 import FeedsIndexRouter from './src/apps/feeds/routes/index.js';
 import ProfileIndexRouter from './src/apps/profile/routes/index.js';
+import TutorialIndexRouter from './src/apps/tutorial/routes/index.js';
 
 // paystack transaction webhook imports
 import handlePaystackWithdrawalWebhook from './src/apps/wallet/services/paystack-webhook-wthdrawal-approval.service.js';
@@ -33,6 +34,7 @@ import { initWithdrawalSyncCron } from './src/apps/wallet/jobs/withdrawal-sync.c
 import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
 import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
 import { initFileUploadCleanupTask } from './src/utils/cleanup.js';
+import { updateVideoViewsJob } from './src/apps/tutorial/jobs/update-video-views.job.js';
 
 // Port and Host
 const PORT = process.env.PORT || 8080;
@@ -114,6 +116,7 @@ app.use('/stores', StoreIndexRouter);
 app.use('/forum', ForumIndexRouter);
 app.use('/feed', FeedsIndexRouter);
 app.use('/profile', ProfileIndexRouter);
+app.use('/tutorials', TutorialIndexRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
@@ -130,6 +133,7 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
     CampaignSchedulerService.registerCampaignExhaustionCron();
     CampaignSchedulerService.registerAutoActivateCampaignsCron();
     initFileUploadCleanupTask()
+    updateVideoViewsJob.start();
 
     // Initialize withdrawal sync cron job
     initWithdrawalSyncCron();

@@ -41,14 +41,16 @@ export const setupContactMiddleware = (schema) => {
     const update = this.getUpdate();
     
     // Update updatedAt
-    update.updatedAt = new Date();
-    
-    // Handle resolvedAt for status changes
-    if (update.status) {
-      if (update.status === CONTACT_STATUS.RESOLVED || update.status === CONTACT_STATUS.CLOSED) {
-        update.resolvedAt = new Date();
-      } else {
-        update.resolvedAt = null;
+    if (update) {
+      update.updatedAt = new Date();
+      
+      // Handle resolvedAt for status changes
+      if (update.status) {
+        if (update.status === CONTACT_STATUS.RESOLVED || update.status === CONTACT_STATUS.CLOSED) {
+          update.resolvedAt = new Date();
+        } else {
+          update.resolvedAt = null;
+        }
       }
     }
     
@@ -61,23 +63,34 @@ export const setupContactMiddleware = (schema) => {
     // For example: emit('contact.created', doc);
   });
   
-  // Post-find middleware to populate common fields
-  schema.post(/^find/, async function(docs) {
+  // Post-find middleware to populate common fields - FIXED VERSION
+  schema.post('find', async function(docs) {
     if (!docs) return;
     
-    const populate = async (doc) => {
-      if (doc.populate) {
-        await doc.populate('user', 'username displayName email avatar')
-                 .populate('assignedTo', 'username displayName')
-                 .populate('adminNotes.admin', 'username displayName')
-                 .execPopulate();
+    const populateFields = async (doc) => {
+      if (doc && typeof doc.populate === 'function') {
+        // Use await with populate instead of chaining
+        await doc.populate('user', 'username displayName email avatar');
+        await doc.populate('assignedTo', 'username displayName');
+        await doc.populate('adminNotes.admin', 'username displayName');
       }
     };
     
     if (Array.isArray(docs)) {
-      await Promise.all(docs.map(populate));
+      await Promise.all(docs.map(populateFields));
     } else {
-      await populate(docs);
+      await populateFields(docs);
+    }
+  });
+  
+  // Also add post-findOne middleware
+  schema.post('findOne', async function(doc) {
+    if (!doc) return;
+    
+    if (doc && typeof doc.populate === 'function') {
+      await doc.populate('user', 'username displayName email avatar');
+      await doc.populate('assignedTo', 'username displayName');
+      await doc.populate('adminNotes.admin', 'username displayName');
     }
   });
 };
