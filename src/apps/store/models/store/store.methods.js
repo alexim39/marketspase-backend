@@ -1,5 +1,6 @@
 import { ERROR_MESSAGES } from "./store.constants.js";
 import { validateStoreLink, validateStoreName, validateWhatsAppNumber } from "./store.utils.js";
+import { StoreModel } from './store.model.js';
 
 export const setupStoreMethods = (schema) => {
   // Update store analytics
@@ -99,7 +100,6 @@ export const setupStoreMethods = (schema) => {
 
   // Set as default store
   schema.methods.setAsDefault = async function() {
-    const StoreModel = mongoose.model('Store');
     
     // Unset default for all other stores by this owner
     await StoreModel.updateMany(

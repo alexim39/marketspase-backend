@@ -14,7 +14,7 @@ import { getRecommendedProducts } from "../../controllers/product/get-recomm-pro
 //import { generatePromotionLink } from "../../controllers/product/generate-product-link.controller.js";
 import { permanentDeleteProduct } from "../../controllers/product/delete-product.controller.js";
 import ProductPromotionController from "../../controllers/product/product-promotion.controller.js";
-
+import { getPublishedStoreProducts } from '../../controllers/product/get-store-published-products.controller.js';
 import PromotionRouters from './promotion/promotion.routes.js';
 
 // Mount promotion routes
@@ -70,6 +70,8 @@ router.put("/:storeId/:userId/:productId",
 router.delete("/:storeId/:userId/:productId/permanent", 
   permanentDeleteProduct
 );
+
+router.get("/:storeId/store-published-products", getPublishedStoreProducts);
 
 // =========== SINGLE PRODUCT ROUTES (BY ID) ===========
 // These parameterized routes should come LAST to avoid catching specific routes above
