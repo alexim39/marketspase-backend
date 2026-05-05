@@ -1,13 +1,14 @@
-import { Faq, Conversation, Message, AiSettings, WhatsAppConfig } from '../model/index.js';
+import { Faq, Conversation, Message, AiSettings, WhatsAppConfig, MessageTemplate, AuditLog } from '../model/index.js';
 
 export class AiAssistantRepository {
-  // FAQ
+  // ==================== FAQ ====================
   async findFaqsByUser(userId) {
     return Faq.find({ userId }).sort({ createdAt: -1 });
   }
 
   async createFaq(data) {
-    return Faq.create({ userId, question, answer });
+    // FIXED: Was destructuring undefined variables. Now passes the full data object
+    return Faq.create(data);
   }
 
   async updateFaq(faqId, userId, updates) {
@@ -22,7 +23,7 @@ export class AiAssistantRepository {
     return Faq.findOne({ _id: faqId, userId });
   }
 
-  // Conversation
+  // ==================== CONVERSATION ====================
   async findOrCreateConversation(userId, customerWaId, customerName) {
     let conv = await Conversation.findOne({ userId, customerWaId, status: { $ne: 'resolved' } });
     if (!conv) {
@@ -45,11 +46,32 @@ export class AiAssistantRepository {
     return Conversation.find(filter).sort({ lastMessageAt: -1 });
   }
 
+  // FIXED: Added missing method required by service layer
+  async findConversationsByStatus(userId, status, limit = 50, skip = 0) {
+    const filter = { userId };
+    if (status) filter.status = status;
+    return Conversation.find(filter).sort({ lastMessageAt: -1 }).skip(skip).limit(limit);
+  }
+
+  // FIXED: Added missing method
+  async countConversationsByStatus(userId, status) {
+    return Conversation.countDocuments({ userId, status });
+  }
+
   async findConversationById(convId, userId) {
     return Conversation.findOne({ _id: convId, userId });
   }
 
-  // Messages
+  // FIXED: Added missing method
+  async assignConversation(convId, userId, assigneeId) {
+    return Conversation.findOneAndUpdate(
+      { _id: convId, userId },
+      { assignedTo: assigneeId, status: 'escalated' },
+      { new: true }
+    );
+  }
+
+  // ==================== MESSAGES ====================
   async createMessage(conversationId, data) {
     return Message.create({ conversationId, ...data });
   }
@@ -58,10 +80,19 @@ export class AiAssistantRepository {
     return Message.find({ conversationId }).sort({ timestamp: 1 }).limit(limit);
   }
 
-  // Stats helpers
+  // ==================== STATS ====================
+  // FIXED: Was calling _conversationIdsForUser (private naming). Now uses public method
+  async getTotalMessages(userId) {
+    const convIds = await this.getConversationIdsForUser(userId);
+    if (!convIds.length) return 0;
+    return Message.countDocuments({ conversationId: { $in: convIds } });
+  }
+
   async getMessageCountBySource(userId, sourceList) {
+    const convIds = await this.getConversationIdsForUser(userId);
+    if (!convIds.length) return 0;
     return Message.countDocuments({
-      conversationId: { $in: await this._conversationIdsForUser(userId) },
+      conversationId: { $in: convIds },
       source: { $in: sourceList },
     });
   }
@@ -89,10 +120,10 @@ export class AiAssistantRepository {
         }
       }
     }
-    return count ? totalDiff / count / 1000 : 0; // seconds
+    return count ? totalDiff / count / 1000 : 0;
   }
 
-  // AI Settings
+  // ==================== AI SETTINGS ====================
   async getSettings(userId) {
     let settings = await AiSettings.findOne({ userId });
     if (!settings) {
@@ -105,16 +136,38 @@ export class AiAssistantRepository {
     return AiSettings.findOneAndUpdate({ userId }, updates, { new: true, upsert: true });
   }
 
-  // WhatsApp Config
+  // ==================== WHATSAPP CONFIG ====================
   async getWhatsAppConfig(userId) {
-    return WhatsAppConfig.findOne({ userId });
+    return WhatsAppConfig.findOne({ userId, isActive: true });
   }
 
   async getWhatsAppConfigByPhone(phoneNumber) {
-    return WhatsAppConfig.findOne({ phoneNumber });
+    return WhatsAppConfig.findOne({ phoneNumber, isActive: true });
   }
 
   async createOrUpdateWhatsAppConfig(userId, data) {
     return WhatsAppConfig.findOneAndUpdate({ userId }, data, { upsert: true, new: true });
+  }
+
+  // ==================== MESSAGE TEMPLATES (ADDED) ====================
+  async findTemplatesByUser(userId) {
+    return MessageTemplate.find({ userId, isActive: true }).sort({ createdAt: -1 });
+  }
+
+  async createTemplate(data) {
+    return MessageTemplate.create(data);
+  }
+
+  async updateTemplate(templateId, userId, updates) {
+    return MessageTemplate.findOneAndUpdate({ _id: templateId, userId }, updates, { new: true });
+  }
+
+  async deleteTemplate(templateId, userId) {
+    return MessageTemplate.findOneAndDelete({ _id: templateId, userId });
+  }
+
+  // ==================== AUDIT LOG (ADDED) ====================
+  async createAuditLog(data) {
+    return AuditLog.create(data);
   }
 }

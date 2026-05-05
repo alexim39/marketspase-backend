@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'path';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 
 import './src/apps/campaign/services/jobs/campaign-notification.job.js'; 
 import './src/apps/notification/services/jobs/notification-scheduler.job.js'; 
@@ -39,11 +41,38 @@ import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/camp
 import { initFileUploadCleanupTask } from './src/utils/cleanup.js';
 import { updateVideoViewsJob } from './src/apps/tutorial/jobs/update-video-views.job.js';
 
+// FIXED: Import and setup socket handlers
+import { setupSocketHandlers } from './src/apps/ai-assistant/socket.handler.js';
+
 // Port and Host
 const PORT = process.env.PORT || 8080;
-const HOST = '0.0.0.0'; // Essential for container deployment
+const HOST = '0.0.0.0';
 const app = express();
 dotenv.config();
+
+// Create HTTP server for Socket.io
+const httpServer = createServer(app);
+
+// FIXED: Setup Socket.io
+const io = new Server(httpServer, {
+  cors: {
+    origin: [
+      'http://localhost:4200', 
+      'http://localhost:4201', 
+      'http://localhost:4202', 
+      'https://marketspase.com', 
+      'http://marketspase.com',
+      'https://www.marketspase.com',
+      'https://admin.marketspase.com',
+    ],
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
+// FIXED: Setup socket handlers and attach io to app
+setupSocketHandlers(io);
+app.set('io', io);
 
 // Single webhook endpoint that routes internally
 app.post('/api/webhook/paystack', (req, res, next) => {
@@ -55,21 +84,15 @@ app.post('/api/webhook/paystack', (req, res, next) => {
     
     try {
       req.body = JSON.parse(data);
-
-      // Route based on event type
       const event = req.body.event;
       
       if (event.startsWith('charge.')) {
-        // Handle funding events
         return handlePaystackFundingWebhook(req, res);
       } else if (event.startsWith('transfer.')) {
-        // Handle withdrawal events
         return handlePaystackWithdrawalWebhook(req, res);
       } else {
-        // Acknowledge other events
         return res.status(200).send('OK');
       }
-      next();
     } catch (e) {
       console.error('Failed to parse JSON:', e);
       res.status(400).json({ error: 'Invalid JSON' });
@@ -77,10 +100,9 @@ app.post('/api/webhook/paystack', (req, res, next) => {
   });
 });
 
-
 // Middleware
-app.use(express.json({ limit: '50mb' })); // Increase JSON payload limit
-app.use(express.urlencoded({ extended: true, limit: '50mb' })); // Increase URL-encoded payload limit
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
 // CORS Configuration
@@ -99,7 +121,6 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Handle preflight requests
 app.options('*', cors());
 
 /* Routes */
@@ -131,20 +152,19 @@ mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MO
 .then(() => {
     console.log('Connected to mongoDB');
 
-    // Start the cron jobs after a successful database connection
+    // Start cron jobs
     PromotionExpirationCheckerCronJobs();
-    // Call the methods to start the cron jobs
     CampaignSchedulerService.registerCampaignExpiryCron();
     CampaignSchedulerService.registerCampaignExhaustionCron();
     CampaignSchedulerService.registerAutoActivateCampaignsCron();
-    initFileUploadCleanupTask()
+    initFileUploadCleanupTask();
     updateVideoViewsJob.start();
-
-    // Initialize withdrawal sync cron job
     initWithdrawalSyncCron();
 
-    app.listen(PORT, HOST, () => {
+    // FIXED: Use httpServer instead of app.listen for Socket.io
+    httpServer.listen(PORT, HOST, () => {
         console.log(`Server listening on port ${PORT} at host ${HOST}`);
+        console.log(`Socket.io ready for real-time connections`);
     });
 }).catch((error) => {
     console.error('Error from mongoDB connection ', error);

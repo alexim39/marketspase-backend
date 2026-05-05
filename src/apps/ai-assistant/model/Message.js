@@ -20,10 +20,12 @@ const messageSchema = new mongoose.Schema(
       enum: ['customer', 'ai', 'faq', 'agent'],
       default: 'customer',
     },
+    messageSid: { type: String, index: true },
     timestamp: { type: Date, default: Date.now },
   },
 );
 
 messageSchema.index({ conversationId: 1, timestamp: 1 });
+messageSchema.index({ messageSid: 1 });
 
 export default mongoose.model('Message', messageSchema);

@@ -1,37 +1,38 @@
 import mongoose from 'mongoose';
-import { AiSettings } from '../../model/index.js';
+import { AiSettings, WhatsAppConfig } from '../../model/index.js';
 import { StoreModel } from '../../../store/models/store/index.js';
 import { UserModel } from '../../../user/models/user/index.js';
-import { TransactionModel, TRANSACTION_TYPES, TRANSACTION_CATEGORIES } from '../../../user/models/transaction/index.js';
+import { decrypt } from '../../../../shared/utils/crypto.util.js';
+import logger from '../../../../shared/utils/logger.js';
 
 const PLAN_PRICES = {
-  basic: 300000,   // amount in kobo (₦3,000)
-  advanced: 800000, // ₦8,000
+  basic: 3000,
+  advanced: 8000,
 };
 
 export class AiAssistantSettingsService {
-  // ── WhatsApp numbers ──
   async getWhatsAppConnections(userId) {
     const settings = await AiSettings.findOne({ userId });
     if (!settings) return [];
 
     const numbers = settings.whatsappNumbers || [];
-    // Derive isConnected by checking if a WhatsAppConfig exists for that phone number
-    const WhatsAppConfig = mongoose.model('WhatsAppConfig');
     const configs = await WhatsAppConfig.find({ userId }).lean();
-
-    const configMap = new Map(configs.map(c => [c.phoneNumber, true]));
+    const configMap = new Map(configs.map(c => [c.phoneNumber, c.isActive]));
 
     return numbers.map(n => ({
-      id: n.phoneNumber,            // using phoneNumber as unique id
+      id: n.phoneNumber,
       phoneNumber: n.phoneNumber,
       aiEnabled: n.aiEnabled,
-      isConnected: configMap.has(n.phoneNumber),
+      isConnected: configMap.has(n.phoneNumber) && configMap.get(n.phoneNumber) !== false,
     }));
   }
 
   async addWhatsAppConnection(userId, phoneNumber) {
-    console.log('Adding WhatsApp connection for userId:', userId, 'phoneNumber:', phoneNumber);
+    logger.info(`Adding WhatsApp connection for userId: ${userId}, phoneNumber: ${phoneNumber}`);
+    
+    if (!/^\+?[1-9]\d{1,14}$/.test(phoneNumber)) {
+      throw new Error('Invalid phone number format');
+    }
 
     let settings = await AiSettings.findOne({ userId });
     if (!settings) {
@@ -42,12 +43,10 @@ export class AiAssistantSettingsService {
     } else {
       const exists = settings.whatsappNumbers.some(n => n.phoneNumber === phoneNumber);
       if (exists) throw new Error('Number already added');
-
       settings.whatsappNumbers.push({ phoneNumber, aiEnabled: true });
       await settings.save();
     }
 
-    // Return the added connection (isConnected depends on WhatsAppConfig)
     const connections = await this.getWhatsAppConnections(userId);
     return connections.find(c => c.phoneNumber === phoneNumber);
   }
@@ -56,10 +55,13 @@ export class AiAssistantSettingsService {
     const settings = await AiSettings.findOne({ userId });
     if (!settings) throw new Error('Settings not found');
 
-    settings.whatsappNumbers = settings.whatsappNumbers.filter(
-      n => n.phoneNumber !== phoneNumber
-    );
+    settings.whatsappNumbers = settings.whatsappNumbers.filter(n => n.phoneNumber !== phoneNumber);
     await settings.save();
+    
+    await WhatsAppConfig.findOneAndUpdate(
+      { userId, phoneNumber },
+      { isActive: false }
+    );
   }
 
   async toggleAIForConnection(userId, phoneNumber, aiEnabled) {
@@ -76,24 +78,29 @@ export class AiAssistantSettingsService {
       id: phoneNumber,
       phoneNumber,
       aiEnabled,
-      isConnected: true, // placeholder – real status is dynamic
+      isConnected: true,
     };
   }
 
   async reconnectConnection(userId, phoneNumber) {
-    // For now, simply check if a WhatsAppConfig exists for that number
-    const WhatsAppConfig = mongoose.model('WhatsAppConfig');
-    const config = await WhatsAppConfig.findOne({ userId, phoneNumber });
+    const config = await WhatsAppConfig.findOne({ userId, phoneNumber, isActive: true });
+    
+    if (!config) {
+      return { id: phoneNumber, phoneNumber, aiEnabled: false, isConnected: false };
+    }
 
-    return {
-      id: phoneNumber,
-      phoneNumber,
-      aiEnabled: true,
-      isConnected: !!config,
-    };
+    try {
+      const twilio = await import('twilio');
+      const client = twilio.default(decrypt(config.twilioAccountSid), decrypt(config.twilioAuthToken));
+      await client.api.accounts(decrypt(config.twilioAccountSid)).fetch();
+      
+      return { id: phoneNumber, phoneNumber, aiEnabled: true, isConnected: true };
+    } catch (err) {
+      logger.error(`Twilio reconnect failed for ${phoneNumber}:`, err.message);
+      return { id: phoneNumber, phoneNumber, aiEnabled: false, isConnected: false };
+    }
   }
 
-  // ── Business info ──
   async getBusinessInfo(userId) {
     const settings = await AiSettings.findOne({ userId });
     const businessId = settings?.business?.toString() || null;
@@ -104,7 +111,6 @@ export class AiAssistantSettingsService {
       businessName = store?.name || '';
     }
 
-    // Also return a list of stores for the dropdown
     const stores = await StoreModel.find({ owner: userId, isDeleted: false })
       .select('_id name')
       .lean();
@@ -112,7 +118,7 @@ export class AiAssistantSettingsService {
     return {
       businessId,
       businessName,
-      availableStores: stores.map(s => ({ id: s._id, name: s.name })),
+      availableStores: stores.map(s => ({ id: s._id.toString(), name: s.name })),
     };
   }
 
@@ -126,10 +132,9 @@ export class AiAssistantSettingsService {
       { upsert: true }
     );
 
-    return { businessId, businessName: store.name };
+    return { businessId: businessId.toString(), businessName: store.name };
   }
 
-  // ── Notification preferences ──
   async getNotificationPreferences(userId) {
     const settings = await AiSettings.findOne({ userId });
     return settings?.notificationPreferences || {
@@ -147,14 +152,12 @@ export class AiAssistantSettingsService {
     );
   }
 
-  // ── Subscription ──
   async getCurrentPlan(userId) {
     const settings = await AiSettings.findOne({ userId });
     return settings?.subscription?.planId || 'basic';
   }
 
   async getAvailablePlans() {
-    // Static plans for now
     return [
       {
         id: 'basic',
@@ -165,6 +168,7 @@ export class AiAssistantSettingsService {
           'AI WhatsApp assistant',
           'Handles messages and replies',
           'Basic conversation support',
+          'Up to 100 AI replies/month',
         ],
       },
       {
@@ -177,6 +181,8 @@ export class AiAssistantSettingsService {
           'AI actively promotes products',
           'Pushes customers toward purchase',
           'Marketing automation included',
+          'Unlimited AI replies',
+          'Priority support',
         ],
         isPopular: true,
       },
@@ -192,35 +198,17 @@ export class AiAssistantSettingsService {
     const marketerWallet = user.wallets?.marketer;
     if (!marketerWallet) throw new Error('No marketer wallet');
 
-    const amountInKobo = PLAN_PRICES[planId]; // in kobo
-    const balanceInKobo = marketerWallet.balance * 100; // balance is stored in Naira? see schema: currency NGN, balance Number, but no indication of unit. Assume it's in Naira (main unit). We'll convert.
-
-    // According to the transaction schema, amount is stored in kobo.
-    // We'll assume balances are in Naira (full units) for simplicity, but transaction amounts in kobo.
-    // For safety, let's treat the wallet balance as Naira because schema says "currency: 'NGN'" and no mention of kobo.
-    // So we compare: amountInNaira = PLAN_PRICES[planId] / 100
-    const planPriceNaira = PLAN_PRICES[planId] / 100;
+    const planPriceNaira = PLAN_PRICES[planId];
 
     if (marketerWallet.balance < planPriceNaira) {
       throw new Error('Insufficient balance. Please fund your wallet.');
     }
 
-    // Deduct from balance
     marketerWallet.balance -= planPriceNaira;
-    // Record a transaction (type: debit, category: 'subscription')
-    const transaction = await TransactionModel.create({
-      amount: PLAN_PRICES[planId], // kobo
-      type: 'debit',
-      category: 'ai_subscription', // add this category in constants if not present, but we'll use 'fee' or 'subscription' – I'll add a new category 'ai_subscription'. For now, I'll handle by manually updating the transaction array because the wallet uses embedded transactions.
-      description: `AI Assistant ${planId} plan subscription`,
-      status: 'completed',
-    });
-
-    // Actually, wallet uses embedded transactionSchema (subdocument array). We shouldn't create a separate TransactionModel document because the wallet.transactions is an array of subdocs. But the embedded schema mimics the same fields. To keep it simple, we'll push the transaction directly into the marketer wallet's transactions array.
-    // However, the wallet schema uses `transactionSchema` which expects _id to be ObjectId. We'll create a new subdocument.
+    
     const newTx = {
       _id: new mongoose.Types.ObjectId(),
-      amount: PLAN_PRICES[planId],
+      amount: planPriceNaira * 100,
       type: 'debit',
       category: 'ai_subscription',
       description: `AI Assistant ${planId} plan subscription`,
@@ -232,10 +220,9 @@ export class AiAssistantSettingsService {
     };
     marketerWallet.transactions.push(newTx);
 
-    // Update the subscription in AiSettings
     const now = new Date();
     const endDate = new Date(now);
-    endDate.setDate(endDate.getDate() + 30); // 30-day billing cycle
+    endDate.setDate(endDate.getDate() + 30);
 
     await AiSettings.findOneAndUpdate(
       { userId },
@@ -251,5 +238,6 @@ export class AiAssistantSettingsService {
     );
 
     await user.save();
+    logger.info(`User ${userId} upgraded to ${planId} plan`);
   }
 }

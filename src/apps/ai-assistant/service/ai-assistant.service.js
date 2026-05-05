@@ -1,139 +1,172 @@
-import crypto from 'crypto';
 import twilio from 'twilio';
 import OpenAI from 'openai';
 import { AiAssistantRepository } from '../repository/ai-assistant.repository.js';
+import { decrypt } from '../../../shared/utils/crypto.util.js';
+import logger from '../../../shared/utils/logger.js';
+import { cacheService } from '../../../shared/utils/cache.service.js';
 
 export class AiAssistantService {
   constructor() {
     this.repository = new AiAssistantRepository();
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    this.encryptionKey = process.env.ENCRYPTION_KEY; // 32 bytes hex
   }
 
-  // --- Encryption helpers (AES-256-GCM) ---
-  encrypt(text) {
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv('aes-256-gcm', Buffer.from(this.encryptionKey, 'hex'), iv);
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    const authTag = cipher.getAuthTag().toString('hex');
-    return `${iv.toString('hex')}:${encrypted}:${authTag}`;
-  }
-
-  decrypt(encryptedText) {
-    const [ivHex, enc, authTagHex] = encryptedText.split(':');
-    const decipher = crypto.createDecipheriv(
-      'aes-256-gcm',
-      Buffer.from(this.encryptionKey, 'hex'),
-      Buffer.from(ivHex, 'hex')
-    );
-    decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
-    let decrypted = decipher.update(enc, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  }
-
-  // --- Twilio client factory ---
-  async getTwilioClient(userId) {
-    const config = await this.repository.getWhatsAppConfig(userId);
+  async getTwilioClient(userId, phoneNumber = null) {
+    let config;
+    if (phoneNumber) {
+      config = await this.repository.getWhatsAppConfigByPhone(phoneNumber);
+    } else {
+      config = await this.repository.getWhatsAppConfig(userId);
+    }
     if (!config) throw new Error('WhatsApp configuration not found');
-    const accountSid = this.decrypt(config.twilioAccountSid);
-    const authToken = this.decrypt(config.twilioAuthToken);
-    return twilio(accountSid, authToken);
+    const accountSid = decrypt(config.twilioAccountSid);
+    const authToken = decrypt(config.twilioAuthToken);
+    return { client: twilio(accountSid, authToken), config };
   }
 
-  // --- Webhook handler for incoming messages ---
-  async handleIncomingMessage({ From, To, Body }) {
-    const config = await this.repository.getWhatsAppConfigByPhone(To);
+  async checkSubscriptionAndPlan(userId) {
+    const settings = await this.repository.getSettings(userId);
+    const now = new Date();
+    
+    if (!settings.subscription || settings.subscription.status !== 'active' || now > settings.subscription.endDate) {
+      throw new Error('Subscription expired or inactive');
+    }
+    return settings;
+  }
+
+  async handleIncomingMessage({ From, To, Body, MessageSid }) {
+    // Idempotency: prevent duplicate processing
+    const cacheKey = `msg:${MessageSid}`;
+    if (cacheService.get(cacheKey)) {
+      logger.info(`Duplicate message ${MessageSid} ignored`);
+      return null;
+    }
+    cacheService.set(cacheKey, true, 3600);
+
+    const cleanTo = To.replace('whatsapp:', '');
+    const cleanFrom = From.replace('whatsapp:', '');
+    
+    const config = await this.repository.getWhatsAppConfigByPhone(cleanTo);
     if (!config) {
-      console.warn(`No WhatsApp config for number ${To}`);
-      return; // or reply with an error later
+      logger.warn(`No WhatsApp config for number ${cleanTo}`);
+      return null;
     }
 
-    const userId = config.userId;
-    const settings = await this.repository.getSettings(userId);
+    const userId = config.userId.toString();
+    
+    let settings;
+    try {
+      settings = await this.checkSubscriptionAndPlan(userId);
+    } catch (err) {
+      logger.warn(`Subscription check failed for user ${userId}: ${err.message}`);
+      return null;
+    }
 
-    // Find or create conversation
-    const conversation = await this.repository.findOrCreateConversation(userId, From, From);
-    // Save the incoming message
-    await this.repository.createMessage(conversation._id, {
+    const conversation = await this.repository.findOrCreateConversation(userId, cleanFrom, cleanFrom);
+    
+    const savedMessage = await this.repository.createMessage(conversation._id, {
       direction: 'inbound',
       content: Body,
       source: 'customer',
+      messageSid: MessageSid,
     });
 
-    // Update conversation meta
     await this.repository.updateConversation(conversation._id, userId, {
       lastMessageText: Body,
       lastMessageAt: new Date(),
     });
 
     if (!settings.aiEnabled) {
-      // AI disabled → do nothing, mark as escalated so user sees it
-      await this.repository.updateConversation(conversation._id, userId, {
-        status: 'escalated',
-      });
-      return;
+      await this.repository.updateConversation(conversation._id, userId, { status: 'escalated' });
+      return { userId, conversationId: conversation._id.toString(), message: savedMessage };
     }
 
-    // Check for escalation keywords (including “human”, “agent”, “speak to someone”)
-    const escalateKeywords = ['human', 'agent', 'speak to someone', 'help', 'real person'];
+    // Escalation keywords
+    const escalateKeywords = ['human', 'agent', 'speak to someone', 'help', 'real person', 'manager', 'supervisor'];
     const lowerBody = Body.toLowerCase();
     const shouldEscalate = escalateKeywords.some(kw => lowerBody.includes(kw));
+    
     if (shouldEscalate) {
-      await this.repository.updateConversation(conversation._id, userId, {
-        status: 'escalated',
-      });
-      // Optional AI reply
-      await this.sendReply(config, From, conversation._id, 'Let me connect you to our team. One moment please.', 'ai');
-      return;
+      await this.repository.updateConversation(conversation._id, userId, { status: 'escalated' });
+      await this.sendReply(config, cleanFrom, conversation._id, 'Let me connect you to our team. One moment please.', 'ai');
+      return { userId, conversationId: conversation._id.toString(), message: savedMessage };
     }
 
-    // Try FAQ matching
-    const faqs = await this.repository.findFaqsByUser(userId);
-    let matchedFaq = null;
-    // Simple exact or case-insensitive substring match
-    for (const faq of faqs) {
-      if (faq.question.toLowerCase().includes(lowerBody) || lowerBody.includes(faq.question.toLowerCase())) {
-        matchedFaq = faq;
-        break;
-      }
-    }
+    // FAQ matching
+    const faqs = await this.getCachedFaqs(userId);
+    let matchedFaq = this.findBestFaqMatch(Body, faqs);
 
     if (matchedFaq) {
-      await this.sendReply(config, From, conversation._id, matchedFaq.answer, 'faq');
+      await this.sendReply(config, cleanFrom, conversation._id, matchedFaq.answer, 'faq');
     } else {
-      // Fallback to OpenAI
+      // OpenAI fallback
       try {
         const reply = await this.getAIResponse(userId, conversation._id, Body, faqs, settings);
-        await this.sendReply(config, From, conversation._id, reply, 'ai');
+        await this.sendReply(config, cleanFrom, conversation._id, reply, 'ai');
       } catch (error) {
-        console.error('OpenAI error:', error);
-        // Escalate on failure
-        await this.repository.updateConversation(conversation._id, userId, {
-          status: 'escalated',
-        });
-        await this.sendReply(config, From, conversation._id, 'Sorry, I could not process that. A human agent will get back to you shortly.', 'ai');
+        logger.error('OpenAI error:', error);
+        await this.repository.updateConversation(conversation._id, userId, { status: 'escalated' });
+        await this.sendReply(config, cleanFrom, conversation._id, 'Sorry, I could not process that. A human agent will get back to you shortly.', 'ai');
       }
     }
+
+    return { userId, conversationId: conversation._id.toString(), message: savedMessage };
   }
 
-  // --- Get AI response using OpenAI ---
+  findBestFaqMatch(query, faqs) {
+    const lowerQuery = query.toLowerCase().trim();
+    const queryWords = lowerQuery.split(/\s+/);
+    
+    let bestMatch = null;
+    let bestScore = 0;
+    
+    for (const faq of faqs) {
+      const lowerQuestion = faq.question.toLowerCase();
+      
+      if (lowerQuestion === lowerQuery) return faq;
+      if (lowerQuestion.includes(lowerQuery) || lowerQuery.includes(lowerQuestion)) return faq;
+      
+      const questionWords = lowerQuestion.split(/\s+/);
+      const overlap = queryWords.filter(w => questionWords.includes(w)).length;
+      const score = overlap / Math.max(queryWords.length, questionWords.length);
+      
+      if (score > 0.6 && score > bestScore) {
+        bestScore = score;
+        bestMatch = faq;
+      }
+    }
+    return bestMatch;
+  }
+
+  async getCachedFaqs(userId) {
+    const cacheKey = `faqs:${userId}`;
+    let faqs = cacheService.get(cacheKey);
+    if (!faqs) {
+      faqs = await this.repository.findFaqsByUser(userId);
+      cacheService.set(cacheKey, faqs, 300);
+    }
+    return faqs;
+  }
+
   async getAIResponse(userId, conversationId, userMessage, faqs, settings) {
-    // Build context from FAQs (top 3 that match, or up to 5)
-    const relevantFaqs = faqs.slice(0, 5).map(f => `Q: ${f.question}\nA: ${f.answer}`);
+    const isAdvanced = settings.subscription?.planId === 'advanced';
+    
+    const relevantFaqs = faqs.slice(0, 3).map(f => `Q: ${f.question}\nA: ${f.answer}`);
     const faqContext = relevantFaqs.join('\n');
 
-    const systemPrompt = `You are a helpful customer support assistant for a Nigerian business.
-Tone: ${settings.tone}. Language: ${settings.language === 'pidgin' ? 'Nigerian Pidgin' : 'English'}.
+    let systemPrompt = `You are a helpful customer support assistant for a Nigerian business.
+Tone: ${settings.tone || 'friendly'}. Language: ${settings.language === 'pidgin' ? 'Nigerian Pidgin' : 'English'}.
 Use the following FAQ knowledge to answer the customer. If the question is not covered, answer politely and suggest the customer to ask for a human agent if needed.
 ---
 ${faqContext}
 ---
 Keep responses short and friendly.`;
 
-    // Get last few messages for context
-    const messages = await this.repository.findMessagesByConversation(conversationId, 5);
+    if (isAdvanced) {
+      systemPrompt += `\n\nYou are on the ADVANCED plan. Actively promote products when relevant, suggest complementary items, and guide customers toward making a purchase. Include a subtle call-to-action when appropriate.`;
+    }
+
+    const messages = await this.repository.findMessagesByConversation(conversationId, 10);
     const chatMessages = [
       { role: 'system', content: systemPrompt },
       ...messages.map(m => ({
@@ -143,114 +176,166 @@ Keep responses short and friendly.`;
     ];
 
     const completion = await this.openai.chat.completions.create({
-      model: 'gpt-3.5-turbo', // you can use 'gpt-4o-mini' for cost efficiency
+      model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
       messages: chatMessages,
-      max_tokens: 200,
+      max_tokens: 250,
       temperature: 0.7,
     });
 
     return completion.choices[0].message.content.trim();
   }
 
-  // --- Send reply via Twilio WhatsApp ---
   async sendReply(config, toNumber, conversationId, body, source) {
-    const client = await this.getTwilioClient(config.userId);
+    const { client } = await this.getTwilioClient(config.userId, config.phoneNumber);
     const message = await client.messages.create({
       from: `whatsapp:${config.phoneNumber}`,
       to: `whatsapp:${toNumber}`,
       body,
     });
 
-    // Save outbound message
     await this.repository.createMessage(conversationId, {
       direction: 'outbound',
       content: body,
       source,
+      messageSid: message.sid,
     });
 
-    // Update conversation meta
-    await this.repository.updateConversation(conversationId, config.userId, {
-      lastMessageText: body,
-      lastMessageAt: new Date(),
-      status: source === 'agent' ? 'active' : undefined, // keep as is or resolved?
-    });
+    const updateData = { lastMessageText: body, lastMessageAt: new Date() };
+    if (source === 'agent') updateData.status = 'active';
+    await this.repository.updateConversation(conversationId, config.userId, updateData);
 
     return message;
   }
 
-  // --- Public API methods ---
   async getStats(userId) {
-    const convIds = await this.repository.getConversationIdsForUser(userId);
-    const totalMessages = convIds.length
-      ? await Message.countDocuments({ conversationId: { $in: convIds } })
-      : 0;
-    const aiHandled = convIds.length
-      ? await Message.countDocuments({
-          conversationId: { $in: convIds },
-          source: { $in: ['ai', 'faq'] },
-        })
-      : 0;
+    const totalMessages = await this.repository.getTotalMessages(userId);
+    const aiHandled = await this.repository.getMessageCountBySource(userId, ['ai', 'faq']);
     const avgResponseTime = await this.repository.getAverageResponseTime(userId);
+    const escalatedCount = await this.repository.countConversationsByStatus(userId, 'escalated');
+    const activeCount = await this.repository.countConversationsByStatus(userId, 'active');
+    
     return {
       totalMessages,
       aiHandled,
-      responseTime: Math.round(avgResponseTime * 10) / 10, // seconds
+      humanHandled: totalMessages - aiHandled,
+      responseTime: Math.round(avgResponseTime * 10) / 10,
+      escalatedCount,
+      activeCount,
+      conversionRate: totalMessages > 0 ? Math.round((aiHandled / totalMessages) * 100) : 0,
     };
   }
 
-  async getAllConversations(userId) {
-    return this.repository.findConversationsByUser(userId);
+  async getAllConversations(userId, status = null, page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+    return this.repository.findConversationsByStatus(userId, status, limit, skip);
   }
 
-  async getConversationMessages(userId, conversationId) {
+  async getConversationMessages(userId, conversationId, page = 1, limit = 50) {
     const conv = await this.repository.findConversationById(conversationId, userId);
     if (!conv) throw new Error('Conversation not found');
-    return this.repository.findMessagesByConversation(conversationId);
+    return this.repository.findMessagesByConversation(conversationId, limit);
   }
 
   async sendManualReply(userId, conversationId, text) {
+    await this.checkSubscriptionAndPlan(userId);
     const config = await this.repository.getWhatsAppConfig(userId);
     if (!config) throw new Error('WhatsApp not configured');
     const conv = await this.repository.findConversationById(conversationId, userId);
     if (!conv) throw new Error('Conversation not found');
-    return this.sendReply(config, conv.customerWaId, conversationId, text, 'agent');
+    
+    const result = await this.sendReply(config, conv.customerWaId, conversationId, text, 'agent');
+    
+    await this.repository.createAuditLog({
+      userId,
+      action: 'send_manual_reply',
+      entityType: 'conversation',
+      entityId: conversationId,
+      details: { text },
+      performedBy: userId,
+    });
+    
+    return result;
   }
 
   async escalateConversation(userId, conversationId) {
-    const conv = await this.repository.updateConversation(conversationId, userId, {
-      status: 'escalated',
+    const conv = await this.repository.updateConversation(conversationId, userId, { status: 'escalated' });
+    await this.repository.createAuditLog({
+      userId,
+      action: 'escalate_conversation',
+      entityType: 'conversation',
+      entityId: conversationId,
+      performedBy: userId,
     });
     return conv;
   }
 
-  // FAQ methods
+  async assignConversation(userId, conversationId, assigneeId) {
+    return this.repository.assignConversation(conversationId, userId, assigneeId);
+  }
+
   async getFaqs(userId) {
     return this.repository.findFaqsByUser(userId);
   }
 
-  async addFaq(data) {
-    return this.repository.createFaq(userId);
+  async addFaq(userId, data) {
+    const faq = await this.repository.createFaq({ userId, ...data });
+    cacheService.del(`faqs:${userId}`);
+    return faq;
   }
 
   async updateFaq(userId, faqId, data) {
-    return this.repository.updateFaq(faqId, userId, data);
+    const faq = await this.repository.updateFaq(faqId, userId, data);
+    cacheService.del(`faqs:${userId}`);
+    return faq;
   }
 
   async deleteFaq(userId, faqId) {
-    return this.repository.deleteFaq(faqId, userId);
+    const result = await this.repository.deleteFaq(faqId, userId);
+    cacheService.del(`faqs:${userId}`);
+    return result;
   }
 
-  // Settings
   async getSettings(userId) {
     return this.repository.getSettings(userId);
   }
 
   async updateSettings(userId, data) {
-    return this.repository.updateSettings(userId, data);
+    const updated = await this.repository.updateSettings(userId, data);
+    await this.repository.createAuditLog({
+      userId,
+      action: 'update_settings',
+      entityType: 'settings',
+      performedBy: userId,
+      details: data,
+    });
+    return updated;
   }
 
-  // Toggle AI
   async toggleAI(userId, enabled) {
-    return this.repository.updateSettings(userId, { aiEnabled: enabled });
+    const settings = await this.repository.updateSettings(userId, { aiEnabled: enabled });
+    await this.repository.createAuditLog({
+      userId,
+      action: 'toggle_ai',
+      entityType: 'settings',
+      performedBy: userId,
+      details: { aiEnabled: enabled },
+    });
+    return settings;
+  }
+
+  async getTemplates(userId) {
+    return this.repository.findTemplatesByUser(userId);
+  }
+
+  async addTemplate(userId, data) {
+    return this.repository.createTemplate({ userId, ...data });
+  }
+
+  async updateTemplate(userId, templateId, data) {
+    return this.repository.updateTemplate(templateId, userId, data);
+  }
+
+  async deleteTemplate(userId, templateId) {
+    return this.repository.deleteTemplate(templateId, userId);
   }
 }
