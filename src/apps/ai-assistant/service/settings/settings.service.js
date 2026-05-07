@@ -52,6 +52,7 @@ export class AiAssistantSettingsService {
   }
 
   async removeWhatsAppConnection(userId, phoneNumber) {
+    console.log('Removing WhatsApp connection for userId:', userId, 'phoneNumber:', phoneNumber);
     const settings = await AiSettings.findOne({ userId });
     if (!settings) throw new Error('Settings not found');
 

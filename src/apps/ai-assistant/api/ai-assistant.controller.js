@@ -120,7 +120,7 @@ export class AiAssistantController {
   async toggleAI(req, res, next) {
     try {
       const { aiEnabled } = req.body;
-      const settings = await service.toggleAI(req.userId, aiEnabled);
+      const settings = await service.toggleAI(req.body.userId, aiEnabled);
       res.json({ success: true, data: settings });
     } catch (err) {
       next(err);

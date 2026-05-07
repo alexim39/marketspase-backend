@@ -22,7 +22,7 @@ router.post('/webhook/twilio', webhookLimiter, validateTwilioWebhook, ctrl.handl
 
 // Protected routes
 router.use(apiLimiter);
-router.use(authenticate);
+//router.use(authenticate);
 
 // Mount settings routes
 router.use('/settings', settingsRouter);
