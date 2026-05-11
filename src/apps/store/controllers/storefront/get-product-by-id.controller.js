@@ -1,6 +1,14 @@
 import mongoose from 'mongoose';
 import { StoreModel } from '../../models/store/index.js';
+import { StoreAnalyticsModel } from '../../models/store-analytics/index.js';
 import { PromotionTrackingModel, ProductModel } from '../../models/promotion/index.js';
+import {
+  calculateCommissionForAmount,
+  detectDeviceType,
+  getProductAffiliateSettings,
+  roundMoney,
+  upsertReferralSource
+} from '../../services/storefront-affiliate.service.js';
 
 /**
  * @desc    Get product by ID with populated data
@@ -10,7 +18,7 @@ import { PromotionTrackingModel, ProductModel } from '../../models/promotion/ind
 export const getProductById = async (req, res) => {
   try {
     const { productId } = req.params;
-    const { track = 'true' } = req.query;
+    const { track = 'true', ref, promoter, clicked, trackingCode } = req.query;
 
     if (!productId) {
       return res.status(400).json({
@@ -58,12 +66,22 @@ export const getProductById = async (req, res) => {
       });
     }
 
-    // Increment view count (if tracking enabled)
-    if (track === 'true') {
+    // Increment product and store view counts when the product page is actually loaded.
+    if (track !== 'false') {
       await ProductModel.findByIdAndUpdate(productId, {
         $inc: { viewCount: 1 }
       });
       product.viewCount += 1; // Update for response
+
+      await recordStoreProductView(product.store, {
+        promoterTraffic: Boolean(
+          (track && track !== 'true' && track !== 'false')
+          || trackingCode
+          || ref
+          || promoter
+          || clicked === '1'
+        )
+      });
     }
 
     // Get store information
@@ -81,20 +99,66 @@ export const getProductById = async (req, res) => {
       ]
     }).populate('promoter', 'name');
 
-    // Track referrer if provided (for promotion tracking)
-    if (req.headers.referer && req.query.promoterId) {
-      await trackPromotionClick(req, productId, req.query.promoterId, req.headers.referer);
+    let activePromotion = null;
+    if (track && track !== 'true') {
+      activePromotion = await PromotionTrackingModel.findOne({
+        product: productId,
+        uniqueCode: track,
+        isActive: true,
+      });
+
+      if (activePromotion) {
+        const deviceType = detectDeviceType(req.headers['user-agent'] || '');
+        activePromotion.viewCount += 1;
+        activePromotion.lastActivityAt = new Date();
+        activePromotion.deviceTypes[deviceType] += 1;
+        activePromotion.referralSources = upsertReferralSource(
+          activePromotion.referralSources,
+          req.headers.referer || 'direct'
+        );
+        if (activePromotion.viewCount > 0) {
+          activePromotion.clickThroughRate = (activePromotion.clickCount / activePromotion.viewCount) * 100;
+        }
+        await activePromotion.save();
+      }
+    } else if (ref || trackingCode) {
+      activePromotion = await PromotionTrackingModel.findOne({
+        product: productId,
+        isActive: true,
+        $or: [
+          ...(ref ? [{ uniqueId: ref }] : []),
+          ...(trackingCode ? [{ uniqueCode: trackingCode }] : [])
+        ]
+      });
     }
 
     // Calculate discount percentage
     const discountPercentage = product.originalPrice && product.originalPrice > product.price
       ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
       : 0;
+    const affiliateSettings = getProductAffiliateSettings(product);
+    const commissionPerSale = calculateCommissionForAmount(product.price, affiliateSettings);
 
     // Format response
     const responseData = {
       ...product.toObject(),
       store: store || null,
+      affiliate: affiliateSettings,
+      commissionPerSale,
+      amountReceivable: roundMoney(product.price - commissionPerSale),
+      activePromotion: activePromotion ? {
+        _id: activePromotion._id,
+        trackingCode: activePromotion.uniqueCode,
+        uniqueId: activePromotion.uniqueId,
+        promoter: activePromotion.promoter,
+        commissionRate: activePromotion.commissionRate,
+        commissionType: activePromotion.commissionType,
+        fixedCommission: activePromotion.fixedCommission,
+        clickCount: activePromotion.clickCount,
+        viewCount: activePromotion.viewCount,
+        conversionCount: activePromotion.conversionCount,
+        earnings: activePromotion.earnings,
+      } : null,
       discountPercentage,
       activePromotions: activePromotions.length > 0 ? activePromotions : undefined,
       isAvailable: !product.manageStock || product.quantity > 0
@@ -113,6 +177,57 @@ export const getProductById = async (req, res) => {
     });
   }
 };
+
+async function recordStoreProductView(storeId, { promoterTraffic = false } = {}) {
+  if (!storeId) return;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  await Promise.all([
+    StoreModel.findByIdAndUpdate(storeId, {
+      $inc: {
+        'analytics.totalViews': 1,
+        'analytics.promoterTraffic': promoterTraffic ? 1 : 0
+      }
+    }),
+    upsertDailyStoreView(storeId, today, promoterTraffic)
+  ]);
+}
+
+async function upsertDailyStoreView(storeId, date, promoterTraffic) {
+  const updated = await StoreAnalyticsModel.findOneAndUpdate(
+    { store: storeId, 'dailyViews.date': date },
+    {
+      $inc: {
+        'dailyViews.$.views': 1,
+        'dailyViews.$.uniqueVisitors': 1,
+        'dailyViews.$.promoterTraffic': promoterTraffic ? 1 : 0
+      },
+      $set: { lastCalculated: new Date() }
+    },
+    { new: true }
+  );
+
+  if (updated) return updated;
+
+  return StoreAnalyticsModel.findOneAndUpdate(
+    { store: storeId },
+    {
+      $setOnInsert: { store: storeId },
+      $push: {
+        dailyViews: {
+          date,
+          views: 1,
+          uniqueVisitors: 1,
+          promoterTraffic: promoterTraffic ? 1 : 0
+        }
+      },
+      $set: { lastCalculated: new Date() }
+    },
+    { upsert: true, new: true }
+  );
+}
 
 /**
  * Helper function to track promotion clicks

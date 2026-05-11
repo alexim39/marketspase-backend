@@ -60,6 +60,40 @@ const productSchema = new mongoose.Schema({
     min: 0,
     default: 0 
   },
+
+  // Storefront affiliate configuration
+  affiliate: {
+    enabled: {
+      type: Boolean,
+      default: true,
+      index: true
+    },
+    commissionType: {
+      type: String,
+      enum: ['percentage', 'fixed'],
+      default: 'percentage'
+    },
+    commissionRate: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 10
+    },
+    fixedCommission: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    cookieWindowDays: {
+      type: Number,
+      min: 1,
+      default: 30
+    },
+    autoApprovePromoters: {
+      type: Boolean,
+      default: true
+    }
+  },
   
   // Inventory Management
   sku: { 

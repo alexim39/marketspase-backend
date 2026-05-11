@@ -50,6 +50,14 @@ const orderItemSchema = new mongoose.Schema({
     type: Number, 
     default: 0,
     min: 0 
+  },
+  trackingCode: {
+    type: String,
+    trim: true
+  },
+  trackingRef: {
+    type: String,
+    trim: true
   }
 }, { _id: true });
 
@@ -96,6 +104,39 @@ const shippingAddressSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
+const guestCustomerSchema = new mongoose.Schema({
+  fullName: {
+    type: String,
+    trim: true
+  },
+  email: {
+    type: String,
+    trim: true,
+    lowercase: true
+  },
+  phone: {
+    type: String,
+    trim: true
+  },
+  marketingOptIn: {
+    type: Boolean,
+    default: true
+  },
+  source: {
+    type: String,
+    trim: true,
+    default: 'storefront_checkout'
+  },
+  firstTouchTrackingCode: {
+    type: String,
+    trim: true
+  },
+  firstTouchRef: {
+    type: String,
+    trim: true
+  }
+}, { _id: false });
+
 const orderSchema = new mongoose.Schema({
   // Order identifiers
   orderNumber: { 
@@ -115,8 +156,19 @@ const orderSchema = new mongoose.Schema({
   customer: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: "User", 
-    required: true, 
     index: true 
+  },
+  customerType: {
+    type: String,
+    enum: ['registered', 'guest'],
+    default: 'registered',
+    index: true
+  },
+  guestCustomer: guestCustomerSchema,
+  marketer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    index: true
   },
   
   // Order items
@@ -212,6 +264,41 @@ const orderSchema = new mongoose.Schema({
   },
   commissionPaidAt: { 
     type: Date 
+  },
+
+  // Storefront escrow lifecycle
+  marketerReservedAmount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  promoterReservedAmount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  escrowStatus: {
+    type: String,
+    enum: ['pending', 'held', 'released', 'refunded'],
+    default: 'pending',
+    index: true
+  },
+  escrowHeldAt: {
+    type: Date
+  },
+  escrowReleasedAt: {
+    type: Date
+  },
+  deliveredConfirmedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  },
+  deliveryConfirmedByRole: {
+    type: String,
+    enum: ['marketer', 'promoter', 'customer', 'admin']
+  },
+  deliveredConfirmedAt: {
+    type: Date
   },
   
   // Timestamps

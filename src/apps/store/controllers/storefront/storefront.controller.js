@@ -157,6 +157,7 @@ export const getStoreByLink = async (req, res) => {
 
     const responseData = {
       ...store.toObject(),
+      followerCount: store.followers?.length || 0,
       ownerDetails
     };
 

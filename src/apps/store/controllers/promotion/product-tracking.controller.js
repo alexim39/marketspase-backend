@@ -1,5 +1,13 @@
 // controllers/product/product-tracking.controller.js
-import { PromotionTrackingModel, ProductModel } from '../../models/promotion/index.js';
+import { PromotionTrackingModel } from '../../models/promotion/index.js';
+import { AffiliateClickModel } from '../../models/affiliate-click/index.js';
+import {
+  buildProductLandingUrl,
+  detectDeviceType,
+  getClientIp,
+  hashIp,
+  upsertReferralSource
+} from '../../services/storefront-affiliate.service.js';
 
 /**
  * Track product view from promotion link
@@ -7,29 +15,33 @@ import { PromotionTrackingModel, ProductModel } from '../../models/promotion/ind
 export const trackProductView = async (req, res) => {
   try {
     const { productId } = req.params;
-    const { trackingCode, deviceType = 'desktop', source } = req.query;
+    const payload = { ...req.query, ...req.body };
+    const { trackingCode, uniqueId, source } = payload;
+    const deviceType = payload.deviceType || detectDeviceType(req.headers['user-agent'] || '');
 
-    console.log('Tracking view:', { productId, trackingCode, deviceType, source });
-
-    if (!trackingCode) {
+    if (!trackingCode && !uniqueId) {
       return res.status(400).json({
         success: false,
-        message: 'Tracking code is required'
+        message: 'Tracking code or unique ID is required'
       });
     }
 
     // Find promotion by tracking code
-    const promotion = await PromotionTrackingModel.findOne({ uniqueCode: trackingCode });
+    const promotion = await PromotionTrackingModel.findOne({
+      product: productId,
+      isActive: true,
+      $or: [
+        ...(trackingCode ? [{ uniqueCode: trackingCode }] : []),
+        ...(uniqueId ? [{ uniqueId }] : [])
+      ]
+    });
     
     if (!promotion) {
-      console.log('Promotion not found for code:', trackingCode);
       return res.status(404).json({
         success: false,
         message: 'Invalid tracking code'
       });
     }
-
-    console.log('Found promotion:', promotion._id);
 
     // Increment view count
     promotion.viewCount += 1;
@@ -42,12 +54,7 @@ export const trackProductView = async (req, res) => {
 
     // Track source if provided
     if (source) {
-      const sourceIndex = promotion.referralSources.findIndex(s => s.source === source);
-      if (sourceIndex > -1) {
-        promotion.referralSources[sourceIndex].count += 1;
-      } else {
-        promotion.referralSources.push({ source, count: 1 });
-      }
+      promotion.referralSources = upsertReferralSource(promotion.referralSources, source);
     }
 
     // Calculate CTR
@@ -56,8 +63,6 @@ export const trackProductView = async (req, res) => {
     }
 
     await promotion.save();
-
-    console.log('View tracked successfully. New view count:', promotion.viewCount);
 
     res.status(200).json({
       success: true,
@@ -82,16 +87,28 @@ export const trackProductView = async (req, res) => {
 export const trackClick = async (req, res) => {
   try {
     const { uniqueCode } = req.params;
-    const { deviceType = 'desktop', source, productId } = req.query;
+    const payload = { ...req.query, ...req.body };
+    const deviceType = payload.deviceType || detectDeviceType(req.headers['user-agent'] || '');
+    const source = payload.source || req.headers.referer || 'direct';
 
-    console.log('uniqueCode ',uniqueCode)
-
-    const promotion = await PromotionTrackingModel.findOne({ uniqueCode });
+    const promotion = await PromotionTrackingModel.findOne({
+      uniqueCode,
+      isActive: true,
+      isApproved: true,
+    }).populate('product', '_id name isActive isDeleted isPublished').populate('store', '_id isActive');
 
     if (!promotion) {
       return res.status(404).json({
         success: false,
         message: 'Invalid tracking code'
+      });
+    }
+
+    const product = promotion.product;
+    if (!product || product.isActive === false || product.isDeleted || product.isPublished === false) {
+      return res.status(410).json({
+        success: false,
+        message: 'Product is not available'
       });
     }
 
@@ -105,14 +122,7 @@ export const trackClick = async (req, res) => {
     }
 
     // Track source if provided
-    if (source) {
-      const sourceIndex = promotion.referralSources.findIndex(s => s.source === source);
-      if (sourceIndex > -1) {
-        promotion.referralSources[sourceIndex].count += 1;
-      } else {
-        promotion.referralSources.push({ source, count: 1 });
-      }
-    }
+    promotion.referralSources = upsertReferralSource(promotion.referralSources, source);
 
     // Calculate rates
     if (promotion.viewCount > 0) {
@@ -120,6 +130,20 @@ export const trackClick = async (req, res) => {
     }
 
     await promotion.save();
+    await Promise.all([
+      AffiliateClickModel.create({
+        promotionTracking: promotion._id,
+        product: product._id,
+        store: promotion.store?._id || promotion.store,
+        promoter: promotion.promoter,
+        cost: 0,
+        deviceType,
+        source,
+        referrer: req.headers.referer || '',
+        ipHash: hashIp(getClientIp(req)),
+        userAgent: req.headers['user-agent'] || '',
+      }),
+    ]);
 
     // Return tracking info or redirect
     if (req.query.redirect === 'false') {
@@ -128,17 +152,21 @@ export const trackClick = async (req, res) => {
         message: 'Click tracked successfully',
         data: {
           promotionId: promotion._id,
-          productId: promotion.product,
+          productId: product._id,
           clickCount: promotion.clickCount
         }
       });
     }
 
-    // Get product details for redirect
-    const product = await ProductModel.findById(promotion.product);
-    
-    // Redirect to product page with tracking params
-    res.redirect(`/product/${product._id}?track=${uniqueCode}&ref=${promotion.uniqueId}`);
+    const redirectUrl = buildProductLandingUrl({
+      productId: product._id,
+      uniqueCode,
+      uniqueId: promotion.uniqueId,
+      promoterId: promotion.promoter,
+      clicked: true,
+    });
+
+    res.redirect(302, redirectUrl);
     
   } catch (error) {
     console.error('Error tracking click:', error);

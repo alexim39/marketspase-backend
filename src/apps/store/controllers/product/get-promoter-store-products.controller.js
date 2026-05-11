@@ -1,5 +1,12 @@
 // controllers/promoterProduct.controller.js - Updated version
-import { ProductModel } from '../../models/promotion/index.js';
+import mongoose from 'mongoose';
+import { ProductModel, PromotionTrackingModel } from '../../models/promotion/index.js';
+import {
+  buildAffiliateUrl,
+  calculateCommissionForAmount,
+  getProductAffiliateSettings,
+  roundMoney
+} from '../../services/storefront-affiliate.service.js';
 
 
 export const getPromoterStoreProducts = async (req, res) => {
@@ -13,9 +20,12 @@ export const getPromoterStoreProducts = async (req, res) => {
       minCommission,
       maxCommission,
       search,
+      promoterId,
+      userId,
       sortBy = 'commission',
       sortDirection = 'desc'
     } = req.query;
+    const activePromoterId = promoterId || userId;
 
     // Parse pagination
     const pageNum = parseInt(page, 10);
@@ -26,7 +36,8 @@ export const getPromoterStoreProducts = async (req, res) => {
     let filterQuery = {
       isActive: true,
       isDeleted: false,
-      isPublished: true
+      isPublished: true,
+      'affiliate.enabled': { $ne: false }
     };
 
     // Category filter
@@ -54,6 +65,13 @@ export const getPromoterStoreProducts = async (req, res) => {
       ];
     }
 
+    // Commission filter
+    if (minCommission || maxCommission) {
+      filterQuery['affiliate.commissionRate'] = {};
+      if (minCommission) filterQuery['affiliate.commissionRate'].$gte = parseFloat(minCommission);
+      if (maxCommission) filterQuery['affiliate.commissionRate'].$lte = parseFloat(maxCommission);
+    }
+
     // Get total count
     const total = await ProductModel.countDocuments(filterQuery);
 
@@ -66,9 +84,10 @@ export const getPromoterStoreProducts = async (req, res) => {
     // Apply sorting
     switch (sortBy) {
       case 'commission':
-        // For commission, we need to handle differently
-        // For now, sort by createdAt
-        productsQuery = productsQuery.sort({ createdAt: sortDirection === 'asc' ? 1 : -1 });
+        productsQuery = productsQuery.sort({ 
+          'affiliate.commissionRate': sortDirection === 'asc' ? 1 : -1,
+          createdAt: -1
+        });
         break;
       case 'popularity':
         productsQuery = productsQuery.sort({ 
@@ -95,25 +114,65 @@ export const getPromoterStoreProducts = async (req, res) => {
     }
 
     const products = await productsQuery;
+    const productIds = products.map(product => product._id);
+
+    const [promotionStats, userPromotions] = await Promise.all([
+      PromotionTrackingModel.aggregate([
+        {
+          $match: {
+            product: { $in: productIds },
+            isActive: true,
+          }
+        },
+        {
+          $group: {
+            _id: '$product',
+            viewCount: { $sum: '$viewCount' },
+            clickCount: { $sum: '$clickCount' },
+            conversionCount: { $sum: '$conversionCount' },
+            earnings: { $sum: '$earnings' }
+          }
+        }
+      ]),
+      activePromoterId && mongoose.Types.ObjectId.isValid(activePromoterId)
+        ? PromotionTrackingModel.find({
+            product: { $in: productIds },
+            promoter: activePromoterId,
+            isActive: true,
+          }).lean()
+        : []
+    ]);
+
+    const statsByProduct = new Map(promotionStats.map(stat => [stat._id.toString(), stat]));
+    const promotionByProduct = new Map(userPromotions.map(promotion => [promotion.product.toString(), promotion]));
 
     // Transform products to match UI expectations
     const transformedProducts = await Promise.all(products.map(async (product) => {
       // Get store details
       const store = product.store || {};
       
-      // For now, use default promotion data since we don't have real promotion tracking
-      // In production, you would fetch actual promotion data
+      const affiliateSettings = getProductAffiliateSettings(product);
+      const stats = statsByProduct.get(product._id.toString()) || {};
+      const userPromotion = promotionByProduct.get(product._id.toString());
+      const commissionPerSale = calculateCommissionForAmount(product.price, affiliateSettings);
       const defaultPromotion = {
-        commissionRate: 10, // Default commission rate
-        commissionType: 'percentage',
-        fixedCommission: 0,
+        commissionRate: affiliateSettings.commissionRate,
+        commissionType: affiliateSettings.commissionType,
+        fixedCommission: affiliateSettings.fixedCommission,
         isActive: true,
-        isApproved: true,
-        trackingCode: `PROMO-${product._id.toString().substring(0, 8).toUpperCase()}`,
-        viewCount: product.viewCount || 0,
-        clickCount: Math.floor((product.viewCount || 0) * 0.3), // Simulated clicks (30% of views)
-        conversionCount: Math.floor((product.viewCount || 0) * 0.05), // Simulated conversions (5% of views)
-        earnings: (product.price || 0) * 0.15 * Math.floor((product.viewCount || 0) * 0.05) // Simulated earnings
+        isApproved: userPromotion?.isApproved ?? affiliateSettings.autoApprovePromoters,
+        trackingCode: userPromotion?.uniqueCode || '',
+        uniqueId: userPromotion?.uniqueId || '',
+        affiliateUrl: userPromotion?.uniqueCode ? buildAffiliateUrl(req, userPromotion.uniqueCode) : '',
+        promotionUrl: userPromotion?.uniqueCode ? buildAffiliateUrl(req, userPromotion.uniqueCode) : '',
+        commissionPerSale,
+        amountReceivable: roundMoney((product.price || 0) - commissionPerSale),
+        viewCount: stats.viewCount || 0,
+        views: stats.viewCount || 0,
+        clickCount: stats.clickCount || 0,
+        conversionCount: stats.conversionCount || 0,
+        conversions: stats.conversionCount || 0,
+        earnings: stats.earnings || 0
       };
 
       return {
@@ -190,12 +249,32 @@ export const getPromoterStoreProducts = async (req, res) => {
       }
     ]);
 
-    // For commission stats, use default values for now
-    const commissionStats = {
-      minCommission: 10,
-      maxCommission: 30,
-      avgCommission: 15,
-      highCommissionCount: transformedProducts.filter(p => p.promotion.commissionRate >= 20).length
+    const commissionAgg = await ProductModel.aggregate([
+      {
+        $match: {
+          isActive: true,
+          isDeleted: false,
+          isPublished: true,
+          'affiliate.enabled': { $ne: false }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          minCommission: { $min: '$affiliate.commissionRate' },
+          maxCommission: { $max: '$affiliate.commissionRate' },
+          avgCommission: { $avg: '$affiliate.commissionRate' },
+          highCommissionCount: {
+            $sum: { $cond: [{ $gte: ['$affiliate.commissionRate', 20] }, 1, 0] }
+          }
+        }
+      }
+    ]);
+    const commissionStats = commissionAgg[0] || {
+      minCommission: 0,
+      maxCommission: 0,
+      avgCommission: 0,
+      highCommissionCount: 0
     };
 
     res.status(200).json({

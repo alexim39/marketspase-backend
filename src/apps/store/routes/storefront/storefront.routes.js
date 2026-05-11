@@ -16,6 +16,14 @@ import { getProductById } from '../../controllers/storefront/get-product-by-id.c
 import { getProductReviews } from '../../controllers/storefront/get-product-reviews.controller.js'
 import { getRelatedProducts } from '../../controllers/storefront/get-related-products.controller.js'
 import { getStoreById } from '../../controllers/storefront/get-store-by-id.controller.js'
+import {
+  confirmStorefrontDelivery,
+  confirmStorefrontPayment,
+  createStorefrontOrder,
+  getPromoterOrders,
+  getStoreOrders,
+  getStorefrontOrder
+} from '../../controllers/storefront/storefront-order.controller.js'
 
 const router = express.Router();
 
@@ -27,6 +35,14 @@ router.get('/trending', getTrendingStores);
 router.get('/products/:productId/detail', getProductById);
 router.get('/products/:productId/reviews', getProductReviews);
 router.get('/products/:productId/related', getRelatedProducts);
+
+// 2b. Storefront checkout and order lifecycle
+router.post('/orders', createStorefrontOrder);
+router.get('/orders/:orderId', getStorefrontOrder);
+router.post('/orders/:orderId/confirm-payment', confirmStorefrontPayment);
+router.post('/orders/:orderId/confirm-delivery', confirmStorefrontDelivery);
+router.get('/orders/store/:storeId', getStoreOrders);
+router.get('/orders/promoter/:promoterId', getPromoterOrders);
 
 // 3. Specific Store Routes
 router.get('/store/:storeId', getStoreById);

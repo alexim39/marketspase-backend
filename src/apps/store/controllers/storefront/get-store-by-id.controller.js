@@ -1,6 +1,7 @@
 import { StoreModel } from '../../models/store/index.js';
 import { ProductModel } from '../../models/promotion/index.js';
 import { StoreAnalyticsModel } from '../../models/store-analytics/index.js';
+import { OrderModel, PAYMENT_STATUS as ORDER_PAYMENT_STATUS } from '../../models/order/index.js';
 import mongoose from 'mongoose';
 /**
  * @desc    Get store by ID with analytics
@@ -43,7 +44,7 @@ export const getStoreById = async (req, res) => {
     // Get store analytics if requested
     let analytics = null;
     if (includeAnalytics === 'true') {
-      analytics = await getStoreAnalyticsData(store._id);
+      analytics = await getStoreAnalyticsData(store);
     }
 
     // Get store products if requested
@@ -84,10 +85,12 @@ export const getStoreById = async (req, res) => {
 
     const responseData = {
       ...store.toObject(),
+      followerCount: store.followers?.length || 0,
       owner: ownerDetails,
       statistics: {
         productCount,
         featuredCount,
+        followerCount: store.followers?.length || 0,
         ...analytics
       }
     };
@@ -110,46 +113,120 @@ export const getStoreById = async (req, res) => {
 /**
  * Helper function to get store analytics data
  */
-const getStoreAnalyticsData = async (storeId) => {
+const getStoreAnalyticsData = async (store) => {
   try {
-    const analytics = await StoreAnalyticsModel.findOne({ store: storeId });
-    
-    if (!analytics) {
-      return {
-        totalViews: 0,
-        totalSales: 0,
-        conversionRate: 0,
-        promoterTraffic: 0
-      };
-    }
+    const storeId = store?._id || store;
+    const [analytics, productTotals, orderTotals] = await Promise.all([
+      StoreAnalyticsModel.findOne({ store: storeId }).lean(),
+      ProductModel.aggregate([
+        {
+          $match: {
+            store: new mongoose.Types.ObjectId(storeId),
+            isActive: true,
+            isDeleted: { $ne: true }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalProductViews: { $sum: { $ifNull: ['$viewCount', 0] } },
+            totalProductSales: { $sum: { $ifNull: ['$purchaseCount', 0] } }
+          }
+        }
+      ]),
+      OrderModel.aggregate([
+        {
+          $match: {
+            store: new mongoose.Types.ObjectId(storeId),
+            paymentStatus: ORDER_PAYMENT_STATUS.PAID,
+            isDeleted: { $ne: true }
+          }
+        },
+        {
+          $unwind: {
+            path: '$items',
+            preserveNullAndEmptyArrays: true
+          }
+        },
+        {
+          $group: {
+            _id: '$_id',
+            itemSales: { $sum: { $ifNull: ['$items.quantity', 0] } },
+            revenue: { $first: '$totalAmount' }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            orderCount: { $sum: 1 },
+            totalItemSales: { $sum: '$itemSales' },
+            totalRevenue: { $sum: '$revenue' }
+          }
+        }
+      ])
+    ]);
 
     // Calculate recent trends (last 30 days)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const recentDailyViews = analytics.dailyViews?.filter(
+    const recentDailyViews = analytics?.dailyViews?.filter(
       d => new Date(d.date) >= thirtyDaysAgo
     ) || [];
 
+    const allDailyViews = analytics?.dailyViews || [];
+    const dailyViewTotal = allDailyViews.reduce((sum, d) => sum + (d.views || 0), 0);
+    const dailyPromoterTraffic = allDailyViews.reduce((sum, d) => sum + (d.promoterTraffic || 0), 0);
     const recentViews = recentDailyViews.reduce((sum, d) => sum + (d.views || 0), 0);
     const recentUnique = recentDailyViews.reduce((sum, d) => sum + (d.uniqueVisitors || 0), 0);
     const recentPromoter = recentDailyViews.reduce((sum, d) => sum + (d.promoterTraffic || 0), 0);
+    const productStats = productTotals[0] || {};
+    const orderStats = orderTotals[0] || {};
+    const totalViews = Math.max(
+      toNumber(store?.analytics?.totalViews),
+      dailyViewTotal,
+      toNumber(productStats.totalProductViews)
+    );
+    const totalSales = Math.max(
+      toNumber(productStats.totalProductSales),
+      toNumber(orderStats.totalItemSales),
+      toNumber(orderStats.orderCount)
+    );
+    const conversionRate = totalViews > 0
+      ? (totalSales / totalViews) * 100
+      : toNumber(store?.analytics?.conversionRate ?? analytics?.salesData?.conversionRate);
+    const promoterTraffic = Math.max(
+      toNumber(store?.analytics?.promoterTraffic),
+      dailyPromoterTraffic,
+      toNumber(analytics?.salesData?.promoterDrivenSales)
+    );
 
     return {
-      totalViews: analytics.salesData?.totalRevenue || 0,
-      totalSales: analytics.salesData?.totalRevenue || 0,
-      conversionRate: analytics.salesData?.conversionRate || 0,
-      promoterTraffic: analytics.salesData?.promoterDrivenSales || 0,
+      totalViews,
+      totalSales,
+      conversionRate,
+      promoterTraffic,
+      totalRevenue: toNumber(orderStats.totalRevenue, analytics?.salesData?.totalRevenue || 0),
       recentStats: {
         views: recentViews,
         uniqueVisitors: recentUnique,
         promoterTraffic: recentPromoter,
         period: '30days'
       },
-      topProducts: analytics.salesData?.topProducts?.slice(0, 5) || []
+      topProducts: analytics?.salesData?.topProducts?.slice(0, 5) || []
     };
   } catch (error) {
     console.error('Get store analytics error:', error);
-    return null;
+    return {
+      totalViews: toNumber(store?.analytics?.totalViews),
+      totalSales: toNumber(store?.analytics?.totalSales),
+      conversionRate: toNumber(store?.analytics?.conversionRate),
+      promoterTraffic: toNumber(store?.analytics?.promoterTraffic)
+    };
   }
+};
+
+const toNumber = (value, fallback = 0) => {
+  const next = Number(value);
+  return Number.isFinite(next) ? next : fallback;
 };

@@ -1,5 +1,11 @@
 import mongoose from 'mongoose';
 import { ProductModel, PromotionTrackingModel } from '../../models/promotion/index.js';
+import {
+  buildAffiliateUrl,
+  calculateCommissionForAmount,
+  getProductAffiliateSettings,
+  roundMoney
+} from '../../services/storefront-affiliate.service.js';
 
 // Helper function to get product promotion stats
 async function getProductPromotionStats(productId) {
@@ -72,7 +78,7 @@ export const getPromoterProductDetails = async (req, res) => {
       _id: id,
       isActive: true,
       isDeleted: false
-    }).populate('store', 'name logo description isVerified verificationTier storeLink');
+    }).populate('store', 'name logo description isVerified verificationTier storeLink followers');
 
     if (!product) {
       return res.status(404).json({
@@ -82,18 +88,6 @@ export const getPromoterProductDetails = async (req, res) => {
     }
 
     //.log('Product fetched from DB:', product);
-
-    // Get promotion details
-    const promotion = await PromotionTrackingModel.findOne({
-      product: id,
-      isActive: true,
-    }).sort({ commissionRate: -1 });
-
-    if (!promotion) {
-      console.warn('No active promotion found for this product');
-    }
-
-    //console.log('Promotion details fetched from DB:', promotion);
 
     // Get product statistics
     const stats = await getProductPromotionStats(id);
@@ -110,6 +104,9 @@ export const getPromoterProductDetails = async (req, res) => {
       //console.log('User promotion details:', userPromotion);
     }
 
+    const affiliateSettings = getProductAffiliateSettings(product);
+    const commissionPerSale = calculateCommissionForAmount(product.price, affiliateSettings);
+
     // Format response
     const response = {
       _id: product._id,
@@ -125,6 +122,9 @@ export const getPromoterProductDetails = async (req, res) => {
       ratingCount: product.ratingCount,
       purchaseCount: product.purchaseCount,
       viewCount: product.viewCount,
+      affiliate: affiliateSettings,
+      amountReceivable: roundMoney(product.price - commissionPerSale),
+      commissionPerSale,
       createdAt: product.createdAt,
       store: {
         _id: product.store._id,
@@ -133,26 +133,37 @@ export const getPromoterProductDetails = async (req, res) => {
         description: product.store.description,
         isVerified: product.store.isVerified,
         verificationTier: product.store.verificationTier,
-        storeLink: product.store.storeLink
+        storeLink: product.store.storeLink,
+        followers: product.store.followers || [],
+        followerCount: product.store.followers?.length || 0
       },
-      promotion: promotion ? {
-        commissionRate: promotion.commissionRate,
-        commissionType: promotion.commissionType,
-        fixedCommission: promotion.fixedCommission,
-        isActive: promotion.isActive,
-        isApproved: promotion.isApproved,
-        trackingCode: promotion.uniqueCode,
-        viewCount: promotion.viewCount,
-        clickCount: promotion.clickCount,
-        conversionCount: promotion.conversionCount,
-        earnings: promotion.earnings,
+      promotion: {
+        commissionRate: affiliateSettings.commissionRate,
+        commissionType: affiliateSettings.commissionType,
+        fixedCommission: affiliateSettings.fixedCommission,
+        isActive: affiliateSettings.enabled,
+        isApproved: userPromotion?.isApproved ?? affiliateSettings.autoApprovePromoters,
+        trackingCode: userPromotion?.uniqueCode || '',
+        uniqueId: userPromotion?.uniqueId || '',
+        affiliateUrl: userPromotion?.uniqueCode ? buildAffiliateUrl(req, userPromotion.uniqueCode) : '',
+        promotionUrl: userPromotion?.uniqueCode ? buildAffiliateUrl(req, userPromotion.uniqueCode) : '',
+        commissionPerSale,
+        amountReceivable: roundMoney(product.price - commissionPerSale),
+        viewCount: userPromotion?.viewCount || stats.totalViews,
+        views: userPromotion?.viewCount || stats.totalViews,
+        clickCount: userPromotion?.clickCount || stats.totalClicks,
+        conversionCount: userPromotion?.conversionCount || stats.totalConversions,
+        conversions: userPromotion?.conversionCount || stats.totalConversions,
+        earnings: userPromotion?.earnings || 0,
         clickThroughRate: stats.clickThroughRate,
         conversionRate: stats.conversionRate,
         averageOrderValue: stats.averageOrderValue
-      } : null,
+      },
       stats,
       userPromotion: userPromotion ? {
         trackingCode: userPromotion.uniqueCode,
+        uniqueId: userPromotion.uniqueId,
+        affiliateUrl: buildAffiliateUrl(req, userPromotion.uniqueCode),
         commissionRate: userPromotion.commissionRate,
         earnings: userPromotion.earnings,
         clicks: userPromotion.clickCount,

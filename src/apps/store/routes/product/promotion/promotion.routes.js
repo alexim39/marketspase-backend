@@ -22,6 +22,7 @@ router.post('/create', createPromotion);
 // Tracking endpoints
 router.post('/:productId/track-view', trackProductView);
 router.get('/track-click/:uniqueCode', trackClick);
+router.post('/track-click/:uniqueCode', trackClick);
 //router.get('/:productId/promotion-performance', getPromotionPerformance);
 
 export default router;

@@ -223,7 +223,8 @@ export const storeController = {
         res.status(200).json({
           success: true,
           message: 'Store unfollowed',
-          isFollowing: false
+          isFollowing: false,
+          followerCount: store.followers.length
         });
       } else {
         // Follow
@@ -233,7 +234,8 @@ export const storeController = {
         res.status(200).json({
           success: true,
           message: 'Store followed',
-          isFollowing: true
+          isFollowing: true,
+          followerCount: store.followers.length
         });
       }
     } catch (error) {
