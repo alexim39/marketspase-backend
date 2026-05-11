@@ -20,10 +20,11 @@ export const createCampaign = async (req, res) => {
         link,
         category,
         budget,
-        payoutTierId,
-        payoutPerPromotion,
-        minViewsPerPromotion,
-        maxViewsPerPromotion,
+        costPerClick = 80,
+        //payoutTierId,
+        //payoutPerPromotion,
+        //minViewsPerPromotion,
+        //maxViewsPerPromotion,
         startDate,
         endDate,
         currency = "NGN",
@@ -37,6 +38,11 @@ export const createCampaign = async (req, res) => {
         ageTarget = "all",
       } = req.body;
 
+      console.log("Received campaign creation request with body:", req.body);
+      console.log("Received campaign creation request with params:", req.params);
+      console.log("Received campaign creation request with query:", req.query);
+
+     
       // 1️⃣ VALIDATION
       if (!owner || !title || !budget || !category) {
         const err = new Error("Missing required fields.");
@@ -45,24 +51,31 @@ export const createCampaign = async (req, res) => {
       }
 
       const numericBudget = Number(budget);
+      const numericCostPerClick = Number(costPerClick);
       if (!Number.isFinite(numericBudget) || numericBudget < 1000) {
         const err = new Error("Minimum campaign budget is ₦1000.");
         err.status = 400;
         throw err;
       }
 
-      if (!payoutTierId || !payoutPerPromotion || !minViewsPerPromotion) {
-        const err = new Error("Payout tier selection is required.");
+      if (!Number.isFinite(numericCostPerClick) || numericCostPerClick <= 0) {
+        const err = new Error("Invalid cost per click.");
         err.status = 400;
         throw err;
       }
 
-      const numericPayout = Number(payoutPerPromotion);
+     /*  if (!payoutTierId || !payoutPerPromotion || !minViewsPerPromotion) {
+        const err = new Error("Payout tier selection is required.");
+        err.status = 400;
+        throw err;
+      } */
+
+     /*  const numericPayout = Number(payoutPerPromotion);
       if (!Number.isFinite(numericPayout) || numericPayout <= 0) {
         const err = new Error("Invalid payout amount.");
         err.status = 400;
         throw err;
-      }
+      } */
 
       // 2️⃣ LOAD MARKETER + WALLET CHECK
       const marketer = await UserModel.findById(owner)
@@ -110,14 +123,17 @@ export const createCampaign = async (req, res) => {
       }
 
       // 4️⃣ MAX PROMOTERS & VIEW ESTIMATION
-      const maxPromoters = Math.floor(numericBudget / numericPayout);
-      if (maxPromoters < 1) {
-        const err = new Error("Budget too low for selected payout tier.");
-        err.status = 400;
-        throw err;
-      }
+      // const maxPromoters = Math.floor(numericBudget / numericPayout);
+      // if (maxPromoters < 1) {
+      //   const err = new Error("Budget too low for selected payout tier.");
+      //   err.status = 400;
+      //   throw err;
+      // }
 
-      const estimatedViews = maxPromoters * Number(minViewsPerPromotion);
+      //const estimatedViews = maxPromoters * Number(minViewsPerPromotion);
+      // estimatedReach = computed(() => {
+      const estimatedViews = Math.floor(numericBudget / numericCostPerClick);
+
 
       const campaignDoc = new CampaignModel({
         owner,
@@ -130,13 +146,15 @@ export const createCampaign = async (req, res) => {
         thumbnailUrl,
         budget: numericBudget,
         currency,
-        maxPromoters,
-        currentPromoters: 0,
-        payoutModel: "fixed_per_promoter",
-        payoutTierId,
-        payoutPerPromotion: numericPayout,
-        minViewsPerPromotion,
-        maxViewsPerPromotion,
+        payoutModel: "pay_per_click",
+        costPerClick: numericCostPerClick,
+        //maxPromoters,
+        //currentPromoters: 0,
+        //payoutModel: "fixed_per_promoter",
+        //payoutTierId,
+        //payoutPerPromotion: numericPayout,
+        //minViewsPerPromotion,
+        //maxViewsPerPromotion,
         estimatedViews,
         enableTarget,
         ageTarget,

@@ -25,6 +25,9 @@ export const setupCampaignIndexes = (schema) => {
   // Budget and promotion indexes
   schema.index({ budget: 1, spentBudget: 1, reservedBudget: 1 });
   schema.index({ payoutPerPromotion: 1, minViewsPerPromotion: 1 });
+  schema.index({ payoutModel: 1, status: 1, costPerClick: 1 });
+  schema.index({ billableClicks: -1, spentBudget: -1 });
+  schema.index({ lastClickAt: -1 });
   
   // Date range indexes
   schema.index({ startDate: -1, endDate: -1 });

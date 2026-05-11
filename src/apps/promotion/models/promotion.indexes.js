@@ -18,6 +18,9 @@ export const setupPromotionIndexes = (schema) => {
   
   // UPI index
   schema.index({ upi: 1 }, { unique: true });
+  schema.index({ campaign: 1, isActive: 1, 'clickStats.billableClicks': -1 });
+  schema.index({ promoter: 1, isActive: 1, 'clickStats.earnedAmount': -1 });
+  schema.index({ payoutModel: 1, status: 1 });
   
   // Date indexes
   schema.index({ submittedAt: 1 });

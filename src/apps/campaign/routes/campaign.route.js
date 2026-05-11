@@ -2,6 +2,7 @@ import express from 'express';
 import { cloudinaryMediaUpload } from "../../../core/cloudinary.service.js";
 
 import { acceptCampaign } from '../controllers/accept-campaign.controller.js'
+import { trackCampaignClick } from '../controllers/track-campaign-click.controller.js'
 import { createCampaign } from '../controllers/create-campaign.controller.js'
 import { saveCampaign } from '../controllers/save-campaign.controller.js'
 import { EditCampaign, UpdateCampaignPartial  } from '../controllers/edit-campaign.controller.js'
@@ -11,10 +12,7 @@ import { GetAMarketerCampaigns } from '../controllers/get-marketer-campaign.cont
 
 import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
 
-import { 
-  UpdateCampaignTargeting, 
-  GetCampaignTargeting 
-} from '../controllers/targeting.controller.js';
+import { UpdateCampaignTargeting, GetCampaignTargeting } from '../controllers/targeting.controller.js';
 
 const router = express.Router();
 
@@ -23,6 +21,7 @@ const router = express.Router();
 router.get('/', getCampaignsByStatusAndUserId);
 router.get('/user/:userId', GetAMarketerCampaigns);
 router.get('/promotions/proof/:promotionId', getProofDetails);
+router.get('/track/:upi', trackCampaignClick);
 
 // MOST SPECIFIC DYNAMIC ROUTES LAST - FIXED: This should be BEFORE other dynamic routes
 router.get('/:id', getCampaignById);

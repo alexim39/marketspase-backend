@@ -78,11 +78,12 @@ export const setupCampaignStatics = (schema) => {
   // Mark campaigns as exhausted
   schema.statics.markExhaustedCampaigns = async function() {
     const campaigns = await this.find({
-      hasEndDate: false,
-      endDate: null,
       status: 'active',
       $expr: {
-        $eq: ['$spentBudget', '$budget']
+        $lt: [
+          { $subtract: ['$budget', { $add: ['$spentBudget', '$reservedBudget'] }] },
+          { $ifNull: ['$costPerClick', '$payoutPerPromotion'] }
+        ]
       }
     });
 
