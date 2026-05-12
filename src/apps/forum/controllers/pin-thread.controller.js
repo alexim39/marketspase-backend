@@ -2,6 +2,12 @@ import { ThreadModel } from '../models/thread/index.js';
 import { UserModel } from '../../user/models/user/index.js';
 import mongoose from 'mongoose';
 
+const getAuthenticatedPinUserId = (req) =>
+  req.userId || req.user?._id?.toString?.() || null;
+
+const hasPinPermission = (user) =>
+  ['admin', 'marketing_rep'].includes(user?.role) || ['admin', 'moderator'].includes(user?.type);
+
 /**
  * @desc    Pin a thread (Admin/Moderator only)
  * @route   PUT /api/forum/threads/:threadId/pin
@@ -13,7 +19,8 @@ export const pinThread = async (req, res) => {
 
   try {
     const { threadId } = req.params;
-    const { userId, pinOrder } = req.body;
+    const { pinOrder } = req.body;
+    const userId = getAuthenticatedPinUserId(req);
 
     // Validate input
     if (!threadId || !userId) {
@@ -34,7 +41,7 @@ export const pinThread = async (req, res) => {
       });
     }
 
-    const hasPermission = user.type === 'admin' || user.type === 'moderator';
+    const hasPermission = hasPinPermission(user);
     if (!hasPermission) {
       await session.abortTransaction();
       session.endSession();
@@ -180,7 +187,7 @@ export const unpinThread = async (req, res) => {
 
   try {
     const { threadId } = req.params;
-    const { userId } = req.body;
+    const userId = getAuthenticatedPinUserId(req);
 
     // Validate input
     if (!threadId || !userId) {
@@ -201,7 +208,7 @@ export const unpinThread = async (req, res) => {
       });
     }
 
-    const hasPermission = user.type === 'admin' || user.type === 'moderator';
+    const hasPermission = hasPinPermission(user);
     if (!hasPermission) {
       await session.abortTransaction();
       session.endSession();
@@ -297,7 +304,8 @@ export const reorderPinnedThreads = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { userId, threadOrders } = req.body;
+    const { threadOrders } = req.body;
+    const userId = getAuthenticatedPinUserId(req);
     // threadOrders: [{ threadId: 'xxx', order: 1 }, ...]
 
     if (!userId || !threadOrders || !Array.isArray(threadOrders)) {
@@ -318,7 +326,7 @@ export const reorderPinnedThreads = async (req, res) => {
       });
     }
 
-    const hasPermission = user.type === 'admin' || user.type === 'moderator';
+    const hasPermission = hasPinPermission(user);
     if (!hasPermission) {
       await session.abortTransaction();
       session.endSession();
@@ -453,7 +461,7 @@ export const getAllPinnedThreads = async (req, res) => {
 export const togglePinThread = async (req, res) => {
   try {
     const { threadId } = req.params;
-    const { userId } = req.body;
+    const userId = getAuthenticatedPinUserId(req);
 
     const thread = await ThreadModel.findById(threadId);
     if (!thread) {
@@ -465,13 +473,9 @@ export const togglePinThread = async (req, res) => {
 
     if (thread.isPinned) {
       // Unpin
-      req.params.threadId = threadId;
-      req.body.userId = userId;
       return unpinThread(req, res);
     } else {
       // Pin
-      req.params.threadId = threadId;
-      req.body.userId = userId;
       return pinThread(req, res);
     }
   } catch (error) {

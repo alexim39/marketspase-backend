@@ -6,7 +6,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 // Like/Unlike comment (handles both top-level and nested)
 export const toggleCommentLike = asyncHandler(async (req, res) => {
   const { postId, commentId } = req.params;
-  const { userId } = req.body;
+  const userId = req.userId;
 
   const post = await FeedPostModel.findById(postId);
   if (!post) throw new ApiError(404, 'Post not found');

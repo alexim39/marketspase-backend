@@ -13,6 +13,7 @@ import { GetAMarketerCampaigns } from '../controllers/get-marketer-campaign.cont
 import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
 
 import { UpdateCampaignTargeting, GetCampaignTargeting } from '../controllers/targeting.controller.js';
+import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -22,6 +23,8 @@ router.get('/', getCampaignsByStatusAndUserId);
 router.get('/user/:userId', GetAMarketerCampaigns);
 router.get('/promotions/proof/:promotionId', getProofDetails);
 router.get('/track/:upi', trackCampaignClick);
+
+router.use(authenticate);
 
 // MOST SPECIFIC DYNAMIC ROUTES LAST - FIXED: This should be BEFORE other dynamic routes
 router.get('/:id', getCampaignById);

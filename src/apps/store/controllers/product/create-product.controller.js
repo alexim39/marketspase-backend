@@ -17,7 +17,7 @@ export const createProduct = async (req, res) => {
   try {
     console.log('Create product request received');
     
-    const userId = req.params?.userId || req.body.userId;
+    const userId = req.userId;
     if (!userId) {
       await session.abortTransaction();
       session.endSession();

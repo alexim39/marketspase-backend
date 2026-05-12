@@ -14,7 +14,6 @@ export const saveCampaign = async (req, res) => {
   try {
     const campaign = await session.withTransaction(async () => {
       const {
-        owner,
         title,
         caption,
         link,
@@ -37,6 +36,7 @@ export const saveCampaign = async (req, res) => {
         hasEndDate,
         ageTarget = "all",
       } = req.body;
+      const owner = req.userId;
 
       //console.log('request ',req.body);
 

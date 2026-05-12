@@ -16,9 +16,11 @@ import { permanentDeleteProduct } from "../../controllers/product/delete-product
 import ProductPromotionController from "../../controllers/product/product-promotion.controller.js";
 import { getPublishedStoreProducts } from '../../controllers/product/get-store-published-products.controller.js';
 import PromotionRouters from './promotion/promotion.routes.js';
+import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 
 // Mount promotion routes
 router.use('/promotions', PromotionRouters);
+router.use(authenticate);
 
 // =========== PUBLIC/PROMOTER ROUTES (NO STORE ID REQUIRED) ===========
 // These should come first as they don't have storeId parameters

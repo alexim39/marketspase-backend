@@ -23,7 +23,8 @@ const sendError = (res, message, status = 500) => {
 };
 
 export const verifyAndRecordPayment = async (req, res) => {
-  const { userId, amount, paystackResult } = req.body;
+  const userId = req.userId;
+  const { amount, paystackResult } = req.body;
   
   // 1. Basic Payload Validation
   if (!userId || !amount || !paystackResult?.response?.reference) {
@@ -406,6 +407,13 @@ export const verifyPaymentStatus = async (req, res) => {
     });
 
     if (user) {
+      if (req.user.role !== 'admin' && user._id.toString() !== req.userId) {
+        return res.status(403).json({
+          success: false,
+          message: 'You are not allowed to inspect this payment reference'
+        });
+      }
+
       return res.status(200).json({
         success: true,
         exists: true,

@@ -4,7 +4,13 @@ import { buildAffiliateUrl } from '../../services/storefront-affiliate.service.j
 
 export const getPromoterPromotions = async (req, res) => {
   try {
-    const { promoterId } = req.query;
+    const promoterId = req.userId;
+    if (req.user?.role !== 'promoter' && req.user?.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only promoters can view promotion links'
+      });
+    }
 
     if (!promoterId || !mongoose.Types.ObjectId.isValid(promoterId)) {
       return res.status(400).json({

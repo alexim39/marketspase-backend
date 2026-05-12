@@ -5,8 +5,11 @@ import { submitProof } from '../controllers/submit-proof.controler.js'
 import { downloadPromotion } from '../controllers/donwload-promotion.js'
 import { proofUpload } from '../services/proof-upload.service.js';
 import { GetAdminPromotions } from '../controllers/admin/get-promotions.controller.js'
+import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 
 const PromoterRouter = express.Router();
+
+PromoterRouter.use(authenticate);
 
 
 /**

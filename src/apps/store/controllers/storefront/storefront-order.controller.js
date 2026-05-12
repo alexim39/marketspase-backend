@@ -1,5 +1,6 @@
 import axios from "axios";
 import mongoose from "mongoose";
+import jwt from "jsonwebtoken";
 import { OrderModel, ORDER_STATUS, PAYMENT_METHOD, PAYMENT_STATUS as ORDER_PAYMENT_STATUS } from "../../models/order/index.js";
 import { PaymentModel, PAYMENT_GATEWAY, PAYMENT_STATUS as STORE_PAYMENT_STATUS } from "../../models/payment/index.js";
 import { InventoryHistoryModel, ProductModel, PromotionTrackingModel } from "../../models/promotion/index.js";
@@ -15,6 +16,7 @@ import {
 
 const PAYSTACK_VERIFY_URL = "https://api.paystack.co/transaction/verify/";
 const WALLET_TRANSACTION_LIMIT = 500;
+const ORDER_ACCESS_TOKEN_TTL = process.env.STOREFRONT_ORDER_ACCESS_TOKEN_TTL || "7d";
 
 export const createStorefrontOrder = async (req, res) => {
   const session = await mongoose.startSession();
@@ -33,6 +35,8 @@ export const createStorefrontOrder = async (req, res) => {
       customerNote,
       paymentMethod = PAYMENT_METHOD.PAYSTACK,
     } = req.body;
+    const authenticatedCustomerId = req.userId || null;
+    const effectiveCustomerId = customerId || authenticatedCustomerId;
 
     const checkoutItems = Array.isArray(items) && items.length > 0
       ? items
@@ -65,7 +69,7 @@ export const createStorefrontOrder = async (req, res) => {
       });
     }
 
-    if (customerId && !mongoose.Types.ObjectId.isValid(customerId)) {
+    if (effectiveCustomerId && !mongoose.Types.ObjectId.isValid(effectiveCustomerId)) {
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
@@ -73,11 +77,19 @@ export const createStorefrontOrder = async (req, res) => {
       });
     }
 
-    const customer = customerId
-      ? await UserModel.findById(customerId).session(session)
+    if (customerId && authenticatedCustomerId && authenticatedCustomerId !== customerId.toString()) {
+      await session.abortTransaction();
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to create an order for another signed-in customer",
+      });
+    }
+
+    const customer = effectiveCustomerId
+      ? await UserModel.findById(effectiveCustomerId).session(session)
       : null;
 
-    if (customerId && !customer) {
+    if (effectiveCustomerId && !customer) {
       await session.abortTransaction();
       return res.status(404).json({ success: false, message: "Customer not found" });
     }
@@ -246,6 +258,7 @@ export const createStorefrontOrder = async (req, res) => {
       data: {
         order,
         payment,
+        orderAccessToken: signOrderAccessToken(order),
         checkout: {
           amount: totalAmount,
           currency: order.currency,
@@ -277,6 +290,7 @@ export const confirmStorefrontPayment = async (req, res) => {
   try {
     const { orderId } = req.params;
     const { customerId, paymentReference, paystackResult } = req.body;
+    const actorUserId = req.userId || customerId || null;
 
     const order = await OrderModel.findById(orderId).session(session);
     depopulateDocument(order, ['store', 'customer', 'items.product', 'items.promoterId']);
@@ -286,7 +300,12 @@ export const confirmStorefrontPayment = async (req, res) => {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    if (customerId && (!order.customer || toIdString(order.customer) !== customerId.toString())) {
+    if (order.customer && !actorUserId) {
+      await session.abortTransaction();
+      return res.status(401).json({ success: false, message: "Authentication is required to confirm this payment" });
+    }
+
+    if (actorUserId && order.customer && toIdString(order.customer) !== actorUserId.toString()) {
       await session.abortTransaction();
       return res.status(403).json({ success: false, message: "You are not allowed to confirm this payment" });
     }
@@ -349,6 +368,7 @@ export const confirmStorefrontPayment = async (req, res) => {
       message: "Payment confirmed and funds held in reserved balances",
       data: {
         order: populatedOrder,
+        orderAccessToken: signOrderAccessToken(populatedOrder || order),
       },
     });
   } catch (error) {
@@ -382,12 +402,12 @@ export const confirmStorefrontDelivery = async (req, res) => {
   try {
     const { orderId } = req.params;
     const {
-      userId,
       role,
       note,
       deliveryStatus = "delivered",
       buyerReceived = false,
     } = req.body;
+    const userId = req.userId;
 
     if (!userId) {
       await session.abortTransaction();
@@ -466,7 +486,8 @@ export const reviewStorefrontDeliveryRelease = async (req, res) => {
 
   try {
     const { orderId } = req.params;
-    const { adminId, decision, note } = req.body;
+    const { decision, note } = req.body;
+    const adminId = req.userId;
 
     if (!adminId || !["approved", "rejected"].includes(decision)) {
       await session.abortTransaction();
@@ -543,14 +564,7 @@ export const reviewStorefrontDeliveryRelease = async (req, res) => {
 
 export const getStorefrontReleaseRequests = async (req, res) => {
   try {
-    const { adminId, status = "requested", limit = 30, skip = 0 } = req.query;
-
-    if (adminId) {
-      const admin = await UserModel.findById(adminId).select("role");
-      if (!admin || admin.role !== "admin") {
-        return res.status(403).json({ success: false, message: "Only admins can view release requests" });
-      }
-    }
+    const { status = "requested", limit = 30, skip = 0 } = req.query;
 
     const query = {
       isDeleted: false,
@@ -598,7 +612,8 @@ export const getStorefrontReleaseRequests = async (req, res) => {
 export const getStorefrontOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { userId } = req.query;
+    const userId = req.userId;
+    const orderAccessToken = req.query.orderAccessToken || req.headers['x-order-access-token'];
 
     const order = await OrderModel.findById(orderId)
       .populate('store', 'name logo storeLink owner')
@@ -610,11 +625,19 @@ export const getStorefrontOrder = async (req, res) => {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    if (userId && !canViewOrder(order, userId)) {
+    const canViewAsAdmin = req.user?.role === 'admin';
+    const canViewAsAuthenticatedUser = Boolean(userId) && canViewOrder(order, userId);
+    const canViewAsGuest = verifyOrderAccessToken(order, orderAccessToken);
+
+    if (!canViewAsAdmin && !canViewAsAuthenticatedUser && !canViewAsGuest) {
       return res.status(403).json({ success: false, message: "You are not allowed to view this order" });
     }
 
-    return res.status(200).json({ success: true, data: order });
+    return res.status(200).json({
+      success: true,
+      data: order,
+      orderAccessToken: signOrderAccessToken(order),
+    });
   } catch (error) {
     console.error("Get storefront order error:", error);
     return res.status(500).json({ success: false, message: "Failed to fetch order" });
@@ -624,13 +647,14 @@ export const getStorefrontOrder = async (req, res) => {
 export const getStoreOrders = async (req, res) => {
   try {
     const { storeId } = req.params;
-    const { userId, status, limit = 20, skip = 0 } = req.query;
+    const { status, limit = 20, skip = 0 } = req.query;
+    const userId = req.userId;
 
     const store = await StoreModel.findById(storeId);
     if (!store) {
       return res.status(404).json({ success: false, message: "Store not found" });
     }
-    if (userId && store.owner.toString() !== userId.toString()) {
+    if (req.user.role !== 'admin' && userId && store.owner.toString() !== userId.toString()) {
       return res.status(403).json({ success: false, message: "You are not allowed to view these orders" });
     }
 
@@ -651,6 +675,11 @@ export const getPromoterOrders = async (req, res) => {
   try {
     const { promoterId } = req.params;
     const { limit = 20, skip = 0, commissionPaid } = req.query;
+    const userId = req.userId;
+
+    if (req.user.role !== 'admin' && promoterId !== userId) {
+      return res.status(403).json({ success: false, message: "You are not allowed to view these promoter orders" });
+    }
 
     const result = await OrderModel.findByPromoter(promoterId, {
       limit: parseInt(limit, 10),
@@ -669,9 +698,14 @@ export const getMarketerOrders = async (req, res) => {
   try {
     const { marketerId } = req.params;
     const { limit = 20, skip = 0, status, escrowStatus } = req.query;
+    const userId = req.userId;
 
     if (!mongoose.Types.ObjectId.isValid(marketerId)) {
       return res.status(400).json({ success: false, message: "Invalid marketer ID" });
+    }
+
+    if (req.user.role !== 'admin' && marketerId !== userId) {
+      return res.status(403).json({ success: false, message: "You are not allowed to view these marketer orders" });
     }
 
     const query = {
@@ -745,6 +779,48 @@ export const getMarketerOrders = async (req, res) => {
 
 function normalizeString(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function signOrderAccessToken(order) {
+  if (!process.env.JWTTOKENSECRET || !order?._id) {
+    return null;
+  }
+
+  return jwt.sign(
+    {
+      purpose: "storefront_order_access",
+      orderId: order._id.toString(),
+      email: normalizeString(order.guestCustomer?.email || order.shippingAddress?.email).toLowerCase(),
+    },
+    process.env.JWTTOKENSECRET,
+    { expiresIn: ORDER_ACCESS_TOKEN_TTL }
+  );
+}
+
+function verifyOrderAccessToken(order, token) {
+  if (!token || !process.env.JWTTOKENSECRET || !order?._id) {
+    return false;
+  }
+
+  try {
+    const decoded = jwt.verify(String(token), process.env.JWTTOKENSECRET);
+    if (decoded?.purpose !== "storefront_order_access") {
+      return false;
+    }
+
+    if (decoded.orderId !== order._id.toString()) {
+      return false;
+    }
+
+    const expectedEmail = normalizeString(order.guestCustomer?.email || order.shippingAddress?.email).toLowerCase();
+    if (decoded.email && expectedEmail && decoded.email !== expectedEmail) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function normalizeShippingAddress(address = {}) {

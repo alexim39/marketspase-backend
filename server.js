@@ -1,8 +1,8 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 import path from 'path';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -48,7 +48,6 @@ import { setupSocketHandlers } from './src/apps/ai-assistant/socket.handler.js';
 const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
 const app = express();
-dotenv.config();
 
 // Create HTTP server for Socket.io
 const httpServer = createServer(app);
@@ -101,6 +100,10 @@ app.post('/api/webhook/paystack', (req, res, next) => {
 });
 
 // Middleware
+app.use(helmet({
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: false,
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());

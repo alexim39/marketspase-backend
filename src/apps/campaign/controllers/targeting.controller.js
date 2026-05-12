@@ -12,7 +12,8 @@ export const UpdateCampaignTargeting = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { campaignId, performedBy } = req.params;
+    const { campaignId } = req.params;
+    const performedBy = req.userId;
     const { enableTarget, targetLocations } = req.body;
 
     // Validate required fields
@@ -160,7 +161,7 @@ export const GetCampaignTargeting = async (req, res) => {
     }
 
     // Check user permissions
-    const userId = req.user?._id || req.query.userId;
+    const userId = req.userId;
     if (
       campaign.owner.toString() !== userId?.toString() &&
       req.user?.role !== "admin"

@@ -33,13 +33,14 @@ import {
     getAllPinnedThreads,
     togglePinThread
 } from '../controllers/pin-thread.controller.js';
+import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
 
 // ==================== Thread Routes ====================
 
 // Create new thread
-router.post('/threads/new', createThread);
+router.post('/threads/new', authenticate, createThread);
 
 // Get all threads (with pagination and filters)
 router.get('/threads', getThreads);
@@ -54,36 +55,36 @@ router.get('/threads/tags/:tags', getThreadsByTags);
 router.get('/thread/:id', getThreadById);
 
 // Update a thread by ID
-router.put('/threads/:threadId', updateThread);
+router.put('/threads/:threadId', authenticate, updateThread);
 
 // Delete a thread by ID
-router.delete('/thread/:threadId/:userId', deleteThread);
+router.delete('/thread/:threadId/:userId', authenticate, deleteThread);
 
 // Like/unlike a thread
-router.put('/thread/like', toggleThreadLike);
+router.put('/thread/like', authenticate, toggleThreadLike);
 
 // ==================== Comment Routes ====================
 
 // Add a new comment to a thread
-router.post('/thread/comment/new', addCommentToThread);
+router.post('/thread/comment/new', authenticate, addCommentToThread);
 
 // Add a reply to a comment
-router.post('/thread/comment/reply', addCommentReply);
+router.post('/thread/comment/reply', authenticate, addCommentReply);
 
 // Update a comment by ID
-router.put('/comments/:commentId', updateComment);
+router.put('/comments/:commentId', authenticate, updateComment);
 
 // Toggle like on a comment
-router.post('/comments/like', toggleLikeComment);
+router.post('/comments/like', authenticate, toggleLikeComment);
 
 // Toggle like on a reply
-router.post('/comments/reply/like', toggleLikeReply);
+router.post('/comments/reply/like', authenticate, toggleLikeReply);
 
 // Delete a comment by ID
-router.delete('/comment/:commentId/:userId', deleteComment);
+router.delete('/comment/:commentId/:userId', authenticate, deleteComment);
 
 // Delete a reply by ID
-router.delete('/reply/:replyId/:userId', deleteReply);
+router.delete('/reply/:replyId/:userId', authenticate, deleteReply);
 
 // ==================== Community Stats Routes ====================
 
@@ -111,15 +112,15 @@ router.get('/categories', getCategories);
 router.get('/threads/pinned/all', getAllPinnedThreads);
 
 // Pin a thread (Admin/Moderator only)
-router.put('/threads/:threadId/pin', pinThread);
+router.put('/threads/:threadId/pin', authenticate, pinThread);
 
 // Unpin a thread (Admin/Moderator only)
-router.put('/threads/:threadId/unpin', unpinThread);
+router.put('/threads/:threadId/unpin', authenticate, unpinThread);
 
 // Toggle pin status (convenience method)
-router.put('/threads/:threadId/toggle-pin', togglePinThread);
+router.put('/threads/:threadId/toggle-pin', authenticate, togglePinThread);
 
 // Reorder pinned threads (Admin/Moderator only)
-router.put('/threads/pinned/reorder', reorderPinnedThreads);
+router.put('/threads/pinned/reorder', authenticate, reorderPinnedThreads);
 
 export default router;

@@ -38,7 +38,6 @@ export const withdrawRequest = async (req, res) => {
     accountNumber,
     accountName,
     amount,
-    userId,
     saveAccount,
     bankName,
     role,
@@ -47,6 +46,7 @@ export const withdrawRequest = async (req, res) => {
     currency,
     finalAmount
   } = req.body;
+  const userId = req.userId;
 
   //console.log('Withdrawal request body:', req.body);
 

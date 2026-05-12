@@ -20,6 +20,13 @@ export const GetUserPromotions = async (req, res) => {
       });
     }
 
+    if (req.user.role !== 'admin' && req.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to view these promotions.",
+      });
+    }
+
     // Validate and limit maximum records per page
     const safeLimit = Math.min(parseInt(limit), 100);
     const safePage = Math.max(parseInt(page), 1);

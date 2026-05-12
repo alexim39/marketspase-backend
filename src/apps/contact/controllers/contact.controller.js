@@ -16,7 +16,15 @@ function generateNumericContactRequestId(length = 8) {
 export const ContactController = async (req, res) => {
   const requestID = generateNumericContactRequestId();
   try {
-    const { userId, reason, subject, message, userEmail } = req.body;
+    const userId = req.userId;
+    const { reason, subject, message, userEmail } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "Authentication required.",
+        success: false,
+      });
+    }
 
     //console.log("Received contact request from userId:", req.body);
 
@@ -41,7 +49,7 @@ export const ContactController = async (req, res) => {
       subject,
       message,
       requestID: requestID,
-      userEmail: user.email,
+      userEmail: user.email || userEmail,
     });
     // Send email to form owner
     //         const ownerSubject = 'MarketSpase Contact Request';

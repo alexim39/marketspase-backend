@@ -3,7 +3,7 @@ import logger from '../../../shared/utils/logger.js';
 
 const service = new AiAssistantService();
 
-const getRequestUserId = (req) => req.userId || req.user?._id?.toString?.() || req.query?.userId || req.body?.userId || null;
+const getRequestUserId = (req) => req.userId || req.user?._id?.toString?.() || null;
 
 export class AiAssistantController {
   async getStats(req, res, next) {

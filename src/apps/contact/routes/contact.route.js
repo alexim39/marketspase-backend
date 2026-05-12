@@ -1,5 +1,7 @@
 import express from 'express';
 import { ContactController } from '../controllers/contact.controller.js'
+import { authenticate } from '../../../shared/middleware/auth.middleware.js';
+import { requireAdmin } from '../../../shared/middleware/authorization.middleware.js';
 
 import {
   getContactMessages,
@@ -23,7 +25,10 @@ import {
 const router = express.Router();
 
 // User contact
-router.post('/submit', ContactController);
+router.post('/submit', authenticate, ContactController);
+
+router.use(authenticate);
+router.use(requireAdmin);
 
 // Get all contact messages with filters
 router.get('/', getContactMessages);

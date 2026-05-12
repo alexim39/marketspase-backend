@@ -13,7 +13,7 @@ export const getFeedPosts = asyncHandler(async (req, res) => {
     author
   } = req.query;
 
-  const userId = req.query.userId;
+  const userId = req.userId || null;
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
   // Build query

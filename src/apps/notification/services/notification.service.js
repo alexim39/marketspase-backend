@@ -207,23 +207,15 @@ export class NotificationService {
     });
   }
 
-  static async markAsRead(notificationId) {
+  static async markAsRead(notificationId, userId) {
     return NotificationModel.findOneAndUpdate(
-      { _id: notificationId },
-      { 
-        status: 'read',
-        readAt: new Date()
-      },
-      { new: true }
-    );
-   /*  return NotificationModel.findOneAndUpdate(
       { _id: notificationId, recipient: userId },
       { 
         status: 'read',
         readAt: new Date()
       },
       { new: true }
-    ); */
+    );
   }
 
   static async markAllAsRead(userId) {

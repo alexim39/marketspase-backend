@@ -10,7 +10,8 @@ import {
 
 export const createPromotion = async (req, res) => {
   try {
-    const { productId, promoterId, storeId } = req.body;
+    const { productId, storeId } = req.body;
+    const promoterId = req.userId;
 
     //console.log('Request body:', req.body);
 
@@ -52,6 +53,13 @@ export const createPromotion = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Promoter not found or inactive'
+      });
+    }
+
+    if (promoter.role !== 'promoter' && req.user?.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only promoters can generate affiliate links'
       });
     }
 

@@ -6,7 +6,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 // Get single post
 export const getPostById = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const userId = req.body.userId;
+  const userId = req.userId || null;
 
   const post = await FeedPostModel.findById(postId)
     .populate({
@@ -38,10 +38,11 @@ export const getPostById = asyncHandler(async (req, res) => {
   }
 
   // Track view
-  await FeedPostModel.findByIdAndUpdate(postId, {
-    $inc: { 'reach.impressions': 1 },
-    $addToSet: { 'reach.uniqueViews': userId }
-  });
+  const trackUpdate = { $inc: { 'reach.impressions': 1 } };
+  if (userId) {
+    trackUpdate.$addToSet = { 'reach.uniqueViews': userId };
+  }
+  await FeedPostModel.findByIdAndUpdate(postId, trackUpdate);
 
   return res.status(200).json(
     new ApiResponse(200, post, 'Post fetched successfully')

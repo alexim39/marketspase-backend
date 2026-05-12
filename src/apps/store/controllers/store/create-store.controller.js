@@ -11,7 +11,7 @@ export const createStore = async (req, res) => {
     //console.log('Create store request body:', req.body);
     
       
-    const userId = req.body.userId;
+    const userId = req.userId;
     if (!userId) {
       return res.status(401).json({
         success: false,

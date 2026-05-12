@@ -30,6 +30,13 @@ export const GetAMarketerCampaigns = async (req, res) => {
       });
     }
 
+    if (req.user.role !== 'admin' && req.userId !== userId) {
+      return res.status(403).json({
+        message: "You are not authorized to view these campaigns.",
+        success: false,
+      });
+    }
+
     // Build query object
     const query = { owner: userId };
     

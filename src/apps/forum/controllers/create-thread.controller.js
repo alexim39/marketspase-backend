@@ -102,11 +102,13 @@ export const createThread = async (req, res) => {
     await promisifyMulter(req, res);
 
     // 2) Validate inputs
-    const { title, content, tags, authorId } = req.body;
+    const { title, content, tags } = req.body;
+    const authorId = req.userId || req.user?._id?.toString?.();
+
     if (!title || !content || !authorId) {
       return res.status(400).json({
         success: false,
-        message: 'title, content, and authorId are required',
+        message: 'title and content are required',
       });
     }
 

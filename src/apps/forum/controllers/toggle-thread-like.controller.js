@@ -9,7 +9,8 @@ import { ThreadModel } from './../models/thread/index.js';
  */
 export const toggleThreadLike = async (req, res) => {
   try {
-    const { threadId, userId } = req.body;
+    const { threadId } = req.body;
+    const userId = req.userId;
 
     console.log('Toggling like for thread:', threadId, 'by user:', userId);
 

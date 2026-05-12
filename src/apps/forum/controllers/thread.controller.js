@@ -261,12 +261,14 @@ export const getThreadsByTags = async (req, res) => {
   */
 export const deleteThread = async (req, res) => {
   try {
-    const { threadId, userId } = req.params;
+    const { threadId } = req.params;
+    const userId = req.userId;
+    const isAdmin = req.user?.role === 'admin' || req.user?.type === 'admin';
 
     //console.log('Deleting thread:', threadId, 'by user:', userId);return;
 
     if (!threadId || !userId) {
-      return res.status(400).json({ success: false, message: 'Thread ID and User ID are required' });
+      return res.status(400).json({ success: false, message: 'Thread ID is required' });
     }
     // Find the thread
     const thread = await ThreadModel.findById(threadId);
@@ -275,7 +277,7 @@ export const deleteThread = async (req, res) => {
     }
 
     // Check if the user is the author or an admin
-    if (!thread.author.equals(userId) && req.user.role !== 'admin') {
+    if (!thread.author.equals(userId) && !isAdmin) {
       return res.status(403).json({success: false, message: 'Not authorized to delete this thread' });
     }
 
@@ -298,10 +300,11 @@ export const deleteThread = async (req, res) => {
 export const updateThread = async (req, res) => {
   try {
     const { threadId } = req.params;
-    const { title, content, tags, userId } = req.body; // userId from auth in production
+    const { title, content, tags } = req.body;
+    const userId = req.userId;
 
     if (!threadId || !userId) {
-      return res.status(400).json({ success: false, message: 'Thread ID and User ID are required' });
+      return res.status(400).json({ success: false, message: 'Thread ID is required' });
     }
 
     // Find thread

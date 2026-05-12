@@ -6,7 +6,8 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 // Share post counter
 export const sharePost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const { platform, userId } = req.body;
+  const { platform } = req.body;
+  const userId = req.userId;
 
   // console.log('share postId ', postId)
   // console.log('share body ', userId)

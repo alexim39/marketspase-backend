@@ -1,8 +1,11 @@
 // store.routes.js
 import express from 'express';
 import { storeController } from '../../controllers/store/promoter-store-list.controller.js';
+import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
+
+router.use(authenticate);
 
 // Public/authenticated routes for promoters
 router.get('/stores',

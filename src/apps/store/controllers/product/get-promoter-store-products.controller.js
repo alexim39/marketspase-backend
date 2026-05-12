@@ -20,12 +20,10 @@ export const getPromoterStoreProducts = async (req, res) => {
       minCommission,
       maxCommission,
       search,
-      promoterId,
-      userId,
       sortBy = 'commission',
       sortDirection = 'desc'
     } = req.query;
-    const activePromoterId = promoterId || userId;
+    const activePromoterId = req.userId;
 
     // Parse pagination
     const pageNum = parseInt(page, 10);

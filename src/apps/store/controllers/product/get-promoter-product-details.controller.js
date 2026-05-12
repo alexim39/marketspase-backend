@@ -62,7 +62,7 @@ async function getProductPromotionStats(productId) {
 export const getPromoterProductDetails = async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.query;
+    const userId = req.userId;
 
     //console.log('Fetching product details for ID:', id, 'by promoter:', userId);
 

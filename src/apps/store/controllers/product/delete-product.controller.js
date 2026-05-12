@@ -11,7 +11,7 @@ export const deleteProduct = async (req, res) => {
   try {
     console.log('Delete product request received');
     
-    const userId = req.params?.userId || req.body.userId;
+    const userId = req.userId;
     const storeId = req.params.storeId;
     const productId = req.params.productId;
 
@@ -169,7 +169,7 @@ export const permanentDeleteProduct = async (req, res) => {
   session.startTransaction();
 
   try {
-    const userId = req.params?.userId || req.body.userId;
+    const userId = req.userId;
     const storeId = req.params.storeId;
     const productId = req.params.productId;
 

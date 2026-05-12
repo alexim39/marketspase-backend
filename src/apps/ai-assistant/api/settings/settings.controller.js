@@ -1,7 +1,7 @@
 import { AiAssistantSettingsService } from './../../service/settings/settings.service.js';
 
 const settingsService = new AiAssistantSettingsService();
-const getRequestUserId = (req) => req.userId || req.user?._id?.toString?.() || req.query?.userId || req.body?.userId || null;
+const getRequestUserId = (req) => req.userId || req.user?._id?.toString?.() || null;
 
 export class AiAssistantSettingsController {
   async getWhatsAppConnections(req, res, next) {

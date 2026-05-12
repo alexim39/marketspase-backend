@@ -7,8 +7,11 @@ import { withdrawRequest } from '../controllers/withdrawal/withdrawal.controller
 import { getVerifiedAccounts } from '../controllers/withdrawal/get-gerified-accounts.controller.js'
 import { verifyAndRecordPayment, verifyPaymentStatus } from '../controllers/verify-record-payment.controller.js'
 import { verifyBankAccount } from '../controllers/verify-bankacount.controller.js'
+import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 
 const IndexRouter = express.Router();
+
+IndexRouter.use(authenticate);
 
 // returnd paystck key
 IndexRouter.get('/resolve-account', verifyBankAccount);

@@ -4,6 +4,7 @@ import express from 'express';
 import { getPromotionDashboard } from '../../../controllers/promotion/get-promotion-dashboard.controller.js'
 import { getPromoterPromotions } from '../../../controllers/promotion/get-promoter-promotions.controller.js'
 import { createPromotion } from '../../../controllers/promotion/create-promotion.controller.js'
+import { authenticate } from '../../../../../shared/middleware/auth.middleware.js';
 
 import {
   trackProductView,
@@ -12,10 +13,10 @@ import {
 
 const router = express.Router();
 
-router.post('/create', createPromotion);
-router.get('/promoter', getPromoterPromotions);
+router.post('/create', authenticate, createPromotion);
+router.get('/promoter', authenticate, getPromoterPromotions);
 //router.get('/stats', getPromotionStats);
-router.get('/dashboard', getPromotionDashboard);
+router.get('/dashboard', authenticate, getPromotionDashboard);
 
 
 

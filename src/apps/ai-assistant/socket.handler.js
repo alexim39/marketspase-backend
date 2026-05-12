@@ -1,6 +1,43 @@
+import { resolveAccessToken } from '../../shared/middleware/auth.middleware.js';
+
+const extractSocketToken = (socket) => {
+  const authToken = socket.handshake.auth?.token;
+  if (authToken) {
+    return String(authToken).replace(/^Bearer\s+/i, '').trim();
+  }
+
+  const headerToken = socket.handshake.headers?.authorization;
+  if (headerToken?.startsWith?.('Bearer ')) {
+    return headerToken.slice('Bearer '.length).trim();
+  }
+
+  const queryToken = socket.handshake.query?.token;
+  if (queryToken) {
+    return String(queryToken).replace(/^Bearer\s+/i, '').trim();
+  }
+
+  return null;
+};
+
 export const setupSocketHandlers = (io) => {
+  io.use(async (socket, next) => {
+    try {
+      const token = extractSocketToken(socket);
+      if (!token) {
+        return next(new Error('Authentication required'));
+      }
+
+      const authContext = await resolveAccessToken(token);
+      socket.data.user = authContext.user;
+      socket.data.userId = authContext.user._id.toString();
+      next();
+    } catch (error) {
+      next(new Error(error.message || 'Authentication failed'));
+    }
+  });
+
   io.on('connection', (socket) => {
-    const { userId } = socket.handshake.query;
+    const userId = socket.data.userId;
     if (userId) {
       socket.join(`user:${userId}`);
     }

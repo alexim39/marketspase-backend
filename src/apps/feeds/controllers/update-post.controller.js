@@ -7,7 +7,8 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 // Update a feed post
 export const updateFeedPost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const { userId, content, hashtags } = req.body;
+  const { content, hashtags } = req.body;
+  const userId = req.userId;
 
   // Find the post
   const post = await FeedPostModel.findById(postId);

@@ -2,6 +2,12 @@ import { UserModel } from '../../user/models/user/index.js';
 import { ThreadModel } from './../models/thread/index.js';
 import { CommentModel } from '../models/comment/index.js';
 
+const getAuthenticatedForumUserId = (req) =>
+  req.userId || req.user?._id?.toString?.() || null;
+
+const isForumAdmin = (req) =>
+  req.user?.role === 'admin' || req.user?.type === 'admin';
+
 /**
  * @desc    Add a top-level comment to a thread
  * @route   POST /api/forum/threads/:threadId/comments
@@ -12,7 +18,8 @@ export const addCommentToThread = async (req, res) => {
     // const { threadId } = req.params;
     // const { content } = req.body;
     // const authorId = req.user.id;
-    const {threadId, content, authorId } = req.body;
+    const { threadId, content } = req.body;
+    const authorId = getAuthenticatedForumUserId(req);
 
     // Validate thread exists and isn't locked
     const thread = await ThreadModel.findById(threadId);
@@ -85,7 +92,8 @@ export const addCommentToThread = async (req, res) => {
 // In your backend controller
 export const addCommentReply = async (req, res) => {
   try {
-    const { content, authorId, commentId } = req.body; // Remove threadId from body
+    const { content, commentId } = req.body;
+    const authorId = getAuthenticatedForumUserId(req);
 
     // 1. Get parent comment and thread ID
     const parentComment = await CommentModel.findById(commentId);
@@ -141,7 +149,8 @@ export const addCommentReply = async (req, res) => {
  */
 export const toggleLikeComment = async (req, res) => {
   try {
-    const { commentId, userId } = req.body;
+    const { commentId } = req.body;
+    const userId = getAuthenticatedForumUserId(req);
 
     //console.log('Toggle like comment request:', { commentId, userId });
 
@@ -192,9 +201,10 @@ export const toggleLikeComment = async (req, res) => {
  * @desc    Get all comments for a thread
  * @route   GET /api/forum/threads/:threadId/comments
  */
- export const toggleLikeReply = async (req, res) => {
+export const toggleLikeReply = async (req, res) => {
   try {
-    const { replyId, userId } = req.body;
+    const { replyId } = req.body;
+    const userId = getAuthenticatedForumUserId(req);
 
     // Find the reply
     const reply = await CommentModel.findById(replyId);
@@ -370,7 +380,8 @@ export const deleteReply_soft = async (req, res) => {
 // This will remove the reply from the database and update the parent comment and thread counts
 export const deleteReply = async (req, res) => {
   try {
-    const { replyId, userId } = req.params;
+    const { replyId } = req.params;
+    const userId = getAuthenticatedForumUserId(req);
 
     if (!replyId) {
       return res.status(400).json({ 
@@ -399,7 +410,7 @@ export const deleteReply = async (req, res) => {
     }
 
     // Authorization check
-    if (!reply.author.equals(userId) && req.user.role !== 'admin') {
+    if (!reply.author.equals(userId) && !isForumAdmin(req)) {
       return res.status(403).json({ 
         success: false, 
         message: 'Not authorized to delete this reply' 
@@ -450,10 +461,11 @@ export const deleteReply = async (req, res) => {
 // This will remove the comment from the database and update the thread and user activity counts
 export const deleteComment = async (req, res) => {
   try {
-    const { commentId, userId } = req.params;
+    const { commentId } = req.params;
+    const userId = getAuthenticatedForumUserId(req);
 
     if (!commentId || !userId) {
-      return res.status(400).json({ success: false, message: 'Comment ID and User ID are required' });
+      return res.status(400).json({ success: false, message: 'Comment ID is required' });
     }
 
     // Find the comment
@@ -463,7 +475,7 @@ export const deleteComment = async (req, res) => {
     }
 
     // Check if the user is the author or an admin
-    if (!comment.author.equals(userId) && req.user.role !== 'admin') {
+    if (!comment.author.equals(userId) && !isForumAdmin(req)) {
       return res.status(403).json({ success: false, message: 'Not authorized to delete this comment' });
     }
 
@@ -503,7 +515,8 @@ export const deleteComment = async (req, res) => {
 export const updateComment = async (req, res) => {
   try {
     const { commentId } = req.params;
-    const { content, userId } = req.body; // userId passed in body (or from auth middleware)
+    const { content } = req.body;
+    const userId = getAuthenticatedForumUserId(req);
 
     // Find comment by ID
     const comment = await CommentModel.findById(commentId);

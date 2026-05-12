@@ -16,7 +16,6 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
   try {
     const {
       status,
-      userId,
       page = 1,
       limit = 20,
       sortBy = "createdAt",
@@ -25,6 +24,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       enforceTarget = "true",          // require enableTarget branch
       includeNonTargeted = "false",    // STRICT by default; caller can opt-in
     } = req.query;
+    const userId = req.userId;
 
     // ---- Validation ----
     if (!userId) {

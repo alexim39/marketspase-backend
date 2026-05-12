@@ -9,7 +9,7 @@ export const updateStore = async (req, res) => {
 
     
     const storeId = req.params.id;
-    const userId = req.body.userId; // Assuming user is authenticated via middleware
+    const userId = req.userId;
     
     if (!userId) {
       return res.status(401).json({

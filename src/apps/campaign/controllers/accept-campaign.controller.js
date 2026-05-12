@@ -121,7 +121,7 @@ export const acceptCampaign = async (req, res) => {
     try {
       await session.withTransaction(async () => {
         const { campaignId } = req.params;
-        const { userId } = req.body;
+        const userId = req.userId;
 
         const campaign = await CampaignModel.findById(campaignId)
           .session(session)
@@ -282,7 +282,7 @@ export const acceptCampaign = async (req, res) => {
 
       setImmediate(() => {
         UserModel.updateOne(
-          { _id: req.body.userId },
+          { _id: req.userId },
           { $set: { lastSeenAt: new Date() } }
         ).catch(err => console.error("lastSeenAt update failed:", err.message));
       });

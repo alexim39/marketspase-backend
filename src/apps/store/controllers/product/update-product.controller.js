@@ -17,7 +17,7 @@ export const updateProduct = async (req, res) => {
   try {
     //console.log('Update product request received');
     
-    const userId = req.params?.userId || req.body.userId;
+    const userId = req.userId;
     const storeId = req.params.storeId;
     const productId = req.params.productId;
 

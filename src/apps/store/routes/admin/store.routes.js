@@ -1,6 +1,7 @@
 import express from 'express';
 import { StoreController } from '../../controllers/admin/store.controller.js';
-//import { authenticate, authorize } from '../middleware/auth.js';
+import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
+import { requireAdmin } from '../../../../shared/middleware/authorization.middleware.js';
 
 const router = express.Router();
 
@@ -8,7 +9,8 @@ const router = express.Router();
 // router.get('/public/stores', StoreController.getPublicStores);
 
 // Protected routes - require authentication
-//router.use(authenticate);
+router.use(authenticate);
+router.use(requireAdmin);
 
 // Store management routes
 router.get('/stores',  StoreController.getStores);

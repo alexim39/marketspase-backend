@@ -7,7 +7,7 @@ import { isPromotionExpired, calculateTimeRemaining, calculateViewsNeeded, calcu
 export const GetPromotionById = async (req, res) => {
   try {
     const { id } = req.params;
-    const {userId} = req.params; // Assuming you have user authentication
+    const userId = req.userId;
 
     // Validate ID format
     if (!mongoose.Types.ObjectId.isValid(id)) {

@@ -7,6 +7,8 @@ import { CampaignModel } from "../../campaign/models/campaign.model.js"; // Add 
 import { PromotionModel } from "../../promotion/models/promotion.model.js"; // Add this import
 // import referral service for processing referrals
 import { ReferralService } from './../../user/services/referral.service.js';
+import { ensureUidSelfOrAdmin } from '../../../shared/utils/request-auth.util.js';
+import { verifyFirebaseIdentityToken } from '../../../shared/middleware/auth.middleware.js';
 const referralService = new ReferralService();
 
 
@@ -32,22 +34,27 @@ const logActivitySafe = async (userId, activity) => {
 // Authenticate/Verify Usery
 export const Authenticate = async (req, res) => {
   try {
-    const { firebaseUser } = req.body;
+    const { firebaseUser = {}, idToken } = req.body;
 
     // 1. Validate Input
-    if (!firebaseUser || !firebaseUser.uid) {
-      return res.status(400).json({ success: false, message: "Missing Firebase user data" });
+    if (!idToken) {
+      return res.status(401).json({ success: false, message: "Missing Firebase identity token" });
     }
 
+    const decodedToken = await verifyFirebaseIdentityToken(idToken);
     const {
-      uid,
-      displayName,
-      email,
-      photoURL,
+      uid = decodedToken.uid,
+      displayName = decodedToken.name || firebaseUser.displayName,
+      email = decodedToken.email || firebaseUser.email,
+      photoURL = decodedToken.picture || firebaseUser.photoURL,
       providerData,
       referralCode = null,
       userDevice = null,
     } = firebaseUser;
+
+    if (!uid) {
+      return res.status(400).json({ success: false, message: "Missing Firebase user data" });
+    }
 
     const authProvider = providerData?.[0]?.providerId || 'local';
 
@@ -143,6 +150,9 @@ export const Authenticate = async (req, res) => {
 
   } catch (error) {
     console.error("Auth Error:", error);
+    if (error.code?.startsWith?.('auth/')) {
+      return res.status(401).json({ success: false, message: "Invalid or expired Firebase session." });
+    }
     if (error.code === 11000) {
       return res.status(409).json({ success: false, message: "Duplicate email or username." });
     }
@@ -335,6 +345,10 @@ export const GetUser = async (req, res) => {
     const { uid } = req.params;
     if (!uid) {
       return res.status(400).json({ success: false, message: "User ID (UID) is required." });
+    }
+
+    if (!ensureUidSelfOrAdmin(req, uid, res, "You are not authorized to access this user record")) {
+      return;
     }
 
     // 2) Derive safe limits

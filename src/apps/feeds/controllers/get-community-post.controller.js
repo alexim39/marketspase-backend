@@ -5,7 +5,8 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 
 // Get community feed posts with proper pagination
 export const getCommunityFeed = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, userId, type, hashtag, search } = req.query;
+  const { page = 1, limit = 20, type, hashtag, search } = req.query;
+  const userId = req.userId || null;
 
   const pageNum = parseInt(page);
   const limitNum = parseInt(limit);

@@ -16,7 +16,7 @@ export const permanentDeleteStore = async (req, res) => {
   session.startTransaction();
 
   try {
-    const userId = req.params?.userId || req.body.userId;
+    const userId = req.userId;
     const storeId = req.params.storeId;
 
     if (!userId || !storeId) {

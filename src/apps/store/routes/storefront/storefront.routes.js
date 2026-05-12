@@ -16,6 +16,8 @@ import { getProductById } from '../../controllers/storefront/get-product-by-id.c
 import { getProductReviews } from '../../controllers/storefront/get-product-reviews.controller.js'
 import { getRelatedProducts } from '../../controllers/storefront/get-related-products.controller.js'
 import { getStoreById } from '../../controllers/storefront/get-store-by-id.controller.js'
+import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
+import { requireAdmin } from '../../../../shared/middleware/authorization.middleware.js';
 import {
   confirmStorefrontDelivery,
   confirmStorefrontPayment,
@@ -41,14 +43,14 @@ router.get('/products/:productId/related', getRelatedProducts);
 
 // 2b. Storefront checkout and order lifecycle
 router.post('/orders', createStorefrontOrder);
-router.get('/orders/release-requests', getStorefrontReleaseRequests);
-router.get('/orders/store/:storeId', getStoreOrders);
-router.get('/orders/marketer/:marketerId', getMarketerOrders);
-router.get('/orders/promoter/:promoterId', getPromoterOrders);
+router.get('/orders/release-requests', authenticate, requireAdmin, getStorefrontReleaseRequests);
+router.get('/orders/store/:storeId', authenticate, getStoreOrders);
+router.get('/orders/marketer/:marketerId', authenticate, getMarketerOrders);
+router.get('/orders/promoter/:promoterId', authenticate, getPromoterOrders);
 router.get('/orders/:orderId', getStorefrontOrder);
 router.post('/orders/:orderId/confirm-payment', confirmStorefrontPayment);
-router.post('/orders/:orderId/confirm-delivery', confirmStorefrontDelivery);
-router.post('/orders/:orderId/release-review', reviewStorefrontDeliveryRelease);
+router.post('/orders/:orderId/confirm-delivery', authenticate, confirmStorefrontDelivery);
+router.post('/orders/:orderId/release-review', authenticate, requireAdmin, reviewStorefrontDeliveryRelease);
 
 // 3. Specific Store Routes
 router.get('/store/:storeId', getStoreById);

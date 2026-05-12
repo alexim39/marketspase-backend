@@ -8,8 +8,12 @@ import { UserModel } from './../models/user/index.js';
 // switch-user.controller.js
 export const SwitchUser = async (req, res) => {
   try {
-    const { userId, role } = req.body;
-    if (!userId) return res.status(400).json({ success: false, message: 'userId is required in the request body.' });
+    const userId = req.userId;
+    const { role } = req.body;
+    if (!userId) return res.status(401).json({ success: false, message: 'Authentication required.' });
+    if (!['promoter', 'marketer', 'marketing_rep'].includes(role)) {
+      return res.status(400).json({ success: false, message: 'Invalid target role.' });
+    }
 
     const user = await UserModel.findById(userId);
     if (!user) return res.status(404).json({ success: false, message: 'User not found.' });

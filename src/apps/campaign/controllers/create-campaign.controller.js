@@ -14,7 +14,6 @@ export const createCampaign = async (req, res) => {
   try {
     const campaign = await session.withTransaction(async () => {
       const {
-        owner,
         title,
         caption,
         link,
@@ -37,6 +36,7 @@ export const createCampaign = async (req, res) => {
         hasEndDate,
         ageTarget = "all",
       } = req.body;
+      const owner = req.userId;
 
       console.log("Received campaign creation request with body:", req.body);
       console.log("Received campaign creation request with params:", req.params);

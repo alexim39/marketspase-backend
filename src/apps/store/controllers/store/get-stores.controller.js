@@ -3,7 +3,7 @@ import { StoreModel } from '../../models/store/index.js';
 export const getUserStores = async (req, res) => {
      try {
         //console.log('Get user stores request query:', req.query);
-        const userId = req.query.userId;
+        const userId = req.userId;
         
         const stores = await StoreModel.find({ owner: userId })
         .select('-__v')

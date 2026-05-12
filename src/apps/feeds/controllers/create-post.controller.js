@@ -8,7 +8,8 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 // Create feed post
 // Create campaign update post (for marketers)
 export const createFeedPost = asyncHandler(async (req, res) => {
-  const { content, campaignId, hashtags, userId, settings } = req.body;
+  const { content, campaignId, hashtags, settings } = req.body;
+  const userId = req.userId;
 
   // Get user details
   const user = await UserModel.findById(userId).select('username displayName avatar role activitySettings activityLog');

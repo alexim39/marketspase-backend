@@ -7,7 +7,7 @@ export const setDefaultStore = async (req, res) => {
   
   try {
     const { storeId } = req.params;
-    const userId = req.body.userId; // Assuming user is authenticated and user info is in req.user
+    const userId = req.userId;
 
     // 1. Validate the store exists and belongs to the user
     const store = await StoreModel.findOne({

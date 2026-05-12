@@ -6,7 +6,8 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 
 export const addComment = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const { content, parentCommentId, userId } = req.body;
+  const { content, parentCommentId } = req.body;
+  const userId = req.userId;
 
   const post = await FeedPostModel.findById(postId);
   if (!post) throw new ApiError(404, 'Post not found');

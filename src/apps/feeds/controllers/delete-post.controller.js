@@ -9,7 +9,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 // Delete (archive) a feed post
 export const deleteFeedPost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const { userId } = req.query;
+  const userId = req.userId;
 
   const post = await FeedPostModel.findById(postId);
   if (!post) {

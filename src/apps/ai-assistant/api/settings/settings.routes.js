@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { AiAssistantSettingsController } from './settings.controller.js';
-//import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
+import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 import { validate } from '../../../../shared/middleware/validation.middleware.js';
 import {
   addWhatsAppSchema,
@@ -16,7 +16,7 @@ const router = Router();
 const ctrl = new AiAssistantSettingsController();
 
 // CRITICAL FIX: Apply authentication to ALL settings routes
-//router.use(authenticate);
+router.use(authenticate);
 
 // WhatsApp connections
 router.get('/whatsapp', ctrl.getWhatsAppConnections.bind(ctrl));
