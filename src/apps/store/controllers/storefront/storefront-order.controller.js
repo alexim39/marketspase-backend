@@ -7,6 +7,7 @@ import { InventoryHistoryModel, ProductModel, PromotionTrackingModel } from "../
 import { StoreModel } from "../../models/store/index.js";
 import { StoreCustomerModel } from "../../models/store-customer/index.js";
 import { UserModel } from "../../../user/models/user/index.js";
+import { evaluateUserBadges } from "../../../badges/service/badge.service.js";
 import { sendEmail } from "../../../../core/email.service.js";
 import {
   calculateCommissionForAmount,
@@ -362,6 +363,25 @@ export const confirmStorefrontPayment = async (req, res) => {
     sendStorefrontPaymentNotifications(populatedOrder || order, payment).catch((emailError) => {
       console.error("Storefront order notification error:", emailError);
     });
+
+    const badgeUserIds = new Set();
+    if ((populatedOrder || order)?.marketer) {
+      badgeUserIds.add(toIdString((populatedOrder || order).marketer));
+    }
+    ((populatedOrder || order)?.items || []).forEach((item) => {
+      if (item?.promoterId) {
+        badgeUserIds.add(toIdString(item.promoterId));
+      }
+    });
+
+    await Promise.allSettled(
+      [...badgeUserIds]
+        .filter(Boolean)
+        .map((id) => evaluateUserBadges(id, {
+          force: true,
+          trigger: 'storefront_payment_confirmed',
+        }))
+    );
 
     return res.status(200).json({
       success: true,

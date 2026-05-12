@@ -7,6 +7,7 @@ import { sendEmail } from "../../../core/email.service.js";
 import { adminCampaignApprovalTemplate } from "../services/email/adminCampaignApprovalTemplate.js";
 import { buildVideoThumbnailUrl } from "../services/thumbnail-generator.service.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
+import { evaluateUserBadges } from "../../badges/service/badge.service.js";
 
 export const createCampaign = async (req, res) => {
   const session = await mongoose.startSession();
@@ -191,6 +192,13 @@ export const createCampaign = async (req, res) => {
         category: campaign.category
       })
     }).catch(err => console.error("Email send failed:", err));
+
+    await evaluateUserBadges(req.userId, {
+      force: true,
+      trigger: 'campaign_created',
+    }).catch((badgeError) => {
+      console.error("Badge evaluation after campaign creation failed:", badgeError);
+    });
 
     return res.status(201).json({
       success: true,

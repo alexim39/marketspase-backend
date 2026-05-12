@@ -20,6 +20,7 @@ export const NOTIFICATION_TYPE = {
   // User related
   LOW_BALANCE: 'low_balance',
   BIRTHDAY_GREETING: 'birthday_greeting',
+  BADGE_UNLOCKED: 'badge_unlocked',
   
   // Reminders
   REMINDER: 'reminder',
@@ -96,6 +97,7 @@ export const NOTIFICATION_TITLES = {
   [NOTIFICATION_TYPE.CAMPAIGN_COMPLETED]: 'Campaign Completed',
   [NOTIFICATION_TYPE.LOW_BALANCE]: 'Low Balance Alert',
   [NOTIFICATION_TYPE.BIRTHDAY_GREETING]: 'Happy Birthday!',
+  [NOTIFICATION_TYPE.BADGE_UNLOCKED]: 'New Badge Unlocked',
   [NOTIFICATION_TYPE.REMINDER]: 'Reminder',
   [NOTIFICATION_TYPE.SUBMISSION_REMINDER]: 'Submission Reminder',
   [NOTIFICATION_TYPE.DEADLINE_REMINDER]: 'Deadline Reminder',
@@ -117,5 +119,6 @@ export const ACTION_URLS = {
   [NOTIFICATION_TYPE.CAMPAIGN_REJECTED]: (id) => `/marketer/campaigns/${id}`,
   [NOTIFICATION_TYPE.CAMPAIGN_COMPLETED]: (id) => `/marketer/campaigns/${id}`,
   [NOTIFICATION_TYPE.LOW_BALANCE]: () => '/wallet/fund',
+  [NOTIFICATION_TYPE.BADGE_UNLOCKED]: () => '/profile',
   [NOTIFICATION_TYPE.WEEKLY_SUMMARY]: () => '/dashboard'
 };

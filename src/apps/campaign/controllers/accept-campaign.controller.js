@@ -5,6 +5,7 @@ import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { logUserActivity } from "../../user/services/activity.service.js";
 import { generateUniqueUpi } from "../../promotion/utils/generateUniqueUpi.js";
+import { evaluateUserBadges } from "../../badges/service/badge.service.js";
 
 const MAX_TX_RETRIES = 5;
 const MAX_ACCEPTS_PER_CAMPAIGN_PER_USER = Number(process.env.MAX_ACCEPTS_PER_CAMPAIGN_PER_USER ?? 3);
@@ -285,6 +286,13 @@ export const acceptCampaign = async (req, res) => {
           { _id: req.userId },
           { $set: { lastSeenAt: new Date() } }
         ).catch(err => console.error("lastSeenAt update failed:", err.message));
+      });
+
+      await evaluateUserBadges(req.userId, {
+        force: true,
+        trigger: txResult.alreadyAccepted ? 'campaign_accept_refresh' : 'campaign_accepted',
+      }).catch((badgeError) => {
+        console.error("Badge evaluation after campaign acceptance failed:", badgeError);
       });
 
       return res.json({

@@ -1,6 +1,7 @@
 import { FeedPostModel } from '../models/feed/index.js';
 import { UserModel } from '../../user/models/user/index.js';
 import { CampaignModel } from '../../campaign/models/index.js';
+import { evaluateUserBadges } from '../../badges/service/badge.service.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -69,6 +70,13 @@ export const createFeedPost = asyncHandler(async (req, res) => {
   await user.logActivity('campaign_update', `Created an update for campaign: ${campaign.title}`, {
     resourceId: post._id,
     metadata: { campaignId: campaign._id }
+  });
+
+  await evaluateUserBadges(userId, {
+    force: true,
+    trigger: 'community_post_created'
+  }).catch((badgeError) => {
+    console.error('Badge evaluation after community post creation failed:', badgeError);
   });
 
   return res.status(201).json(

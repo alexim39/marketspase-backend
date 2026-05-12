@@ -207,6 +207,27 @@ export class NotificationService {
     });
   }
 
+  static async createBadgeUnlockedNotification(userId, badge) {
+    return this.createNotification({
+      recipient: userId,
+      type: 'badge_unlocked',
+      title: 'New Badge Unlocked',
+      message: `You unlocked "${badge.titleSnapshot}". Nice work keeping the momentum up.`,
+      data: {
+        actionUrl: '/profile',
+        metadata: {
+          badgeId: badge._id,
+          badgeKey: badge.badgeKey,
+          badgeTitle: badge.titleSnapshot,
+          badgeIcon: badge.iconSnapshot,
+          badgeColor: badge.accentColorSnapshot,
+          experiencePoints: badge.rewardSnapshot?.experiencePoints || 0,
+        },
+      },
+      priority: 'medium',
+    });
+  }
+
   static async markAsRead(notificationId, userId) {
     return NotificationModel.findOneAndUpdate(
       { _id: notificationId, recipient: userId },

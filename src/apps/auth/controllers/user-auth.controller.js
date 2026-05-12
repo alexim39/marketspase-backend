@@ -397,6 +397,8 @@ export const GetUser = async (req, res) => {
           // Saved payout accounts / notification settings (if needed in UI)
           savedAccounts: 1,
           notificationSettings: 1,
+          loginStreak: 1,
+          badgeProfile: 1,
 
           // Cap activityLog to keep payload light (optional)
           activityLog: { $slice: ['$activityLog', 100] },
