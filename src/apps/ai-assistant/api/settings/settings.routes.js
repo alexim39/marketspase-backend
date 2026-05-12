@@ -21,6 +21,7 @@ const ctrl = new AiAssistantSettingsController();
 // WhatsApp connections
 router.get('/whatsapp', ctrl.getWhatsAppConnections.bind(ctrl));
 router.post('/whatsapp', validate(addWhatsAppSchema), ctrl.addWhatsAppConnection.bind(ctrl));
+router.post('/whatsapp/config', ctrl.saveWhatsAppConfig.bind(ctrl));
 router.delete('/whatsapp', validate(removeWhatsAppSchema), ctrl.removeWhatsAppConnection.bind(ctrl));
 router.put('/whatsapp/toggle-ai', validate(toggleAiSchema), ctrl.toggleAIForConnection.bind(ctrl));
 router.post('/whatsapp/reconnect', validate(reconnectSchema), ctrl.reconnectConnection.bind(ctrl));

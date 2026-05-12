@@ -1,12 +1,15 @@
 import nodemailer from 'nodemailer';
 
+const emailUser = process.env.EMAIL_USER || 'alex.i@marketspase.com';
+const emailFrom = process.env.EMAIL_FROM || `"MarketSpase" <${emailUser}>`;
+
 // Create Nodemailer transporter
 const transporter = nodemailer.createTransport({
-  host: 'marketspase.com',
-  secure: true,
-  port: 465,
+  host: process.env.EMAIL_HOST || 'marketspase.com',
+  secure: process.env.EMAIL_SECURE ? process.env.EMAIL_SECURE === 'true' : true,
+  port: Number(process.env.EMAIL_PORT || 465),
   auth: {
-    user: 'alex.i@marketspase.com', // your email
+    user: emailUser,
     pass: process.env.EMAILPASS, // stored in environment variables
   },
 });
@@ -15,7 +18,7 @@ const transporter = nodemailer.createTransport({
 export const sendEmail = async (email, subject, htmlContent) => {
   try {
     await transporter.sendMail({
-      from: '"MarketSpase" <noreply@marketspase.com>', // Sender email
+      from: emailFrom,
       to: email,
       subject: subject,
       html: htmlContent,

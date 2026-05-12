@@ -115,8 +115,9 @@ export const setupOrderStatics = (schema) => {
     }
     
     const orders = await this.find(query)
-      .populate('store', 'name logo')
-      .populate('customer', 'username displayName')
+      .populate('store', 'name logo storeLink')
+      .populate('customer', 'username displayName email')
+      .populate('items.product', 'name images price')
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip(skip);
@@ -133,13 +134,18 @@ export const setupOrderStatics = (schema) => {
           totalOrders: { $sum: 1 },
           paidEarnings: { 
             $sum: { 
-              $cond: ['$commissionPaid', '$items.commissionEarned', 0] 
+              $cond: [{ $eq: ['$escrowStatus', 'released'] }, '$items.commissionEarned', 0]
             } 
           },
           pendingEarnings: { 
             $sum: { 
-              $cond: ['$commissionPaid', 0, '$items.commissionEarned'] 
+              $cond: [{ $eq: ['$escrowStatus', 'released'] }, 0, '$items.commissionEarned']
             } 
+          },
+          pendingReleaseRequests: {
+            $sum: {
+              $cond: [{ $eq: ['$releaseRequest.status', 'requested'] }, 1, 0]
+            }
           }
         }
       }
@@ -153,7 +159,8 @@ export const setupOrderStatics = (schema) => {
         totalEarnings: 0,
         totalOrders: 0,
         paidEarnings: 0,
-        pendingEarnings: 0
+        pendingEarnings: 0,
+        pendingReleaseRequests: 0
       },
       pagination: {
         total,

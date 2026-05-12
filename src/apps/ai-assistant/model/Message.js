@@ -20,6 +20,14 @@ const messageSchema = new mongoose.Schema(
       enum: ['customer', 'ai', 'faq', 'agent'],
       default: 'customer',
     },
+    metadata: {
+      confidence: Number,
+      matchedFaqId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Faq',
+      },
+      actionType: String,
+    },
     messageSid: { type: String, index: true },
     timestamp: { type: Date, default: Date.now },
   },

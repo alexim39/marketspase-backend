@@ -340,8 +340,8 @@ export const confirmStorefrontPayment = async (req, res) => {
       console.error("Storefront customer capture error:", customerError);
     });
 
-    sendStorefrontOrderEmail(populatedOrder || order, payment).catch((emailError) => {
-      console.error("Storefront order email error:", emailError);
+    sendStorefrontPaymentNotifications(populatedOrder || order, payment).catch((emailError) => {
+      console.error("Storefront order notification error:", emailError);
     });
 
     return res.status(200).json({
@@ -381,7 +381,13 @@ export const confirmStorefrontDelivery = async (req, res) => {
 
   try {
     const { orderId } = req.params;
-    const { userId, role } = req.body;
+    const {
+      userId,
+      role,
+      note,
+      deliveryStatus = "delivered",
+      buyerReceived = false,
+    } = req.body;
 
     if (!userId) {
       await session.abortTransaction();
@@ -404,34 +410,188 @@ export const confirmStorefrontDelivery = async (req, res) => {
     }
 
     const confirmationRole = resolveDeliveryConfirmationRole(order, userId, role);
-    if (!confirmationRole) {
+    if (!confirmationRole || confirmationRole === "admin" || confirmationRole === "customer") {
       await session.abortTransaction();
       return res.status(403).json({
         success: false,
-        message: "Only the marketer, attributed promoter, or customer can confirm delivery",
+        message: "Only the marketer or attributed promoter can request delivery release review",
       });
     }
 
-    await releaseOrderEscrow(order, userId, confirmationRole, session);
+    order.releaseRequest = {
+      status: "requested",
+      requestedBy: userId,
+      requestedByRole: confirmationRole,
+      requestedAt: new Date(),
+      deliveryStatus,
+      buyerReceived: Boolean(buyerReceived),
+      note: normalizeString(note),
+    };
+    order.orderStatus = deliveryStatus === "shipped" ? ORDER_STATUS.SHIPPED : order.orderStatus;
+    if (deliveryStatus === "delivered" || deliveryStatus === "received") {
+      order.deliveredAt = order.deliveredAt || new Date();
+    }
+
+    await order.save({ session });
     await session.commitTransaction();
+
+    const populatedOrder = await fetchPopulatedOrder(order._id);
+    notifyAdminsOfReleaseRequest(populatedOrder || order).catch((emailError) => {
+      console.error("Release request admin notification error:", emailError);
+    });
 
     return res.status(200).json({
       success: true,
-      message: "Delivery confirmed and reserved funds released",
+      message: "Delivery release request submitted for admin review",
       data: {
-        order,
+        order: populatedOrder || order,
       },
     });
   } catch (error) {
     await session.abortTransaction();
-    console.error("Confirm storefront delivery error:", error);
+    console.error("Request storefront delivery release error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to confirm delivery",
+      message: "Failed to submit delivery release request",
       error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   } finally {
     session.endSession();
+  }
+};
+
+export const reviewStorefrontDeliveryRelease = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { orderId } = req.params;
+    const { adminId, decision, note } = req.body;
+
+    if (!adminId || !["approved", "rejected"].includes(decision)) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "adminId and decision (approved/rejected) are required",
+      });
+    }
+
+    const admin = await UserModel.findById(adminId).select("role email displayName username").session(session);
+    if (!admin || admin.role !== "admin") {
+      await session.abortTransaction();
+      return res.status(403).json({ success: false, message: "Only admins can review release requests" });
+    }
+
+    const order = await OrderModel.findById(orderId).session(session);
+    depopulateDocument(order, ['store', 'customer', 'items.product', 'items.promoterId']);
+    if (!order || order.isDeleted) {
+      await session.abortTransaction();
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    if (order.paymentStatus !== ORDER_PAYMENT_STATUS.PAID || order.escrowStatus !== "held") {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: "Only paid orders with held escrow can be reviewed for release",
+      });
+    }
+
+    if (order.releaseRequest?.status !== "requested") {
+      await session.abortTransaction();
+      return res.status(400).json({ success: false, message: "This order has no pending release request" });
+    }
+
+    order.releaseRequest.reviewedBy = admin._id;
+    order.releaseRequest.reviewedAt = new Date();
+    order.releaseRequest.reviewNote = normalizeString(note);
+
+    if (decision === "approved") {
+      order.releaseRequest.status = "approved";
+      await releaseOrderEscrow(order, admin._id, "admin", session);
+    } else {
+      order.releaseRequest.status = "rejected";
+      await order.save({ session });
+    }
+
+    await session.commitTransaction();
+
+    const populatedOrder = await fetchPopulatedOrder(order._id);
+    sendReleaseReviewNotifications(populatedOrder || order, decision).catch((emailError) => {
+      console.error("Release review notification error:", emailError);
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: decision === "approved"
+        ? "Funds released from reserve to balances"
+        : "Release request rejected",
+      data: { order: populatedOrder || order },
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Review storefront delivery release error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to review delivery release request",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+export const getStorefrontReleaseRequests = async (req, res) => {
+  try {
+    const { adminId, status = "requested", limit = 30, skip = 0 } = req.query;
+
+    if (adminId) {
+      const admin = await UserModel.findById(adminId).select("role");
+      if (!admin || admin.role !== "admin") {
+        return res.status(403).json({ success: false, message: "Only admins can view release requests" });
+      }
+    }
+
+    const query = {
+      isDeleted: false,
+      paymentStatus: ORDER_PAYMENT_STATUS.PAID,
+    };
+    if (status && status !== "all") {
+      query["releaseRequest.status"] = status;
+    } else {
+      query["releaseRequest.status"] = { $in: ["requested", "approved", "rejected"] };
+    }
+
+    const [orders, total] = await Promise.all([
+      OrderModel.find(query)
+        .populate('store', 'name logo storeLink owner')
+        .populate('marketer', 'displayName username email')
+        .populate('customer', 'displayName username email')
+        .populate('items.product', 'name images price')
+        .populate('items.promoterId', 'displayName username email')
+        .populate('releaseRequest.requestedBy', 'displayName username email role')
+        .populate('releaseRequest.reviewedBy', 'displayName username email role')
+        .sort({ 'releaseRequest.requestedAt': -1, createdAt: -1 })
+        .limit(parseInt(limit, 10))
+        .skip(parseInt(skip, 10)),
+      OrderModel.countDocuments(query)
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        orders,
+        pagination: {
+          total,
+          limit: parseInt(limit, 10),
+          skip: parseInt(skip, 10),
+          hasMore: parseInt(skip, 10) + orders.length < total,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get storefront release requests error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch release requests" });
   }
 };
 
@@ -502,6 +662,84 @@ export const getPromoterOrders = async (req, res) => {
   } catch (error) {
     console.error("Get promoter orders error:", error);
     return res.status(500).json({ success: false, message: "Failed to fetch promoter orders" });
+  }
+};
+
+export const getMarketerOrders = async (req, res) => {
+  try {
+    const { marketerId } = req.params;
+    const { limit = 20, skip = 0, status, escrowStatus } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(marketerId)) {
+      return res.status(400).json({ success: false, message: "Invalid marketer ID" });
+    }
+
+    const query = {
+      marketer: marketerId,
+      isDeleted: false,
+    };
+    if (status) query.orderStatus = status;
+    if (escrowStatus) query.escrowStatus = escrowStatus;
+
+    const [orders, total, stats] = await Promise.all([
+      OrderModel.find(query)
+        .populate('store', 'name logo storeLink owner')
+        .populate('customer', 'displayName username email')
+        .populate('items.product', 'name images price')
+        .populate('items.promoterId', 'displayName username email')
+        .sort({ createdAt: -1 })
+        .limit(parseInt(limit, 10))
+        .skip(parseInt(skip, 10)),
+      OrderModel.countDocuments(query),
+      OrderModel.aggregate([
+        { $match: { marketer: new mongoose.Types.ObjectId(marketerId), isDeleted: false } },
+        {
+          $group: {
+            _id: null,
+            totalOrders: { $sum: 1 },
+            totalRevenue: { $sum: '$totalAmount' },
+            reservedRevenue: {
+              $sum: {
+                $cond: [{ $eq: ['$escrowStatus', 'held'] }, '$marketerReservedAmount', 0]
+              }
+            },
+            releasedRevenue: {
+              $sum: {
+                $cond: [{ $eq: ['$escrowStatus', 'released'] }, '$marketerReservedAmount', 0]
+              }
+            },
+            pendingReleaseRequests: {
+              $sum: {
+                $cond: [{ $eq: ['$releaseRequest.status', 'requested'] }, 1, 0]
+              }
+            }
+          }
+        }
+      ])
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        orders,
+        stats: stats[0] || {
+          totalOrders: 0,
+          totalRevenue: 0,
+          reservedRevenue: 0,
+          releasedRevenue: 0,
+          pendingReleaseRequests: 0,
+        },
+        pagination: {
+          total,
+          limit: parseInt(limit, 10),
+          skip: parseInt(skip, 10),
+          hasMore: parseInt(skip, 10) + orders.length < total,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get marketer orders error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch marketer orders" });
   }
 };
 
@@ -681,17 +919,156 @@ async function recordStoreCustomerLead(order, session) {
   );
 }
 
-async function sendStorefrontOrderEmail(order, payment) {
+async function sendStorefrontPaymentNotifications(order, payment) {
   const buyer = getOrderBuyer(order);
-  if (!buyer.email) return;
+  const emails = [];
 
-  const subject = `Your MarketSpase order ${order.orderNumber || ""} is confirmed`;
-  await sendEmail(buyer.email, subject, buildStorefrontOrderEmail(order, payment, buyer));
+  if (buyer.email) {
+    emails.push(sendEmail(
+      buyer.email,
+      `Your MarketSpase order ${order.orderNumber || ""} is confirmed`,
+      buildStorefrontOrderEmail(order, payment, buyer)
+    ));
+  }
+
+  const marketer = getOrderMarketer(order);
+  if (marketer?.email) {
+    emails.push(sendEmail(
+      marketer.email,
+      `New storefront sale: ${order.orderNumber || "MarketSpase order"}`,
+      buildMarketerSaleEmail(order, payment, buyer, marketer)
+    ));
+  }
+
+  for (const promoter of getPromoterSaleRecipients(order)) {
+    emails.push(sendEmail(
+      promoter.email,
+      `Affiliate sale recorded: ${order.orderNumber || "MarketSpase order"}`,
+      buildPromoterSaleEmail(order, payment, promoter)
+    ));
+  }
+
+  await Promise.all(emails);
 }
 
 function buildStorefrontOrderEmail(order, payment, buyer) {
   const storeName = order.store?.name || "MarketSpase Store";
-  const rows = (order.items || []).map((item) => {
+  const rows = buildOrderRows(order);
+
+  return `
+    <div style="font-family:Arial,sans-serif;background:#f9fafb;padding:24px;color:#111827;">
+      <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+        <div style="background:#667eea;color:#ffffff;padding:24px;">
+          <h1 style="margin:0;font-size:24px;">Order confirmed</h1>
+          <p style="margin:8px 0 0;">Thanks ${escapeHtml(buyer.fullName || "there")}. Your payment has been received for ${escapeHtml(storeName)}.</p>
+        </div>
+        <div style="padding:24px;">
+          <p style="margin:0 0 16px;">Order <strong>${escapeHtml(order.orderNumber || "")}</strong> is paid and held safely until delivery is reviewed and approved by MarketSpase admin.</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+            <thead>
+              <tr>
+                <th style="padding:12px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
+                <th style="padding:12px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
+                <th style="padding:12px;text-align:right;border-bottom:1px solid #e5e7eb;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div style="background:#f3f4f6;border-radius:8px;padding:16px;margin:16px 0;">
+            <p style="margin:0 0 8px;"><strong>Total:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
+            <p style="margin:0 0 8px;"><strong>Payment reference:</strong> ${escapeHtml(payment?.transactionReference || order.paymentReference || "")}</p>
+            <p style="margin:0;"><strong>Delivery phone:</strong> ${escapeHtml(buyer.phone || order.shippingAddress?.phone || "")}</p>
+          </div>
+          <p style="color:#4b5563;margin:0 0 8px;">The store will use your checkout details for delivery follow-up and order updates.</p>
+          <p style="color:#4b5563;margin:0;">When delivery is completed, MarketSpase will review the delivery release request before reserved funds are moved to the seller and promoter balances.</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildMarketerSaleEmail(order, payment, buyer, marketer) {
+  const rows = buildOrderRows(order);
+  const address = order.shippingAddress || {};
+  return `
+    <div style="font-family:Arial,sans-serif;background:#f9fafb;padding:24px;color:#111827;">
+      <div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+        <div style="background:#111827;color:#ffffff;padding:24px;">
+          <h1 style="margin:0;font-size:24px;">New storefront sale</h1>
+          <p style="margin:8px 0 0;">Hello ${escapeHtml(marketer.displayName || marketer.username || "there")}, order ${escapeHtml(order.orderNumber || "")} is paid and ready for processing.</p>
+        </div>
+        <div style="padding:24px;">
+          <p style="margin:0 0 16px;">Funds are now held in your reserved balance until delivery is vetted by MarketSpase admin.</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+            <thead>
+              <tr>
+                <th style="padding:12px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
+                <th style="padding:12px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
+                <th style="padding:12px;text-align:right;border-bottom:1px solid #e5e7eb;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div style="background:#f3f4f6;border-radius:8px;padding:16px;margin:16px 0;">
+            <p style="margin:0 0 8px;"><strong>Buyer:</strong> ${escapeHtml(buyer.fullName || "Customer")} (${escapeHtml(buyer.email || "")})</p>
+            <p style="margin:0 0 8px;"><strong>Phone:</strong> ${escapeHtml(buyer.phone || "")}</p>
+            <p style="margin:0 0 8px;"><strong>Delivery address:</strong> ${escapeHtml([address.street, address.city, address.state, address.country].filter(Boolean).join(", "))}</p>
+            <p style="margin:0 0 8px;"><strong>Total paid:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
+            <p style="margin:0;"><strong>Your reserved amount:</strong> ${formatMoney(order.marketerReservedAmount, order.currency)}</p>
+          </div>
+          <p style="color:#4b5563;margin:0;">Begin fulfilment and submit a delivery release request from your MarketSpase orders page after delivery is completed.</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildPromoterSaleEmail(order, payment, promoter) {
+  const items = promoter.items || [];
+  const rows = items.map((item) => `
+    <tr>
+      <td style="padding:12px;border-bottom:1px solid #e5e7eb;">
+        <strong>${escapeHtml(item.product?.name || "Product")}</strong>
+        ${item.trackingCode ? `<div style="color:#667eea;font-size:12px;margin-top:4px;">Tracking code: ${escapeHtml(item.trackingCode)}</div>` : ""}
+      </td>
+      <td style="padding:12px;border-bottom:1px solid #e5e7eb;text-align:center;">${item.quantity}</td>
+      <td style="padding:12px;border-bottom:1px solid #e5e7eb;text-align:right;">${formatMoney(item.commissionEarned, order.currency)}</td>
+    </tr>
+  `).join("");
+
+  return `
+    <div style="font-family:Arial,sans-serif;background:#f9fafb;padding:24px;color:#111827;">
+      <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+        <div style="background:#16a34a;color:#ffffff;padding:24px;">
+          <h1 style="margin:0;font-size:24px;">Your promotion made a sale</h1>
+          <p style="margin:8px 0 0;">Nice work, ${escapeHtml(promoter.displayName || promoter.username || "there")}. A buyer purchased through your affiliate link.</p>
+        </div>
+        <div style="padding:24px;">
+          <p style="margin:0 0 16px;">Your commission is held in reserved balance until delivery is reviewed by MarketSpase admin.</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+            <thead>
+              <tr>
+                <th style="padding:12px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
+                <th style="padding:12px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
+                <th style="padding:12px;text-align:right;border-bottom:1px solid #e5e7eb;">Commission</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div style="background:#f0fdf4;border-radius:8px;padding:16px;margin:16px 0;">
+            <p style="margin:0 0 8px;"><strong>Order:</strong> ${escapeHtml(order.orderNumber || "")}</p>
+            <p style="margin:0 0 8px;"><strong>Reserved commission:</strong> ${formatMoney(promoter.commission, order.currency)}</p>
+            <p style="margin:0;"><strong>Payment reference:</strong> ${escapeHtml(payment?.transactionReference || order.paymentReference || "")}</p>
+          </div>
+          <p style="color:#4b5563;margin:0;">If you have proof that delivery has been completed, submit a release request from your affiliate sales page for admin review.</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildOrderRows(order) {
+  return (order.items || []).map((item) => {
     const productName = item.product?.name || "Product";
     const tracking = [
       item.trackingCode ? `Tracking code: ${escapeHtml(item.trackingCode)}` : "",
@@ -710,32 +1087,120 @@ function buildStorefrontOrderEmail(order, payment, buyer) {
       </tr>
     `;
   }).join("");
+}
+
+function getOrderMarketer(order) {
+  if (order.marketer && typeof order.marketer === "object" && order.marketer.email) {
+    return order.marketer;
+  }
+  if (order.store?.owner && typeof order.store.owner === "object" && order.store.owner.email) {
+    return order.store.owner;
+  }
+  return null;
+}
+
+function getPromoterSaleRecipients(order) {
+  const promoters = new Map();
+
+  for (const item of order.items || []) {
+    const promoter = item.promoterId;
+    if (!promoter || typeof promoter !== "object" || !promoter.email || !item.commissionEarned) continue;
+
+    const id = toIdString(promoter);
+    const current = promoters.get(id) || {
+      _id: promoter._id,
+      displayName: promoter.displayName,
+      username: promoter.username,
+      email: promoter.email,
+      commission: 0,
+      items: [],
+    };
+    current.commission = roundMoney(current.commission + (item.commissionEarned || 0));
+    current.items.push(item);
+    promoters.set(id, current);
+  }
+
+  return Array.from(promoters.values());
+}
+
+async function notifyAdminsOfReleaseRequest(order) {
+  const admins = await UserModel.find({ role: "admin", email: { $exists: true, $ne: "" } })
+    .select("email displayName username")
+    .lean();
+  if (!admins.length) return;
+
+  const requestedBy = order.releaseRequest?.requestedBy;
+  const requesterName = typeof requestedBy === "object"
+    ? requestedBy.displayName || requestedBy.username || requestedBy.email
+    : order.releaseRequest?.requestedByRole || "A user";
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#f9fafb;padding:24px;color:#111827;">
+      <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+        <div style="background:#7c3aed;color:#ffffff;padding:24px;">
+          <h1 style="margin:0;font-size:24px;">Delivery release review needed</h1>
+          <p style="margin:8px 0 0;">Order ${escapeHtml(order.orderNumber || "")} has a pending release request.</p>
+        </div>
+        <div style="padding:24px;">
+          <p><strong>Requested by:</strong> ${escapeHtml(requesterName || "Requester")} (${escapeHtml(order.releaseRequest?.requestedByRole || "")})</p>
+          <p><strong>Store:</strong> ${escapeHtml(order.store?.name || "MarketSpase Store")}</p>
+          <p><strong>Order total:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
+          <p><strong>Marketer reserved:</strong> ${formatMoney(order.marketerReservedAmount, order.currency)}</p>
+          <p><strong>Promoter reserved:</strong> ${formatMoney(order.promoterReservedAmount, order.currency)}</p>
+          ${order.releaseRequest?.note ? `<p><strong>Note:</strong> ${escapeHtml(order.releaseRequest.note)}</p>` : ""}
+          <p style="color:#4b5563;margin:16px 0 0;">Please verify fulfilment evidence before approving fund release.</p>
+        </div>
+      </div>
+    </div>
+  `;
+
+  await Promise.all(admins.map((admin) => sendEmail(
+    admin.email,
+    `Release review needed: ${order.orderNumber || "MarketSpase order"}`,
+    html
+  )));
+}
+
+async function sendReleaseReviewNotifications(order, decision) {
+  const emails = [];
+  const marketer = getOrderMarketer(order);
+  const buyer = getOrderBuyer(order);
+  const promoters = getPromoterSaleRecipients(order);
+  const approved = decision === "approved";
+  const subject = approved
+    ? `Funds released for ${order.orderNumber || "your MarketSpase order"}`
+    : `Release request rejected for ${order.orderNumber || "your MarketSpase order"}`;
+  const html = buildReleaseReviewEmail(order, approved);
+
+  if (marketer?.email) emails.push(sendEmail(marketer.email, subject, html));
+  if (buyer.email) emails.push(sendEmail(buyer.email, subject, html));
+  for (const promoter of promoters) {
+    emails.push(sendEmail(promoter.email, subject, html));
+  }
+
+  await Promise.all(emails);
+}
+
+function buildReleaseReviewEmail(order, approved) {
+  const statusCopy = approved
+    ? "MarketSpase admin has approved the delivery review. Reserved funds have been released to the eligible balances."
+    : "MarketSpase admin has reviewed the delivery request and rejected the release for now.";
 
   return `
     <div style="font-family:Arial,sans-serif;background:#f9fafb;padding:24px;color:#111827;">
       <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
-        <div style="background:#667eea;color:#ffffff;padding:24px;">
-          <h1 style="margin:0;font-size:24px;">Order confirmed</h1>
-          <p style="margin:8px 0 0;">Thanks ${escapeHtml(buyer.fullName || "there")}. Your payment has been received for ${escapeHtml(storeName)}.</p>
+        <div style="background:${approved ? "#16a34a" : "#b91c1c"};color:#ffffff;padding:24px;">
+          <h1 style="margin:0;font-size:24px;">${approved ? "Funds released" : "Release not approved"}</h1>
+          <p style="margin:8px 0 0;">Order ${escapeHtml(order.orderNumber || "")}</p>
         </div>
         <div style="padding:24px;">
-          <p style="margin:0 0 16px;">Order <strong>${escapeHtml(order.orderNumber || "")}</strong> is paid and held safely until delivery is confirmed.</p>
-          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-            <thead>
-              <tr>
-                <th style="padding:12px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
-                <th style="padding:12px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
-                <th style="padding:12px;text-align:right;border-bottom:1px solid #e5e7eb;">Amount</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
+          <p style="margin:0 0 16px;">${statusCopy}</p>
           <div style="background:#f3f4f6;border-radius:8px;padding:16px;margin:16px 0;">
-            <p style="margin:0 0 8px;"><strong>Total:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
-            <p style="margin:0 0 8px;"><strong>Payment reference:</strong> ${escapeHtml(payment?.transactionReference || order.paymentReference || "")}</p>
-            <p style="margin:0;"><strong>Delivery phone:</strong> ${escapeHtml(buyer.phone || order.shippingAddress?.phone || "")}</p>
+            <p style="margin:0 0 8px;"><strong>Order total:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
+            <p style="margin:0 0 8px;"><strong>Marketer amount:</strong> ${formatMoney(order.marketerReservedAmount, order.currency)}</p>
+            <p style="margin:0;"><strong>Promoter commission:</strong> ${formatMoney(order.promoterReservedAmount, order.currency)}</p>
           </div>
-          <p style="color:#4b5563;margin:0;">The store will use your checkout details for delivery follow-up and order updates.</p>
+          ${order.releaseRequest?.reviewNote ? `<p><strong>Admin note:</strong> ${escapeHtml(order.releaseRequest.reviewNote)}</p>` : ""}
         </div>
       </div>
     </div>
@@ -791,10 +1256,17 @@ async function safeAbortTransaction(session) {
 async function fetchPopulatedOrder(orderId) {
   try {
     return await OrderModel.findById(orderId)
-      .populate('store', 'name logo storeLink')
+      .populate({
+        path: 'store',
+        select: 'name logo storeLink owner whatsappNumber',
+        populate: { path: 'owner', select: 'displayName username email personalInfo' }
+      })
+      .populate('marketer', 'displayName username email personalInfo')
       .populate('customer', 'displayName username email personalInfo')
-      .populate('items.product', 'name images')
-      .populate('items.promoterId', 'displayName username');
+      .populate('items.product', 'name images price')
+      .populate('items.promoterId', 'displayName username email')
+      .populate('releaseRequest.requestedBy', 'displayName username email role')
+      .populate('releaseRequest.reviewedBy', 'displayName username email role');
   } catch (error) {
     console.error("Fetch populated storefront order error:", error);
     return null;

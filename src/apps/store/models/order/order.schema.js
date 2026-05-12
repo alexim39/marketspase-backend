@@ -137,6 +137,48 @@ const guestCustomerSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
+const releaseRequestSchema = new mongoose.Schema({
+  status: {
+    type: String,
+    enum: ['none', 'requested', 'approved', 'rejected'],
+    default: 'none',
+    index: true
+  },
+  requestedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  },
+  requestedByRole: {
+    type: String,
+    enum: ['marketer', 'promoter', 'customer']
+  },
+  requestedAt: Date,
+  deliveryStatus: {
+    type: String,
+    enum: ['processing', 'shipped', 'delivered', 'received'],
+    default: 'delivered'
+  },
+  buyerReceived: {
+    type: Boolean,
+    default: false
+  },
+  note: {
+    type: String,
+    trim: true,
+    maxlength: 1000
+  },
+  reviewedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  },
+  reviewedAt: Date,
+  reviewNote: {
+    type: String,
+    trim: true,
+    maxlength: 1000
+  }
+}, { _id: false });
+
 const orderSchema = new mongoose.Schema({
   // Order identifiers
   orderNumber: { 
@@ -299,6 +341,10 @@ const orderSchema = new mongoose.Schema({
   },
   deliveredConfirmedAt: {
     type: Date
+  },
+  releaseRequest: {
+    type: releaseRequestSchema,
+    default: () => ({ status: 'none' })
   },
   
   // Timestamps

@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { AiSettings, WhatsAppConfig } from '../../model/index.js';
 import { StoreModel } from '../../../store/models/store/index.js';
 import { UserModel } from '../../../user/models/user/index.js';
-import { decrypt } from '../../../../shared/utils/crypto.util.js';
+import { decrypt, encrypt } from '../../../../shared/utils/crypto.util.js';
 import logger from '../../../../shared/utils/logger.js';
 
 const PLAN_PRICES = {
@@ -12,6 +12,7 @@ const PLAN_PRICES = {
 
 export class AiAssistantSettingsService {
   async getWhatsAppConnections(userId) {
+    if (!userId) throw new Error('userId is required');
     const settings = await AiSettings.findOne({ userId });
     if (!settings) return [];
 
@@ -28,6 +29,7 @@ export class AiAssistantSettingsService {
   }
 
   async addWhatsAppConnection(userId, phoneNumber) {
+    if (!userId) throw new Error('userId is required');
     logger.info(`Adding WhatsApp connection for userId: ${userId}, phoneNumber: ${phoneNumber}`);
     
     if (!/^\+?[1-9]\d{1,14}$/.test(phoneNumber)) {
@@ -52,6 +54,7 @@ export class AiAssistantSettingsService {
   }
 
   async removeWhatsAppConnection(userId, phoneNumber) {
+    if (!userId) throw new Error('userId is required');
     console.log('Removing WhatsApp connection for userId:', userId, 'phoneNumber:', phoneNumber);
     const settings = await AiSettings.findOne({ userId });
     if (!settings) throw new Error('Settings not found');
@@ -66,6 +69,7 @@ export class AiAssistantSettingsService {
   }
 
   async toggleAIForConnection(userId, phoneNumber, aiEnabled) {
+    if (!userId) throw new Error('userId is required');
     const settings = await AiSettings.findOne({ userId });
     if (!settings) throw new Error('Settings not found');
 
@@ -84,10 +88,14 @@ export class AiAssistantSettingsService {
   }
 
   async reconnectConnection(userId, phoneNumber) {
+    if (!userId) throw new Error('userId is required');
     const config = await WhatsAppConfig.findOne({ userId, phoneNumber, isActive: true });
+    const settings = await AiSettings.findOne({ userId });
+    const numberSettings = settings?.whatsappNumbers?.find(n => n.phoneNumber === phoneNumber);
+    const aiEnabled = numberSettings?.aiEnabled ?? false;
     
     if (!config) {
-      return { id: phoneNumber, phoneNumber, aiEnabled: false, isConnected: false };
+      return { id: phoneNumber, phoneNumber, aiEnabled, isConnected: false };
     }
 
     try {
@@ -95,14 +103,15 @@ export class AiAssistantSettingsService {
       const client = twilio.default(decrypt(config.twilioAccountSid), decrypt(config.twilioAuthToken));
       await client.api.accounts(decrypt(config.twilioAccountSid)).fetch();
       
-      return { id: phoneNumber, phoneNumber, aiEnabled: true, isConnected: true };
+      return { id: phoneNumber, phoneNumber, aiEnabled, isConnected: true };
     } catch (err) {
       logger.error(`Twilio reconnect failed for ${phoneNumber}:`, err.message);
-      return { id: phoneNumber, phoneNumber, aiEnabled: false, isConnected: false };
+      return { id: phoneNumber, phoneNumber, aiEnabled, isConnected: false };
     }
   }
 
   async getBusinessInfo(userId) {
+    if (!userId) throw new Error('userId is required');
     const settings = await AiSettings.findOne({ userId });
     const businessId = settings?.business?.toString() || null;
 
@@ -124,6 +133,7 @@ export class AiAssistantSettingsService {
   }
 
   async updateBusinessInfo(userId, businessId) {
+    if (!userId) throw new Error('userId is required');
     const store = await StoreModel.findOne({ _id: businessId, owner: userId, isDeleted: false });
     if (!store) throw new Error('Store not found or not owned by user');
 
@@ -137,6 +147,7 @@ export class AiAssistantSettingsService {
   }
 
   async getNotificationPreferences(userId) {
+    if (!userId) throw new Error('userId is required');
     const settings = await AiSettings.findOne({ userId });
     return settings?.notificationPreferences || {
       newMessage: true,
@@ -146,6 +157,7 @@ export class AiAssistantSettingsService {
   }
 
   async updateNotificationPreferences(userId, prefs) {
+    if (!userId) throw new Error('userId is required');
     await AiSettings.findOneAndUpdate(
       { userId },
       { notificationPreferences: prefs },
@@ -154,6 +166,7 @@ export class AiAssistantSettingsService {
   }
 
   async getCurrentPlan(userId) {
+    if (!userId) throw new Error('userId is required');
     const settings = await AiSettings.findOne({ userId });
     return settings?.subscription?.planId || 'basic';
   }
@@ -164,7 +177,7 @@ export class AiAssistantSettingsService {
         id: 'basic',
         name: 'Basic',
         priceNaira: 3000,
-        priceDisplay: '₦3,000/month',
+        priceDisplay: 'N3,000/month',
         features: [
           'AI WhatsApp assistant',
           'Handles messages and replies',
@@ -176,7 +189,7 @@ export class AiAssistantSettingsService {
         id: 'advanced',
         name: 'Advanced',
         priceNaira: 8000,
-        priceDisplay: '₦8,000/month',
+        priceDisplay: 'N8,000/month',
         features: [
           'Everything in Basic',
           'AI actively promotes products',
@@ -191,6 +204,7 @@ export class AiAssistantSettingsService {
   }
 
   async updateSubscriptionPlan(userId, planId) {
+    if (!userId) throw new Error('userId is required');
     if (!PLAN_PRICES[planId]) throw new Error('Invalid plan');
 
     const user = await UserModel.findById(userId);
@@ -240,5 +254,50 @@ export class AiAssistantSettingsService {
 
     await user.save();
     logger.info(`User ${userId} upgraded to ${planId} plan`);
+  }
+
+  async saveWhatsAppConfig(userId, data) {
+    if (!userId) throw new Error('userId is required');
+    const { phoneNumber, accountSid, authToken, phoneNumberSid = '' } = data;
+    if (!/^\+?[1-9]\d{1,14}$/.test(phoneNumber)) {
+      throw new Error('Invalid phone number format');
+    }
+    if (!accountSid || !authToken) {
+      throw new Error('Twilio Account SID and Auth Token are required');
+    }
+
+    await WhatsAppConfig.findOneAndUpdate(
+      { userId, phoneNumber },
+      {
+        userId,
+        phoneNumber,
+        phoneNumberSid,
+        twilioAccountSid: encrypt(accountSid),
+        twilioAuthToken: encrypt(authToken),
+        isActive: true,
+      },
+      { upsert: true, new: true }
+    );
+
+    let settings = await AiSettings.findOne({ userId });
+    let aiEnabled = true;
+    if (!settings) {
+      settings = await AiSettings.create({
+        userId,
+        whatsappNumbers: [{ phoneNumber, aiEnabled: true }],
+      });
+    } else if (!settings.whatsappNumbers.some(n => n.phoneNumber === phoneNumber)) {
+      settings.whatsappNumbers.push({ phoneNumber, aiEnabled: true });
+      await settings.save();
+    } else {
+      aiEnabled = settings.whatsappNumbers.find(n => n.phoneNumber === phoneNumber)?.aiEnabled ?? true;
+    }
+
+    return {
+      id: phoneNumber,
+      phoneNumber,
+      aiEnabled,
+      isConnected: true,
+    };
   }
 }

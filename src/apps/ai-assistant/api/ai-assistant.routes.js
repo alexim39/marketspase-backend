@@ -29,6 +29,7 @@ router.use('/settings', settingsRouter);
 
 // Dashboard
 router.get('/stats', ctrl.getStats.bind(ctrl));
+router.get('/analytics', ctrl.getAnalytics.bind(ctrl));
 
 // Conversations
 router.get('/conversations', ctrl.getConversations.bind(ctrl));
@@ -36,6 +37,11 @@ router.get('/conversations/:id/messages', ctrl.getConversationMessages.bind(ctrl
 router.post('/conversations/:id/messages', validate(sendMessageSchema), ctrl.sendMessage.bind(ctrl));
 router.post('/conversations/:id/escalate', ctrl.escalateConversation.bind(ctrl));
 router.post('/conversations/:id/assign', ctrl.assignConversation.bind(ctrl));
+router.post('/conversations/:id/takeover', ctrl.takeoverConversation.bind(ctrl));
+router.post('/conversations/:id/resolve', ctrl.resolveConversation.bind(ctrl));
+router.post('/conversations/:id/tag', ctrl.tagConversation.bind(ctrl));
+router.post('/conversations/:id/quick-action', ctrl.sendQuickAction.bind(ctrl));
+router.post('/test', ctrl.testAssistant.bind(ctrl));
 
 // FAQs
 router.get('/faqs', ctrl.getFaqs.bind(ctrl));

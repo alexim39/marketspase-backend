@@ -19,6 +19,7 @@ export const setupOrderIndexes = (schema) => {
   schema.index({ 'items.promoterId': 1, createdAt: -1 });
   schema.index({ 'items.promotionTrackingId': 1 });
   schema.index({ escrowStatus: 1, createdAt: -1 });
+  schema.index({ 'releaseRequest.status': 1, createdAt: -1 });
   
   // Payment reference indexes
   schema.index({ paymentReference: 1 }, { sparse: true });

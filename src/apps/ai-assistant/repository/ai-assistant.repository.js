@@ -47,15 +47,31 @@ export class AiAssistantRepository {
   }
 
   // FIXED: Added missing method required by service layer
-  async findConversationsByStatus(userId, status, limit = 50, skip = 0) {
+  async findConversationsByStatus(userId, status, limit = 50, skip = 0, options = {}) {
     const filter = { userId };
     if (status) filter.status = status;
-    return Conversation.find(filter).sort({ lastMessageAt: -1 }).skip(skip).limit(limit);
+    if (options.leadTag) filter.leadTag = options.leadTag;
+    if (options.search) {
+      const search = new RegExp(options.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [
+        { customerName: search },
+        { customerWaId: search },
+        { lastMessageText: search },
+      ];
+    }
+    return Conversation.find(filter)
+      .sort({ lastMessageAt: -1, updatedAt: -1 })
+      .skip(skip)
+      .limit(limit);
   }
 
   // FIXED: Added missing method
   async countConversationsByStatus(userId, status) {
     return Conversation.countDocuments({ userId, status });
+  }
+
+  async countConversations(userId, extraFilter = {}) {
+    return Conversation.countDocuments({ userId, ...extraFilter });
   }
 
   async findConversationById(convId, userId) {
@@ -66,7 +82,7 @@ export class AiAssistantRepository {
   async assignConversation(convId, userId, assigneeId) {
     return Conversation.findOneAndUpdate(
       { _id: convId, userId },
-      { assignedTo: assigneeId, status: 'escalated' },
+      { assignedTo: assigneeId, status: 'escalated', handledBy: 'human' },
       { new: true }
     );
   }
@@ -77,7 +93,14 @@ export class AiAssistantRepository {
   }
 
   async findMessagesByConversation(conversationId, limit = 50) {
-    return Message.find({ conversationId }).sort({ timestamp: 1 }).limit(limit);
+    const messages = await Message.find({ conversationId }).sort({ timestamp: -1 }).limit(limit);
+    return messages.reverse();
+  }
+
+  async countMessagesByConversation(conversationId, sourceList = null) {
+    const filter = { conversationId };
+    if (sourceList) filter.source = { $in: sourceList };
+    return Message.countDocuments(filter);
   }
 
   // ==================== STATS ====================
@@ -88,6 +111,15 @@ export class AiAssistantRepository {
     return Message.countDocuments({ conversationId: { $in: convIds } });
   }
 
+  async getMessagesSince(userId, since) {
+    const convIds = await this.getConversationIdsForUser(userId);
+    if (!convIds.length) return 0;
+    return Message.countDocuments({
+      conversationId: { $in: convIds },
+      timestamp: { $gte: since },
+    });
+  }
+
   async getMessageCountBySource(userId, sourceList) {
     const convIds = await this.getConversationIdsForUser(userId);
     if (!convIds.length) return 0;
@@ -95,6 +127,44 @@ export class AiAssistantRepository {
       conversationId: { $in: convIds },
       source: { $in: sourceList },
     });
+  }
+
+  async getMessageCountBySourceSince(userId, sourceList, since) {
+    const convIds = await this.getConversationIdsForUser(userId);
+    if (!convIds.length) return 0;
+    return Message.countDocuments({
+      conversationId: { $in: convIds },
+      source: { $in: sourceList },
+      timestamp: { $gte: since },
+    });
+  }
+
+  async getDailyMessageStats(userId, days = 7) {
+    const convIds = await this.getConversationIdsForUser(userId);
+    if (!convIds.length) return [];
+
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - (days - 1));
+
+    return Message.aggregate([
+      {
+        $match: {
+          conversationId: { $in: convIds },
+          timestamp: { $gte: start },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            date: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
+            source: '$source',
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.date': 1 } },
+    ]);
   }
 
   async getConversationIdsForUser(userId) {
@@ -130,6 +200,10 @@ export class AiAssistantRepository {
       settings = await AiSettings.create({ userId });
     }
     return settings;
+  }
+
+  async countFaqs(userId) {
+    return Faq.countDocuments({ userId });
   }
 
   async updateSettings(userId, updates) {

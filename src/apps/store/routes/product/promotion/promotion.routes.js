@@ -1,8 +1,8 @@
 // routes/promotion.routes.js
 import express from 'express';
 //import { getPromotionStats } from '../../../controllers/promotion/get-promotion-stats.controller.js';
-//import { getPromotionDashboard } from '../../../controllers/promotion/get-promotion-dashboard.controller.js'
-//import { getPromoterPromotions } from '../../../controllers/promotion/get-promoter-promotions.controller.js'
+import { getPromotionDashboard } from '../../../controllers/promotion/get-promotion-dashboard.controller.js'
+import { getPromoterPromotions } from '../../../controllers/promotion/get-promoter-promotions.controller.js'
 import { createPromotion } from '../../../controllers/promotion/create-promotion.controller.js'
 
 import {
@@ -13,9 +13,9 @@ import {
 const router = express.Router();
 
 router.post('/create', createPromotion);
-//router.get('/promoter', getPromoterPromotions);
+router.get('/promoter', getPromoterPromotions);
 //router.get('/stats', getPromotionStats);
-//router.get('/dashboard', getPromotionDashboard);
+router.get('/dashboard', getPromotionDashboard);
 
 
 
