@@ -7,6 +7,8 @@ import {
 } from '../controllers/stats.controller.js';
 import { catchAsync } from '../services/catch-async.middleware.js'; // Optional error handling middleware
 import { getUsersOnlineCount } from './../controllers/online-count.controller.js'
+import { getLiveActivityFeed } from '../controllers/live-activity.controller.js';
+import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 
 const StatsRouter = express.Router();
 
@@ -146,5 +148,6 @@ StatsRouter.get('/engagement', catchAsync(async (req, res) => {
 }));
 
 StatsRouter.get('/online-count', catchAsync(getUsersOnlineCount))
+StatsRouter.get('/live-activity', authenticate, catchAsync(getLiveActivityFeed))
 
 export default StatsRouter;
