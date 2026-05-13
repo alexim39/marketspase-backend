@@ -1,17 +1,4 @@
 export const setupCommentVirtuals = (schema) => {
-  // Virtual for replies
-  schema.virtual('replies', {
-    ref: 'Forumcomment',
-    localField: '_id',
-    foreignField: 'parentComment',
-    options: { sort: { createdAt: -1 } }
-  });
-
-  // Virtual for reply count
-  schema.virtual('replyCount').get(function() {
-    return this.replies?.length || 0;
-  });
-
   // Virtual for is root comment (no parent)
   schema.virtual('isRoot').get(function() {
     return !this.parentComment;

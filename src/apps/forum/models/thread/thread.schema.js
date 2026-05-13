@@ -8,6 +8,58 @@ import {
   ERROR_MESSAGES
 } from "./thread.constants.js";
 
+const pollOptionSchema = new mongoose.Schema({
+  optionId: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+  label: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: 120,
+  },
+  voteCount: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  voters: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  }],
+}, { _id: false });
+
+const pollSchema = new mongoose.Schema({
+  question: {
+    type: String,
+    trim: true,
+    maxlength: 200,
+  },
+  options: {
+    type: [pollOptionSchema],
+    default: [],
+  },
+  allowMultiple: {
+    type: Boolean,
+    default: false,
+  },
+  closesAt: {
+    type: Date,
+    default: null,
+  },
+  totalVotes: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  isClosed: {
+    type: Boolean,
+    default: false,
+  },
+}, { _id: false });
+
 const threadSchema = new mongoose.Schema(
   {
     title: {
@@ -57,12 +109,40 @@ const threadSchema = new mongoose.Schema(
       required: false,
       default: null
     },
+
+    mediaItems: {
+      type: [mediaSubSchema],
+      default: [],
+      validate: {
+        validator: function(items) {
+          return Array.isArray(items) && items.length <= 6;
+        },
+        message: 'A thread can contain at most 6 media items'
+      }
+    },
     
     category: {
       type: String,
       enum: THREAD_CATEGORY_ARRAY,
       default: DEFAULTS.CATEGORY,
       index: true
+    },
+
+    topicTags: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: function(tags) {
+          return Array.isArray(tags) && tags.length <= 8;
+        },
+        message: 'A thread can contain at most 8 topic tags'
+      },
+      index: true,
+    },
+
+    poll: {
+      type: pollSchema,
+      default: null,
     },
     
     status: {
@@ -94,6 +174,23 @@ const threadSchema = new mongoose.Schema(
       default: DEFAULTS.VIEW_COUNT,
       min: 0
     },
+
+    shareCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    followerCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    followers: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    }],
     
     isPinned: { 
       type: Boolean, 
@@ -181,45 +278,23 @@ const threadSchema = new mongoose.Schema(
       count: { type: Number, default: 1 }
     }],
 
-    pinnedAt: {
-      type: Date,
-      default: null
-    },
-    
-    pinnedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
-    },
-    
-    trendingScore: {
+    engagementScore: {
       type: Number,
       default: 0,
-      index: -1
+      index: -1,
     },
 
-     isPinned: { 
-    type: Boolean, 
-    default: false,
-    index: true
-  },
-  
-  pinnedAt: {
-    type: Date,
-    default: null
-  },
-  
-  pinnedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
-  },
-  
-  pinOrder: {
-    type: Number,
-    default: null,
-    index: true
-  },
-  
+    spotlightScore: {
+      type: Number,
+      default: 0,
+      index: -1,
+    },
+
+    pinOrder: {
+      type: Number,
+      default: null,
+      index: true
+    },
   },
   {
     timestamps: true,

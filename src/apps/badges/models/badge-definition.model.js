@@ -15,6 +15,9 @@ export const BADGE_METRICS = [
   'store_orders_paid',
   'community_posts_published',
   'followers_count',
+  'forum_threads_created',
+  'forum_comments_created',
+  'forum_engagement_score',
 ];
 
 const badgeCriteriaSchema = new mongoose.Schema({

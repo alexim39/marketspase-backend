@@ -6,7 +6,11 @@ import {
     deleteThread,
     updateThread,
     searchThreads,
-    getCategories
+    getCategories,
+    toggleThreadFollow,
+    toggleTopicFollow,
+    getMyForumFollows,
+    voteThreadPoll,
 } from '../controllers/thread.controller.js';
 import { createThread } from '../controllers/create-thread.controller.js';
 import { toggleThreadLike } from '../controllers/toggle-thread-like.controller.js';
@@ -24,7 +28,8 @@ import {
     getPinnedThreads,
     getTrendingThreads,
     getActiveUsers,
-    getPopularTags
+    getPopularTags,
+    getHotTopics,
 } from '../controllers/forum-stats.controller.js';
 import {
     pinThread,
@@ -33,7 +38,7 @@ import {
     getAllPinnedThreads,
     togglePinThread
 } from '../controllers/pin-thread.controller.js';
-import { authenticate } from '../../../shared/middleware/auth.middleware.js';
+import { authenticate, optionalAuthenticate } from '../../../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -43,25 +48,38 @@ const router = express.Router();
 router.post('/threads/new', authenticate, createThread);
 
 // Get all threads (with pagination and filters)
-router.get('/threads', getThreads);
+router.get('/threads', optionalAuthenticate, getThreads);
 
 // Search threads
-router.get('/threads/search', searchThreads);
+router.get('/threads/search', optionalAuthenticate, searchThreads);
 
 // Get threads by tag
-router.get('/threads/tags/:tags', getThreadsByTags);
+router.get('/threads/tags/:tags', optionalAuthenticate, getThreadsByTags);
 
 // Get a single thread by ID
-router.get('/thread/:id', getThreadById);
+router.get('/thread/:id', optionalAuthenticate, getThreadById);
 
 // Update a thread by ID
 router.put('/threads/:threadId', authenticate, updateThread);
 
 // Delete a thread by ID
 router.delete('/thread/:threadId/:userId', authenticate, deleteThread);
+router.delete('/thread/:threadId/me', authenticate, deleteThread);
 
 // Like/unlike a thread
 router.put('/thread/like', authenticate, toggleThreadLike);
+
+// Follow / unfollow a thread
+router.post('/thread/:threadId/follow', authenticate, toggleThreadFollow);
+
+// Vote on a thread poll
+router.post('/thread/:threadId/poll/vote', authenticate, voteThreadPoll);
+
+// View current forum follows
+router.get('/follows', authenticate, getMyForumFollows);
+
+// Follow / unfollow a topic
+router.post('/topics/:topic/follow', authenticate, toggleTopicFollow);
 
 // ==================== Comment Routes ====================
 
@@ -82,34 +100,39 @@ router.post('/comments/reply/like', authenticate, toggleLikeReply);
 
 // Delete a comment by ID
 router.delete('/comment/:commentId/:userId', authenticate, deleteComment);
+router.delete('/comment/:commentId/me', authenticate, deleteComment);
 
 // Delete a reply by ID
 router.delete('/reply/:replyId/:userId', authenticate, deleteReply);
+router.delete('/reply/:replyId/me', authenticate, deleteReply);
 
 // ==================== Community Stats Routes ====================
 
 // Get community statistics (members, discussions, comments, etc.)
-router.get('/stats', getCommunityStats);
+router.get('/stats', optionalAuthenticate, getCommunityStats);
 
 // Get pinned/featured threads
-router.get('/threads/pinned', getPinnedThreads);
+router.get('/threads/pinned', optionalAuthenticate, getPinnedThreads);
 
 // Get trending threads
-router.get('/threads/trending', getTrendingThreads);
+router.get('/threads/trending', optionalAuthenticate, getTrendingThreads);
+
+// Get hot topics
+router.get('/topics/hot', optionalAuthenticate, getHotTopics);
 
 // Get active users/contributors
-router.get('/users/active', getActiveUsers);
+router.get('/users/active', optionalAuthenticate, getActiveUsers);
 
 // Get popular tags
-router.get('/tags/popular', getPopularTags);
+router.get('/tags/popular', optionalAuthenticate, getPopularTags);
 
 // Get thread categories with counts
-router.get('/categories', getCategories);
+router.get('/categories', optionalAuthenticate, getCategories);
 
 // ==================== Pin Thread Routes ====================
 
 // Get all pinned threads with full details
-router.get('/threads/pinned/all', getAllPinnedThreads);
+router.get('/threads/pinned/all', optionalAuthenticate, getAllPinnedThreads);
 
 // Pin a thread (Admin/Moderator only)
 router.put('/threads/:threadId/pin', authenticate, pinThread);

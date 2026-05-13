@@ -6,7 +6,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 // Share post counter
 export const sharePost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const { platform } = req.body;
+  const { platform = 'copy' } = req.body;
   const userId = req.userId;
 
   // console.log('share postId ', postId)
@@ -18,6 +18,8 @@ export const sharePost = asyncHandler(async (req, res) => {
   }
 
   post.shares.push({ user: userId, platform, sharedAt: new Date() });
+  post.socialMetrics = post.socialMetrics || {};
+  post.socialMetrics.externalShares = (post.socialMetrics.externalShares || 0) + 1;
   await post.save();
 
   return res.status(200).json(

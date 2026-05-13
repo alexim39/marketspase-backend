@@ -1,525 +1,506 @@
 import { UserModel } from '../../user/models/user/index.js';
-import { ThreadModel } from './../models/thread/index.js';
 import { CommentModel } from '../models/comment/index.js';
+import { ThreadModel } from '../models/thread/index.js';
+import {
+  loadThreadComments,
+  normalizePollPayload,
+  normalizeStringList,
+  shapeForumThread,
+  toggleThreadFollowState,
+  toggleTopicFollowState,
+  voteOnThreadPoll,
+} from '../services/forum-social.service.js';
 
+const getViewerId = (req) => req.userId || req.user?._id?.toString?.() || null;
+const isForumAdmin = (req) => ['admin', 'marketing_rep'].includes(req.user?.role) || ['admin', 'moderator'].includes(req.user?.type);
 
+const buildThreadQuery = (req, viewer = null) => {
+  const query = {
+    isDeleted: { $ne: true },
+  };
 
-/**
- * @desc    Get all forum threads with pagination, sorting, and filtering (Simplified)
- * @route   GET /api/forum/threads
- * @access  Public
- */
-export const getThreads = async (req, res) => {
-  try {
-    // Pagination parameters
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
+  if (req.query.category) {
+    query.category = String(req.query.category).trim().toLowerCase();
+  }
 
-    // Sorting parameters
-    const sortBy = req.query.sortBy || 'createdAt';
-    const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+  if (req.query.tag) {
+    const normalizedTag = String(req.query.tag).trim().toLowerCase();
+    query.$or = [
+      { tags: normalizedTag },
+      { topicTags: normalizedTag },
+      { category: normalizedTag },
+    ];
+  }
 
-    // Build filter query - KEEP IT SIMPLE
-    const filters = {};
-    
-    // Add filters only if they exist
-    if (req.query.category) {
-      filters.category = req.query.category;
-    }
-    if (req.query.tag) {
-      filters.tags = req.query.tag;
-    }
-    if (req.query.search) {
-      filters.$text = { $search: req.query.search };
-    }
+  if (req.query.topic) {
+    query.topicTags = String(req.query.topic).trim().toLowerCase();
+  }
 
-    // Don't filter by isDeleted if it doesn't exist on all documents
-    // Instead, filter out deleted threads in the query
-    filters.$or = [
-      { isDeleted: false },
-      { isDeleted: { $exists: false } }
+  if (req.query.author) {
+    query.author = req.query.author;
+  }
+
+  if (req.query.onlyPinned === 'true') {
+    query.isPinned = true;
+  }
+
+  if (req.query.following === 'true') {
+    query._id = {
+      $in: viewer?.forumActivity?.followedThreads?.length
+        ? viewer.forumActivity.followedThreads
+        : [],
+    };
+  }
+
+  if (req.query.search?.toString().trim()) {
+    const regex = { $regex: req.query.search.toString().trim(), $options: 'i' };
+    const searchConditions = [
+      { title: regex },
+      { content: regex },
+      { tags: regex },
+      { topicTags: regex },
+      { 'poll.question': regex },
     ];
 
-    //console.log('Filters:', filters);
-
-    // Get total count for pagination
-    const totalThreads = await ThreadModel.countDocuments(filters);
-    //console.log('Total threads:', totalThreads);
-
-    // Build sort object - PINNED FIRST, then by user preference
-    const sortOptions = {};
-    
-    // First sort by pinned status (pinned threads first)
-    sortOptions.isPinned = -1;
-    
-    // Then by pinned date for pinned threads
-    sortOptions.pinnedAt = -1;
-    
-    // Then by the user's sort preference
-    if (sortBy === 'createdAt') {
-      sortOptions.createdAt = sortOrder;
-    } else if (sortBy === 'likeCount') {
-      sortOptions.likeCount = sortOrder;
-      sortOptions.createdAt = -1;
-    } else if (sortBy === 'commentCount') {
-      sortOptions.commentCount = sortOrder;
-      sortOptions.createdAt = -1;
-    } else if (sortBy === 'viewCount') {
-      sortOptions.viewCount = sortOrder;
-      sortOptions.createdAt = -1;
+    if (Array.isArray(query.$or) && query.$or.length) {
+      query.$and = [{ $or: query.$or }, { $or: searchConditions }];
+      delete query.$or;
     } else {
-      sortOptions.createdAt = -1;
+      query.$or = searchConditions;
     }
+  }
 
-    //console.log('Sort options:', sortOptions);
+  return query;
+};
 
-    // Get threads with pagination and sorting
-    const threads = await ThreadModel.find(filters)
-      .sort(sortOptions)
-      .skip(skip)
-      .limit(limit)
-      .populate('author', 'displayName username avatar')
-      .select('-__v')
-      .lean();
+const buildThreadSort = (sortBy = 'newest', sortOrder = 'desc') => {
+  const direction = sortOrder === 'asc' ? 1 : -1;
 
-    //console.log('Threads found:', threads.length);
+  if (sortBy === 'oldest') {
+    return { isPinned: -1, pinnedAt: -1, createdAt: 1 };
+  }
+
+  if (sortBy === 'most_liked' || sortBy === 'likeCount') {
+    return { isPinned: -1, pinnedAt: -1, likeCount: -1, commentCount: -1, createdAt: -1 };
+  }
+
+  if (sortBy === 'most_commented' || sortBy === 'commentCount') {
+    return { isPinned: -1, pinnedAt: -1, commentCount: -1, likeCount: -1, createdAt: -1 };
+  }
+
+  if (sortBy === 'most_viewed' || sortBy === 'viewCount') {
+    return { isPinned: -1, pinnedAt: -1, viewCount: -1, createdAt: -1 };
+  }
+
+  if (sortBy === 'trending' || sortBy === 'trendingScore') {
+    return { isPinned: -1, pinnedAt: -1, trendingScore: -1, lastActivityAt: -1, createdAt: -1 };
+  }
+
+  return { isPinned: -1, pinnedAt: -1, createdAt: direction };
+};
+
+const sanitizeUpdate = (payload = {}) => {
+  const update = {};
+
+  if (payload.title !== undefined) {
+    update.title = String(payload.title).trim();
+  }
+
+  if (payload.content !== undefined) {
+    update.content = String(payload.content).trim();
+  }
+
+  if (payload.tags !== undefined) {
+    update.tags = normalizeStringList(payload.tags, { limit: 10, maxLength: 30 });
+  }
+
+  if (payload.topicTags !== undefined || payload.topics !== undefined) {
+    update.topicTags = normalizeStringList(payload.topicTags || payload.topics, { limit: 8, maxLength: 32 });
+  }
+
+  if (payload.category !== undefined) {
+    update.category = String(payload.category).trim().toLowerCase();
+  }
+
+  if (payload.status !== undefined) {
+    update.status = String(payload.status).trim().toLowerCase();
+  }
+
+  if (payload.poll !== undefined) {
+    update.poll = normalizePollPayload(payload.poll);
+  }
+
+  return update;
+};
+
+export const getThreads = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = clampLimit(parseInt(req.query.limit, 10) || 20);
+    const skip = (page - 1) * limit;
+    const viewerId = getViewerId(req);
+    const viewer = viewerId
+      ? await UserModel.findById(viewerId).select('forumActivity.followedThreads forumActivity.followedTopics').lean()
+      : null;
+
+    const query = buildThreadQuery(req, viewer);
+    const sort = buildThreadSort(req.query.sortBy, req.query.sortOrder);
+
+    const [totalThreads, threads] = await Promise.all([
+      ThreadModel.countDocuments(query),
+      ThreadModel.find(query)
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .populate('author', 'displayName username avatar role badgeProfile gamificationProfile')
+        .lean(),
+    ]);
 
     res.status(200).json({
       success: true,
-      data: threads,
+      data: threads.map((thread) => shapeForumThread(thread, viewerId)),
       pagination: {
         page,
         limit,
         total: totalThreads,
         totalPages: Math.ceil(totalThreads / limit),
-        hasMore: skip + threads.length < totalThreads
-      }
+        hasMore: skip + threads.length < totalThreads,
+      },
     });
-
   } catch (error) {
-    //console.error('Error fetching threads:', error);
+    console.error('Error fetching threads:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch threads',
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-/**
- * @desc    Get a single thread by ID with comments and replies
-  */
 export const getThreadById = async (req, res) => {
   try {
+    const viewerId = getViewerId(req);
     const threadId = req.params.id;
 
-    // Get thread with author populated
     const thread = await ThreadModel.findById(threadId)
-      .populate('author', 'displayName username avatar')
-      .select('-__v') // Exclude version key
+      .populate('author', 'displayName username avatar role badgeProfile gamificationProfile')
       .lean();
 
     if (!thread) {
       return res.status(404).json({
         success: false,
-        message: 'Thread not found'
+        message: 'Thread not found',
       });
     }
 
-    // Get comments with authors and replies populated
-    const comments = await CommentModel.find({ thread: threadId, parentComment: null })
-      .populate('author', 'displayName username avatar')
-      .populate({
-        path: 'replies',
-        populate: { path: 'author', select: 'displayName username avatar' }
-      })
-      .select('-__v') // Exclude version key
-      .lean();
+    const comments = await loadThreadComments(threadId, viewerId);
 
-    // Increment view count (async without waiting)
-    ThreadModel.findByIdAndUpdate(threadId, { $inc: { viewCount: 1 } }).exec();
+    ThreadModel.findByIdAndUpdate(threadId, {
+      $inc: { viewCount: 1 },
+      $set: { lastActivityAt: new Date() },
+    }).exec();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: {
-        ...thread,
-        comments
-      }
+        ...shapeForumThread(thread, viewerId),
+        comments,
+      },
     });
-
   } catch (error) {
     console.error('Error fetching thread:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch thread',
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-/**
- * @desc    Get threads by tag
- * @route   GET /api/forum/threads/tags/:tag
- * @access  Public
- */
-/**
- * @desc    Get threads by tag
- * @route   GET /api/forum/threads/tags/:tags
- * @access  Public
- */
 export const getThreadsByTags = async (req, res) => {
-  try {
-    const { tags } = req.params;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
-    
-    if (!tags) {
-      return res.status(400).json({ success: false, message: 'Tags parameter is required' });
-    }
-
-    const tagArray = Array.isArray(tags) ? tags : [tags];
-    
-    const filters = { 
-      tags: { $in: tagArray },
-      isDeleted: false
-    };
-
-    const totalThreads = await ThreadModel.countDocuments(filters);
-
-    // Use aggregation to sort pinned threads first
-    const threads = await ThreadModel.aggregate([
-      { $match: filters },
-      {
-        $addFields: {
-          sortPriority: { $cond: ['$isPinned', 0, 1] }
-        }
-      },
-      {
-        $sort: {
-          sortPriority: 1,
-          pinnedAt: -1,
-          createdAt: -1
-        }
-      },
-      { $skip: skip },
-      { $limit: limit },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'author',
-          foreignField: '_id',
-          as: 'author'
-        }
-      },
-      { $unwind: { path: '$author', preserveNullAndEmptyArrays: true } },
-      {
-        $project: {
-          title: 1,
-          content: 1,
-          author: {
-            _id: 1,
-            displayName: 1,
-            username: 1,
-            avatar: 1
-          },
-          tags: 1,
-          media: 1,
-          likeCount: 1,
-          commentCount: 1,
-          viewCount: 1,
-          isPinned: 1,
-          createdAt: 1,
-          pinnedAt: 1
-        }
-      }
-    ]);
-
-    res.status(200).json({
-      success: true,
-      data: threads,
-      pagination: {
-        page,
-        limit,
-        total: totalThreads,
-        totalPages: Math.ceil(totalThreads / limit),
-        hasMore: skip + threads.length < totalThreads
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error fetching threads by tags', 
-      error: error.message 
-    });
-  }
+  req.query.tag = req.params.tags;
+  return getThreads(req, res);
 };
 
-/**
- * @desc    Delete a forum thread
-  */
 export const deleteThread = async (req, res) => {
   try {
-    const { threadId } = req.params;
-    const userId = req.userId;
-    const isAdmin = req.user?.role === 'admin' || req.user?.type === 'admin';
-
-    //console.log('Deleting thread:', threadId, 'by user:', userId);return;
+    const threadId = req.params.threadId;
+    const userId = getViewerId(req);
 
     if (!threadId || !userId) {
-      return res.status(400).json({ success: false, message: 'Thread ID is required' });
+      return res.status(400).json({
+        success: false,
+        message: 'Thread ID is required',
+      });
     }
-    // Find the thread
+
     const thread = await ThreadModel.findById(threadId);
     if (!thread) {
-      return res.status(404).json({success: false, message: 'Thread not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Thread not found',
+      });
     }
 
-    // Check if the user is the author or an admin
-    if (!thread.author.equals(userId) && !isAdmin) {
-      return res.status(403).json({success: false, message: 'Not authorized to delete this thread' });
+    if (thread.author?.toString() !== userId && !isForumAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to delete this thread',
+      });
     }
 
-    // Delete the thread and its comments (cascade delete is handled by middleware)
-    await ThreadModel.deleteOne({ _id: threadId });
+    await Promise.all([
+      ThreadModel.deleteOne({ _id: threadId }),
+      CommentModel.deleteMany({ thread: threadId }),
+      UserModel.updateMany(
+        {},
+        {
+          $pull: {
+            'forumActivity.threads': threadId,
+            'forumActivity.followedThreads': threadId,
+            'forumActivity.likedThreads': threadId,
+          },
+        },
+      ),
+    ]);
 
-    // Remove the thread from the user's forumActivity.threads array
-    await UserModel.updateOne(
-      { _id: userId },
-      { $pull: { 'forumActivity.threads': threadId } }
-    );
-
-    res.status(200).json({success: true, message: 'Thread deleted successfully' });
+    return res.status(200).json({
+      success: true,
+      message: 'Thread deleted successfully',
+    });
   } catch (error) {
-    res.status(500).json({success: false, message: 'Error deleting thread', error: error.message });
+    console.error('Error deleting thread:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error deleting thread',
+      error: error.message,
+    });
   }
 };
 
-// update thread controller
 export const updateThread = async (req, res) => {
   try {
-    const { threadId } = req.params;
-    const { title, content, tags } = req.body;
-    const userId = req.userId;
+    const threadId = req.params.threadId;
+    const userId = getViewerId(req);
 
     if (!threadId || !userId) {
-      return res.status(400).json({ success: false, message: 'Thread ID is required' });
+      return res.status(400).json({
+        success: false,
+        message: 'Thread ID is required',
+      });
     }
 
-    // Find thread
     const thread = await ThreadModel.findById(threadId);
     if (!thread) {
-      return res.status(404).json({ message: 'Thread not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Thread not found',
+      });
     }
 
-
-    // Verify ownership
-    if (thread.author._id.toString() !== userId) {
-      return res.status(403).json({ message: 'You are not the author of this thread' });
+    if (thread.author?.toString() !== userId && !isForumAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not the author of this thread',
+      });
     }
 
-    // Update only allowed fields (media stays untouched)
-    if (title !== undefined) thread.title = title;
-    if (content !== undefined) thread.content = content;
-    if (tags !== undefined) thread.tags = tags; // expects array
-
+    const update = sanitizeUpdate(req.body);
+    Object.assign(thread, update);
     await thread.save();
 
-    // Populate author before sending
-    await thread.populate('author', 'displayName username avatar isVerified');
+    const populated = await ThreadModel.findById(threadId)
+      .populate('author', 'displayName username avatar role badgeProfile gamificationProfile')
+      .lean();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      data: thread
+      data: shapeForumThread(populated, userId),
     });
   } catch (error) {
     console.error('Error updating thread:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-
-/**
- * @desc    Search threads with filters and sorting
- * @route   GET /api/forum/threads/search
- * @access  Public
- */
-/**
- * @desc    Search threads with filters and sorting
- * @route   GET /api/forum/threads/search
- * @access  Public
- */
-export const searchThreads = async (req, res) => {
-  try {
-    const {
-      q,
-      page = 1,
-      limit = 20,
-      sortBy = 'newest',
-      category,
-      tags,
-      author
-    } = req.query;
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    // Build query
-    const query = { isDeleted: false };
-    
-    if (q) {
-      query.$or = [
-        { title: { $regex: q, $options: 'i' } },
-        { content: { $regex: q, $options: 'i' } }
-      ];
-    }
-    
-    if (category) {
-      query.category = category;
-    }
-    
-    if (tags) {
-      const tagArray = Array.isArray(tags) ? tags : tags.split(',');
-      query.tags = { $in: tagArray };
-    }
-    
-    if (author) {
-      query.author = author;
-    }
-
-    // Build sort based on user preference
-    let sortField = {};
-    switch (sortBy) {
-      case 'newest':
-        sortField = { createdAt: -1 };
-        break;
-      case 'oldest':
-        sortField = { createdAt: 1 };
-        break;
-      case 'most_liked':
-        sortField = { likeCount: -1, createdAt: -1 };
-        break;
-      case 'most_commented':
-        sortField = { commentCount: -1, createdAt: -1 };
-        break;
-      case 'most_viewed':
-        sortField = { viewCount: -1, createdAt: -1 };
-        break;
-      case 'trending':
-        sortField = { trendingScore: -1, createdAt: -1 };
-        break;
-      default:
-        sortField = { createdAt: -1 };
-    }
-
-    const totalThreads = await ThreadModel.countDocuments(query);
-
-    // Use aggregation to sort pinned threads first, then by user's preference
-    const threads = await ThreadModel.aggregate([
-      { $match: query },
-      {
-        $addFields: {
-          sortPriority: { $cond: ['$isPinned', 0, 1] }
-        }
-      },
-      {
-        $sort: {
-          sortPriority: 1,
-          pinnedAt: -1,
-          ...sortField
-        }
-      },
-      { $skip: skip },
-      { $limit: parseInt(limit) },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'author',
-          foreignField: '_id',
-          as: 'author'
-        }
-      },
-      { $unwind: { path: '$author', preserveNullAndEmptyArrays: true } },
-      {
-        $project: {
-          title: 1,
-          content: 1,
-          author: {
-            _id: 1,
-            displayName: 1,
-            username: 1,
-            avatar: 1
-          },
-          tags: 1,
-          media: 1,
-          likeCount: 1,
-          commentCount: 1,
-          viewCount: 1,
-          isPinned: 1,
-          createdAt: 1,
-          pinnedAt: 1,
-          trendingScore: 1
-        }
-      }
-    ]);
-
-    res.status(200).json({
-      success: true,
-      data: threads,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: totalThreads,
-        totalPages: Math.ceil(totalThreads / parseInt(limit)),
-        hasMore: skip + threads.length < totalThreads
-      }
-    });
-
-  } catch (error) {
-    console.error('Error searching threads:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: 'Failed to search threads',
-      error: error.message
+      message: 'Server error',
+      error: error.message,
     });
   }
 };
 
-/**
- * @desc    Get thread categories with counts
- * @route   GET /api/forum/categories
- * @access  Public
- */
-export const getCategories = async (req, res) => {
+export const searchThreads = async (req, res) => {
+  if (req.query.q && !req.query.search) {
+    req.query.search = req.query.q;
+  }
+  return getThreads(req, res);
+};
+
+export const getCategories = async (_req, res) => {
   try {
     const categories = await ThreadModel.aggregate([
       {
-        $match: { isDeleted: false }
+        $match: { isDeleted: { $ne: true } },
       },
       {
         $group: {
           _id: '$category',
           count: { $sum: 1 },
           totalLikes: { $sum: '$likeCount' },
-          totalComments: { $sum: '$commentCount' }
-        }
+          totalComments: { $sum: '$commentCount' },
+          followerCount: { $sum: '$followerCount' },
+        },
       },
       {
-        $sort: { count: -1 }
-      }
+        $addFields: {
+          engagementScore: {
+            $add: [
+              { $multiply: ['$count', 5] },
+              { $multiply: ['$totalLikes', 2] },
+              { $multiply: ['$totalComments', 3] },
+              '$followerCount',
+            ],
+          },
+        },
+      },
+      { $sort: { engagementScore: -1, count: -1 } },
     ]);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      data: categories
+      data: categories.map((entry) => ({
+        category: entry._id || 'discussion',
+        count: entry.count,
+        totalLikes: entry.totalLikes,
+        totalComments: entry.totalComments,
+        followerCount: entry.followerCount,
+        engagementScore: entry.engagementScore,
+      })),
     });
-
   } catch (error) {
     console.error('Error fetching categories:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch categories',
-      error: error.message
+      error: error.message,
     });
   }
 };
+
+export const toggleThreadFollow = async (req, res) => {
+  try {
+    const userId = getViewerId(req);
+    const threadId = req.params.threadId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const result = await toggleThreadFollowState(threadId, userId);
+    return res.status(200).json({
+      success: true,
+      message: result.followed ? 'Thread followed' : 'Thread unfollowed',
+      data: result,
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Unable to update thread follow state',
+    });
+  }
+};
+
+export const toggleTopicFollow = async (req, res) => {
+  try {
+    const userId = getViewerId(req);
+    const topic = req.params.topic || req.body.topic;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const result = await toggleTopicFollowState(userId, topic);
+    return res.status(200).json({
+      success: true,
+      message: result.followed ? 'Topic followed' : 'Topic unfollowed',
+      data: result,
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Unable to update topic follow state',
+    });
+  }
+};
+
+export const getMyForumFollows = async (req, res) => {
+  try {
+    const userId = getViewerId(req);
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const user = await UserModel.findById(userId)
+      .select('forumActivity.followedTopics forumActivity.followedThreads')
+      .populate({
+        path: 'forumActivity.followedThreads',
+        select: 'title author likeCount commentCount viewCount media mediaItems tags topicTags createdAt lastActivityAt isPinned pinnedAt followerCount trendingScore',
+        populate: {
+          path: 'author',
+          select: 'displayName username avatar role badgeProfile gamificationProfile',
+        },
+      })
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        followedTopics: user?.forumActivity?.followedTopics || [],
+        followedThreads: (user?.forumActivity?.followedThreads || []).map((thread) => shapeForumThread(thread, userId)),
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching forum follows:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch forum follows',
+      error: error.message,
+    });
+  }
+};
+
+export const voteThreadPoll = async (req, res) => {
+  try {
+    const userId = getViewerId(req);
+    const threadId = req.params.threadId;
+    const optionIds = req.body.optionIds || req.body.optionId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const thread = await voteOnThreadPoll(threadId, userId, optionIds);
+    return res.status(200).json({
+      success: true,
+      message: 'Poll vote recorded',
+      data: thread,
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Failed to vote on poll',
+    });
+  }
+};
+
+const clampLimit = (value) => Math.max(1, Math.min(100, value || 20));

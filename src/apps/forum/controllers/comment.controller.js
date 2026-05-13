@@ -1,552 +1,538 @@
+import { evaluateUserBadges } from '../../badges/service/badge.service.js';
+import { awardGamificationProgress } from '../../gamification/service/gamification.service.js';
 import { UserModel } from '../../user/models/user/index.js';
-import { ThreadModel } from './../models/thread/index.js';
 import { CommentModel } from '../models/comment/index.js';
+import { ThreadModel } from '../models/thread/index.js';
+import {
+  notifyForumFollowers,
+  shapeForumComment,
+} from '../services/forum-social.service.js';
 
 const getAuthenticatedForumUserId = (req) =>
   req.userId || req.user?._id?.toString?.() || null;
 
 const isForumAdmin = (req) =>
-  req.user?.role === 'admin' || req.user?.type === 'admin';
+  req.user?.role === 'admin' || req.user?.type === 'admin' || req.user?.role === 'marketing_rep';
 
-/**
- * @desc    Add a top-level comment to a thread
- * @route   POST /api/forum/threads/:threadId/comments
- * @access  Private
- */
+const populateComment = async (commentId, userId = null) => {
+  const comment = await CommentModel.findById(commentId)
+    .populate('author', 'displayName username avatar role badgeProfile gamificationProfile')
+    .populate({
+      path: 'replies',
+      match: { isDeleted: false },
+      options: { sort: { createdAt: 1 } },
+      populate: {
+        path: 'author',
+        select: 'displayName username avatar role badgeProfile gamificationProfile',
+      },
+    })
+    .lean();
+
+  return comment ? shapeForumComment(comment, userId) : null;
+};
+
 export const addCommentToThread = async (req, res) => {
   try {
-    // const { threadId } = req.params;
-    // const { content } = req.body;
-    // const authorId = req.user.id;
     const { threadId, content } = req.body;
     const authorId = getAuthenticatedForumUserId(req);
 
-    // Validate thread exists and isn't locked
-    const thread = await ThreadModel.findById(threadId);
+    if (!threadId || !content || !authorId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thread and comment content are required',
+      });
+    }
+
+    const [thread, author] = await Promise.all([
+      ThreadModel.findById(threadId).select('title author isLocked followers topicTags tags category').lean(),
+      UserModel.findById(authorId).select('displayName username role').lean(),
+    ]);
+
     if (!thread) {
       return res.status(404).json({
         success: false,
-        message: 'Thread not found'
+        message: 'Thread not found',
       });
     }
 
     if (thread.isLocked) {
       return res.status(403).json({
         success: false,
-        message: 'Cannot comment on a locked thread'
+        message: 'Cannot comment on a locked thread',
       });
     }
 
-    // Create and save comment
-    const newComment = new CommentModel({
+    const authorAlreadyFollowing = (thread.followers || []).some((entry) => entry?.toString?.() === authorId);
+
+    const newComment = await CommentModel.create({
       content,
       author: authorId,
       thread: threadId,
-      parentComment: null // Explicitly null for top-level
-    });
-
-    const savedComment = await newComment.save();
-
-    // Update thread's comment count
-    await ThreadModel.findByIdAndUpdate(threadId, {
-      $inc: { commentCount: 1 },
-      $set: { updatedAt: new Date() }
-    });
-
-    // Update user's forum activity
-    await UserModel.findByIdAndUpdate(authorId, {
-      $push: { 'forumActivity.comments': savedComment._id }
-    });
-
-    // Populate and return response
-    const populatedComment = await CommentModel.findById(savedComment._id)
-      .populate('author', 'name username avatar')
-      .lean();
-
-    res.status(201).json({
-      success: true,
-      data: {
-        ...populatedComment,
-        replyCount: 0,
-        likeCount: 0,
-        isLiked: false
+      parentComment: null,
+      isReply: false,
+      metadata: {
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent') || '',
+        source: 'web',
       },
-      message: 'Comment added successfully'
     });
 
+    await Promise.all([
+      ThreadModel.updateOne(
+        { _id: threadId },
+        {
+          $inc: authorAlreadyFollowing ? { commentCount: 1 } : { commentCount: 1, followerCount: 1 },
+          $set: {
+            lastCommentBy: authorId,
+            lastCommentAt: new Date(),
+            lastActivityAt: new Date(),
+          },
+          $addToSet: { followers: authorId },
+        },
+      ),
+      UserModel.updateOne(
+        { _id: authorId },
+        {
+          $addToSet: {
+            'forumActivity.comments': newComment._id,
+            'forumActivity.followedThreads': threadId,
+          },
+        },
+      ),
+    ]);
+
+    const populatedComment = await populateComment(newComment._id, authorId);
+
+    await awardGamificationProgress({
+      userId: authorId,
+      actionKey: 'forum_comment_created',
+      sourceKey: `forum-comment:${newComment._id}`,
+      sourceType: 'forum_comment',
+      sourceId: newComment._id?.toString?.() || null,
+      metadata: {
+        threadId,
+        commentId: newComment._id?.toString?.() || null,
+        isReply: false,
+      },
+    }).catch((error) => {
+      console.error('Gamification award for forum comment failed:', error);
+    });
+
+    await evaluateUserBadges(authorId, {
+      trigger: 'forum_comment_created',
+    }).catch((error) => {
+      console.error('Badge evaluation after forum comment failed:', error);
+    });
+
+    await notifyForumFollowers({
+      thread,
+      actorId: authorId,
+      actorDisplayName: author?.displayName || author?.username || 'A community member',
+      eventType: 'new_comment',
+      previewText: String(content).trim().slice(0, 120),
+    }).catch((error) => {
+      console.error('Failed to notify forum followers about new comment:', error);
+    });
+
+    return res.status(201).json({
+      success: true,
+      data: populatedComment,
+      message: 'Comment added successfully',
+    });
   } catch (error) {
     console.error('Error adding comment:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to add comment',
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-/**
- * @desc    Add a reply to a comment
- * @route   POST /api/forum/comments/:commentId/replies
- * @access  Private
- */
-// In your backend controller
 export const addCommentReply = async (req, res) => {
   try {
     const { content, commentId } = req.body;
     const authorId = getAuthenticatedForumUserId(req);
 
-    // 1. Get parent comment and thread ID
-    const parentComment = await CommentModel.findById(commentId);
-    if (!parentComment) {
-      return res.status(404).json({ success: false, message: 'Parent comment not found' });
+    if (!commentId || !content || !authorId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reply content is required',
+      });
     }
 
-    const threadId = parentComment.thread;
+    const [parentComment, author] = await Promise.all([
+      CommentModel.findById(commentId).select('thread author').lean(),
+      UserModel.findById(authorId).select('displayName username role').lean(),
+    ]);
 
-    // 2. Create reply with proper parent reference
-    const newReply = new CommentModel({
-      content,
-      author: authorId,
-      thread: threadId,
-      parentComment: commentId,
-      isReply: true // Mark as reply
-    });
+    if (!parentComment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Parent comment not found',
+      });
+    }
 
-    const savedReply = await newReply.save();
-
-    // 3. Update parent comment's replies array
-    await CommentModel.findByIdAndUpdate(commentId, {
-      $push: { replies: savedReply._id },
-      $inc: { replyCount: 1 }
-    });
-
-    // 4. Return populated reply
-    const populatedReply = await CommentModel.findById(savedReply._id)
-      .populate('author', 'name username avatar')
+    const thread = await ThreadModel.findById(parentComment.thread)
+      .select('title author isLocked followers topicTags tags category')
       .lean();
 
-    res.status(201).json({
-      success: true,
-      data: {
-        ...populatedReply,
-        isReply: true, // Ensure this is set
-        replyCount: 0,
-        likeCount: 0,
-        isLiked: false
-      }
+    if (!thread) {
+      return res.status(404).json({
+        success: false,
+        message: 'Thread not found',
+      });
+    }
+
+    if (thread.isLocked) {
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot reply in a locked thread',
+      });
+    }
+
+    const authorAlreadyFollowing = (thread.followers || []).some((entry) => entry?.toString?.() === authorId);
+
+    const reply = await CommentModel.create({
+      content,
+      author: authorId,
+      thread: parentComment.thread,
+      parentComment: commentId,
+      isReply: true,
+      metadata: {
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent') || '',
+        source: 'web',
+      },
     });
 
+    await Promise.all([
+      CommentModel.updateOne(
+        { _id: commentId },
+        {
+          $addToSet: { replies: reply._id },
+          $inc: { replyCount: 1 },
+        },
+      ),
+      ThreadModel.updateOne(
+        { _id: parentComment.thread },
+        {
+          $inc: authorAlreadyFollowing ? { commentCount: 1 } : { commentCount: 1, followerCount: 1 },
+          $set: {
+            lastCommentBy: authorId,
+            lastCommentAt: new Date(),
+            lastActivityAt: new Date(),
+          },
+          $addToSet: { followers: authorId },
+        },
+      ),
+      UserModel.updateOne(
+        { _id: authorId },
+        {
+          $addToSet: {
+            'forumActivity.comments': reply._id,
+            'forumActivity.followedThreads': parentComment.thread,
+          },
+        },
+      ),
+    ]);
+
+    const populatedReply = await populateComment(reply._id, authorId);
+
+    await awardGamificationProgress({
+      userId: authorId,
+      actionKey: 'forum_comment_created',
+      sourceKey: `forum-reply:${reply._id}`,
+      sourceType: 'forum_reply',
+      sourceId: reply._id?.toString?.() || null,
+      metadata: {
+        threadId: parentComment.thread?.toString?.() || null,
+        commentId: reply._id?.toString?.() || null,
+        parentCommentId: commentId,
+        isReply: true,
+      },
+    }).catch((error) => {
+      console.error('Gamification award for forum reply failed:', error);
+    });
+
+    await evaluateUserBadges(authorId, {
+      trigger: 'forum_reply_created',
+    }).catch((error) => {
+      console.error('Badge evaluation after forum reply failed:', error);
+    });
+
+    await notifyForumFollowers({
+      thread,
+      actorId: authorId,
+      actorDisplayName: author?.displayName || author?.username || 'A community member',
+      eventType: 'new_reply',
+      previewText: String(content).trim().slice(0, 120),
+    }).catch((error) => {
+      console.error('Failed to notify forum followers about new reply:', error);
+    });
+
+    return res.status(201).json({
+      success: true,
+      data: populatedReply,
+      message: 'Reply added successfully',
+    });
   } catch (error) {
     console.error('Error adding reply:', error);
-    res.status(500).json({ success: false, message: 'Failed to add reply' });
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to add reply',
+      error: error.message,
+    });
   }
 };
 
-/**
- * @desc    Toggle like on a comment
- * @route   PUT /api/forum/comments/:commentId/like
- * @access  Public
- */
 export const toggleLikeComment = async (req, res) => {
   try {
     const { commentId } = req.body;
     const userId = getAuthenticatedForumUserId(req);
 
-    //console.log('Toggle like comment request:', { commentId, userId });
-
     if (!commentId || !userId) {
-      return res.status(400).json({success: false, message: 'Comment ID and User ID are required' });
+      return res.status(400).json({
+        success: false,
+        message: 'Comment ID is required',
+      });
     }
 
-    // Find the comment
-    const comment = await CommentModel.findById(commentId);
+    const [comment, user] = await Promise.all([
+      CommentModel.findById(commentId),
+      UserModel.findById(userId).select('forumActivity.likedComments'),
+    ]);
+
     if (!comment) {
-      return res.status(404).json({success: false, message: 'Comment not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Comment not found',
+      });
     }
 
-    // Check if user already liked the comment
-    const user = await UserModel.findById(userId);
-    const alreadyLiked = user.forumActivity.likedComments.includes(commentId);
+    const alreadyLiked = (user?.forumActivity?.likedComments || []).some((entry) => entry?.toString?.() === commentId);
 
-    if (alreadyLiked) {
-      // Unlike the comment
-      await CommentModel.updateOne(
+    await Promise.all([
+      CommentModel.updateOne(
         { _id: commentId },
-        { $inc: { likeCount: -1 } }
-      );
-      await UserModel.updateOne(
+        alreadyLiked
+          ? { $inc: { likeCount: -1 }, $pull: { likedBy: userId } }
+          : { $inc: { likeCount: 1 }, $addToSet: { likedBy: userId } },
+      ),
+      UserModel.updateOne(
         { _id: userId },
-        { $pull: { 'forumActivity.likedComments': commentId } }
-      );
-      res.status(200).json({ success: true, message: 'Comment unliked', liked: false });
-    } else {
-      // Like the comment
-      await CommentModel.updateOne(
-        { _id: commentId },
-        { $inc: { likeCount: 1 } }
-      );
-      await UserModel.updateOne(
-        { _id: userId },
-        { $addToSet: { 'forumActivity.likedComments': commentId } }
-      );
-      res.status(200).json({ success: true, message: 'Comment liked', liked: true });
-    }
+        alreadyLiked
+          ? { $pull: { 'forumActivity.likedComments': commentId } }
+          : { $addToSet: { 'forumActivity.likedComments': commentId } },
+      ),
+    ]);
+
+    const updatedComment = await populateComment(commentId, userId);
+    return res.status(200).json({
+      success: true,
+      data: updatedComment,
+      liked: !alreadyLiked,
+      message: alreadyLiked ? 'Comment unliked' : 'Comment liked',
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error toggling like on comment', error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: 'Error toggling like on comment',
+      error: error.message,
+    });
   }
 };
 
-
-/**
- * @desc    Get all comments for a thread
- * @route   GET /api/forum/threads/:threadId/comments
- */
 export const toggleLikeReply = async (req, res) => {
-  try {
-    const { replyId } = req.body;
-    const userId = getAuthenticatedForumUserId(req);
-
-    // Find the reply
-    const reply = await CommentModel.findById(replyId);
-    if (!reply) {
-      return res.status(404).json({success: false, message: 'Reply not found' });
-    }
-
-    // Check if it's actually a reply
-    if (!reply.parentComment) {
-      return res.status(400).json({success: false, message: 'This is not a reply' });
-    }
-
-    // Check if user already liked the reply
-    const user = await UserModel.findById(userId);
-    const alreadyLiked = user.forumActivity.likedComments.includes(replyId);
-
-    if (alreadyLiked) {
-      // Unlike the reply
-      await CommentModel.updateOne(
-        { _id: replyId },
-        { $inc: { likeCount: -1 } }
-      );
-      await UserModel.updateOne(
-        { _id: userId },
-        { $pull: { 'forumActivity.likedComments': replyId } }
-      );
-      res.status(200).json({success: true, message: 'Reply unliked', liked: false });
-    } else {
-      // Like the reply
-      await CommentModel.updateOne(
-        { _id: replyId },
-        { $inc: { likeCount: 1 } }
-      );
-      await UserModel.updateOne(
-        { _id: userId },
-        { $addToSet: { 'forumActivity.likedComments': replyId } }
-      );
-      res.status(200).json({success: true, message: 'Reply liked', liked: true });
-    }
-  } catch (error) {
-    res.status(500).json({success: false, message: 'Error toggling like on reply', error: error.message });
-  }
+  req.body.commentId = req.body.replyId;
+  return toggleLikeComment(req, res);
 };
 
-/**
- @desc    Delete a comment (soft delete)
- * @route   DELETE /api/forum/comments/:commentId
- * @access  Private
- */
-export const deleteComment_soft = async (req, res) => {
-  try {
-    const { commentId, userId } = req.params;
-
-    if (!commentId || !userId) {
-      return res.status(400).json({success: false, message: 'Comment ID and User ID are required' });
-    }
-
-    // Find the comment
-    const comment = await CommentModel.findById(commentId);
-    if (!comment) {
-      return res.status(404).json({success: false, message: 'Comment not found' });
-    }
-
-    // Check if the user is the author or an admin
-    // Fix: Pass user role from auth middleware or request body
-    const userRole = req.user?.role || req.body.userRole;
-    if (!comment.author.equals(userId) && userRole !== 'admin') {
-      return res.status(403).json({success: false, message: 'Not authorized to delete this comment' });
-    }
-
-    // For soft delete (mark as deleted but keep in DB)
-    comment.isDeleted = true;
-    await comment.save();
-
-    // Decrement comment count on the thread
-    await ThreadModel.updateOne(
-      { _id: comment.thread },
-      { $inc: { commentCount: -1 } }
-    );
-
-    // Remove comment from user's forumActivity.comments array
-    await UserModel.updateOne(
-      { _id: userId },
-      { $pull: { 'forumActivity.comments': commentId } }
-    );
-
-    res.status(200).json({success: true, message: 'Comment deleted successfully' });
-  } catch (error) {
-    res.status(500).json({success: false, message: 'Error deleting comment', error: error.message });
-  }
-};
-
-
-/**
- * @desc   Delete a reply (soft delete)
- */
-export const deleteReply_soft = async (req, res) => {
-  try {
-    const { replyId, userId} = req.params;
-
-    if (!replyId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Reply ID is required' 
-      });
-    }
-
-    // Find the reply and populate the thread reference
-    const reply = await CommentModel.findById(replyId)
-      .populate('thread', 'commentCount');
-    
-    if (!reply) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Reply not found' 
-      });
-    }
-
-    // Check if it's actually a reply
-    if (!reply.parentComment) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'This is not a reply' 
-      });
-    }
-
-    // Authorization check
-    if (!reply.author.equals(userId) && req.user.role !== 'admin') {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Not authorized to delete this reply' 
-      });
-    }
-
-    // Soft delete the reply
-    reply.isDeleted = true;
-    reply.content = "[deleted]"; // Optionally clear content
-    await reply.save();
-
-    // Update parent thread's comment count
-    await ThreadModel.updateOne(
-      { _id: reply.thread._id },
-      { $inc: { commentCount: -1 } }
-    );
-
-    // Remove from user's activity arrays
-    await UserModel.updateOne(
-      { _id: userId },
-      { 
-        $pull: { 
-          'forumActivity.comments': replyId,
-          'forumActivity.likedComments': replyId
-        } 
-      }
-    );
-
-    res.status(200).json({ 
-      success: true, 
-      message: 'Reply deleted successfully' 
-    });
-  } catch (error) {
-    console.error('Error deleting reply:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error deleting reply', 
-      error: error.message 
-    });
-  }
-};
-
-
-// Hard delete reply
-// This will remove the reply from the database and update the parent comment and thread counts
 export const deleteReply = async (req, res) => {
   try {
     const { replyId } = req.params;
     const userId = getAuthenticatedForumUserId(req);
 
-    if (!replyId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Reply ID is required' 
-      });
-    }
-
-    // Find the reply and populate the thread reference
-    const reply = await CommentModel.findById(replyId)
-      .populate('thread', 'commentCount');
-    
+    const reply = await CommentModel.findById(replyId).lean();
     if (!reply) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Reply not found' 
+      return res.status(404).json({
+        success: false,
+        message: 'Reply not found',
       });
     }
 
-    // Check if it's actually a reply
     if (!reply.parentComment) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'This is not a reply' 
+      return res.status(400).json({
+        success: false,
+        message: 'This is not a reply',
       });
     }
 
-    // Authorization check
-    if (!reply.author.equals(userId) && !isForumAdmin(req)) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Not authorized to delete this reply' 
+    if (reply.author?.toString?.() !== userId && !isForumAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to delete this reply',
       });
     }
 
-    // Hard delete the reply
-    await CommentModel.deleteOne({ _id: replyId });
+    await Promise.all([
+      CommentModel.deleteOne({ _id: replyId }),
+      CommentModel.updateOne(
+        { _id: reply.parentComment },
+        {
+          $pull: { replies: replyId },
+          $inc: { replyCount: -1 },
+        },
+      ),
+      ThreadModel.updateOne(
+        { _id: reply.thread },
+        {
+          $inc: { commentCount: -1 },
+          $set: { lastActivityAt: new Date() },
+        },
+      ),
+      UserModel.updateMany(
+        {},
+        {
+          $pull: {
+            'forumActivity.comments': replyId,
+            'forumActivity.likedComments': replyId,
+          },
+        },
+      ),
+    ]);
 
-    // Remove reply reference from parent comment's replies array
-    await CommentModel.findByIdAndUpdate(
-      reply.parentComment,
-      { $pull: { replies: replyId }, $inc: { replyCount: -1 } }
-    );
-
-    // Update parent thread's comment count
-   /*  await ThreadModel.updateOne(
-      { _id: reply.thread._id },
-      { $inc: { commentCount: -1 } }
-    ); */
-
-    // Remove from user's activity arrays
-    await UserModel.updateOne(
-      { _id: userId },
-      { 
-        $pull: { 
-          'forumActivity.comments': replyId,
-          'forumActivity.likedComments': replyId
-        } 
-      }
-    );
-
-    res.status(200).json({ 
-      success: true, 
-      message: 'Reply deleted successfully' 
+    return res.status(200).json({
+      success: true,
+      message: 'Reply deleted successfully',
     });
   } catch (error) {
     console.error('Error deleting reply:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Error deleting reply', 
-      error: error.message 
+    return res.status(500).json({
+      success: false,
+      message: 'Error deleting reply',
+      error: error.message,
     });
   }
 };
 
-// Hard delete comment
-// This will remove the comment from the database and update the thread and user activity counts
 export const deleteComment = async (req, res) => {
   try {
     const { commentId } = req.params;
     const userId = getAuthenticatedForumUserId(req);
 
-    if (!commentId || !userId) {
-      return res.status(400).json({ success: false, message: 'Comment ID is required' });
-    }
-
-    // Find the comment
-    const comment = await CommentModel.findById(commentId);
+    const comment = await CommentModel.findById(commentId).lean();
     if (!comment) {
-      return res.status(404).json({ success: false, message: 'Comment not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Comment not found',
+      });
     }
 
-    // Check if the user is the author or an admin
-    if (!comment.author.equals(userId) && !isForumAdmin(req)) {
-      return res.status(403).json({ success: false, message: 'Not authorized to delete this comment' });
+    if (comment.author?.toString?.() !== userId && !isForumAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to delete this comment',
+      });
     }
 
-    // Hard delete the comment
-    await CommentModel.deleteOne({ _id: commentId });
+    const replyIds = (comment.replies || []).map((entry) => entry?.toString?.()).filter(Boolean);
+    const removedCount = 1 + replyIds.length;
 
-    // Remove comment from parent's replies array if it's a reply
-    if (comment.parentComment) {
-      await CommentModel.findByIdAndUpdate(
-        comment.parentComment,
-        { $pull: { replies: commentId }, $inc: { replyCount: -1 } }
-      );
-    }
+    await Promise.all([
+      CommentModel.deleteMany({
+        $or: [
+          { _id: commentId },
+          { parentComment: commentId },
+        ],
+      }),
+      comment.parentComment
+        ? CommentModel.updateOne(
+            { _id: comment.parentComment },
+            {
+              $pull: { replies: commentId },
+              $inc: { replyCount: -1 },
+            },
+          )
+        : Promise.resolve(),
+      ThreadModel.updateOne(
+        { _id: comment.thread },
+        {
+          $inc: { commentCount: -removedCount },
+          $set: { lastActivityAt: new Date() },
+        },
+      ),
+      UserModel.updateMany(
+        {},
+        {
+          $pull: {
+            'forumActivity.comments': { $in: [commentId, ...replyIds] },
+            'forumActivity.likedComments': { $in: [commentId, ...replyIds] },
+          },
+        },
+      ),
+    ]);
 
-    // Remove all replies to this comment (cascade delete)
-    await CommentModel.deleteMany({ parentComment: commentId });
-
-    // Decrement comment count on the thread
-    await ThreadModel.updateOne(
-      { _id: comment.thread },
-      { $inc: { commentCount: -1 } }
-    );
-
-    // Remove comment from user's forumActivity.comments array
-    await UserModel.updateOne(
-      { _id: userId },
-      { $pull: { 'forumActivity.comments': commentId } }
-    );
-
-    res.status(200).json({ success: true, message: 'Comment deleted successfully' });
+    return res.status(200).json({
+      success: true,
+      message: 'Comment deleted successfully',
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error deleting comment', error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: 'Error deleting comment',
+      error: error.message,
+    });
   }
 };
 
-// controllers/comment.controller.js (example)
 export const updateComment = async (req, res) => {
   try {
     const { commentId } = req.params;
     const { content } = req.body;
     const userId = getAuthenticatedForumUserId(req);
 
-    // Find comment by ID
     const comment = await CommentModel.findById(commentId);
     if (!comment) {
-      return res.status(404).json({ message: 'Comment not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Comment not found',
+      });
     }
 
-    // Check if comment is marked as deleted
     if (comment.isDeleted) {
-      return res.status(400).json({ message: 'Cannot edit a deleted comment' });
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot edit a deleted comment',
+      });
     }
 
-    // Verify ownership
-    if (comment.author.toString() !== userId) {
-      return res.status(403).json({ message: 'You are not the author of this comment' });
+    if (comment.author?.toString?.() !== userId && !isForumAdmin(req)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not the author of this comment',
+      });
     }
 
-    // Update content
     comment.content = content;
+    comment.isEdited = true;
+    comment.lastEditedAt = new Date();
     await comment.save();
 
-    // Populate author info before sending back
-    await comment.populate('author', 'displayName username avatar isVerified');
-
-    res.status(200).json({
+    const updatedComment = await populateComment(commentId, userId);
+    return res.status(200).json({
       success: true,
-      data: comment
+      data: updatedComment,
     });
   } catch (error) {
     console.error('Error updating comment:', error);
-    res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message,
+    });
   }
 };
+
+export const deleteComment_soft = deleteComment;
+export const deleteReply_soft = deleteReply;

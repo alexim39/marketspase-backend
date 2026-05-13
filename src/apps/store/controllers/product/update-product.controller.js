@@ -334,6 +334,7 @@ export const updateProduct = async (req, res) => {
       scheduledEnd: scheduledEnd || existingProduct.scheduledEnd,
       affiliate: extractAffiliateSettingsFromBody(req.body, existingProduct),
       slug: slug,
+      updatedBy: userId,
       'meta.updatedBy': userId,
       'meta.updatedAt': new Date()
     };

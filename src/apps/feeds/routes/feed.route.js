@@ -1,5 +1,6 @@
 import express from 'express';
 //import { verifyJWT } from '../middlewares/auth.middleware.js';
+import { cloudinaryMediaUpload } from '../../../core/cloudinary.service.js';
 import { toggleCommentLike } from '../controllers/toggle-comment-like.controller.js';
 import { updateFeedPost } from '../controllers/update-post.controller.js';
 import { deleteFeedPost } from '../controllers/delete-post.controller.js';
@@ -27,13 +28,13 @@ router.get('/:postId', optionalAuthenticate, getPostById);
 router.use(authenticate);
 
 router.post('/:postId/comments/:commentId/like', toggleCommentLike);
-router.post('/create', createFeedPost);
+router.post('/create', cloudinaryMediaUpload.array('media', 6), createFeedPost);
 router.post('/:postId/like', togglePostLike);
 router.post('/:postId/save', toggleSavePost);
 router.post('/:postId/comments', addComment);
 router.post('/:postId/share', sharePost);
 
-router.put('/:postId', updateFeedPost);    // Edit post
+router.put('/:postId', cloudinaryMediaUpload.array('media', 6), updateFeedPost);    // Edit post
 router.delete('/:postId', deleteFeedPost); 
 
 export default router;

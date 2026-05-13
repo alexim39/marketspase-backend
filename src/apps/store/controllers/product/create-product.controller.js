@@ -318,6 +318,8 @@ export const createProduct = async (req, res) => {
       scheduledStart: scheduledStart || undefined,
       scheduledEnd: scheduledEnd || undefined,
       affiliate: extractAffiliateSettingsFromBody(req.body),
+      createdBy: userId,
+      updatedBy: userId,
       meta: {
         createdBy: userId,
         updatedBy: userId

@@ -47,7 +47,7 @@ export const deleteFeedPost = asyncHandler(async (req, res) => {
 // Permanently delete a feed post
 export const deleteFeedPost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const { userId } = req.query;
+  const userId = req.userId;
 
   // Find the post first to verify ownership before deletion
   const post = await FeedPostModel.findById(postId);

@@ -14,6 +14,34 @@ export const extractHashtags = (content) => {
   }));
 };
 
+export const normalizeHashtagInput = (hashtags = []) => {
+  if (!Array.isArray(hashtags)) return [];
+
+  return hashtags
+    .map((entry) => {
+      if (typeof entry === 'string') return entry;
+      if (entry && typeof entry === 'object' && typeof entry.tag === 'string') {
+        return entry.tag;
+      }
+      return '';
+    })
+    .map((tag) => tag.trim().replace(/^#/, '').toLowerCase())
+    .filter(Boolean)
+    .map((tag) => ({ tag }));
+};
+
+export const mergeHashtags = (...groups) => {
+  const seen = new Set();
+
+  return groups
+    .flatMap((group) => normalizeHashtagInput(group))
+    .filter(({ tag }) => {
+      if (seen.has(tag)) return false;
+      seen.add(tag);
+      return true;
+    });
+};
+
 /**
  * Extract mentions from content
  * @param {string} content - Post content
@@ -46,6 +74,19 @@ export const calculateTrendingScore = (post) => {
   const decayFactor = Math.exp(-hoursAgo / TRENDING.DECAY_HOURS);
   
   return (likeWeight + commentWeight + shareWeight + saveWeight + impressionWeight) * decayFactor;
+};
+
+export const computeFreshnessBoost = (createdAt) => {
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return 0;
+
+  const hoursAgo = (Date.now() - created.getTime()) / (1000 * 60 * 60);
+  return Math.max(0, 18 - Math.min(hoursAgo, 18));
+};
+
+export const getPrimaryMediaType = (post) => {
+  if (!Array.isArray(post?.media) || post.media.length === 0) return null;
+  return post.media[0]?.type || null;
 };
 
 /**

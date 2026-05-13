@@ -1,6 +1,34 @@
 import { generateSlug, extractMentions, extractHashtags } from "./thread.utils.js";
 import mongoose from "mongoose";
 
+const getThreadMediaItems = (thread) => {
+  if (Array.isArray(thread?.mediaItems) && thread.mediaItems.length) {
+    return thread.mediaItems;
+  }
+
+  if (thread?.media?.url) {
+    return [thread.media];
+  }
+
+  return [];
+};
+
+const calculateForumTrendScore = (thread = {}) => {
+  const createdAt = thread.createdAt ? new Date(thread.createdAt) : new Date();
+  const hoursOld = Math.max(1, (Date.now() - createdAt.getTime()) / 3600000);
+  const freshnessBoost = Math.max(0.35, 1.9 - (hoursOld / 72));
+  const baseEngagement =
+    ((thread.likeCount || 0) * 3.2) +
+    ((thread.commentCount || 0) * 4.8) +
+    ((thread.viewCount || 0) * 0.7) +
+    ((thread.shareCount || 0) * 4.1) +
+    ((thread.followerCount || 0) * 1.8);
+
+  const mediaBoost = getThreadMediaItems(thread).length ? 4 : 0;
+  const pollBoost = thread.poll?.question ? 6 + ((thread.poll?.totalVotes || 0) * 0.8) : 0;
+  return Math.round((baseEngagement + mediaBoost + pollBoost) * freshnessBoost * 100) / 100;
+};
+
 export const setupThreadMiddleware = (schema) => {
   // Pre-save middleware
   schema.pre('save', async function(next) {
@@ -17,6 +45,19 @@ export const setupThreadMiddleware = (schema) => {
     // Ensure likeCount matches likedBy array
     if (this.isModified('likedBy')) {
       this.likeCount = this.likedBy?.length || 0;
+    }
+
+    if (this.isModified('followers')) {
+      this.followerCount = this.followers?.length || 0;
+    }
+
+    if (this.isModified('mediaItems')) {
+      const mediaItems = Array.isArray(this.mediaItems) ? this.mediaItems : [];
+      this.media = mediaItems[0] || this.media || null;
+    }
+
+    if (this.isModified('media') && (!Array.isArray(this.mediaItems) || this.mediaItems.length === 0) && this.media?.url) {
+      this.mediaItems = [this.media];
     }
 
     // Update lastActivityAt
@@ -42,6 +83,33 @@ export const setupThreadMiddleware = (schema) => {
       this.hashtags = hashtags.map(tag => ({ tag }));
     }
 
+    if (this.isModified('topicTags') || this.isModified('tags') || this.isModified('category')) {
+      const combined = new Set([
+        ...(this.topicTags || []).map((tag) => String(tag || '').trim().toLowerCase()).filter(Boolean),
+        ...(this.tags || []).map((tag) => String(tag || '').trim().toLowerCase()).filter(Boolean),
+      ]);
+
+      if (this.category) {
+        combined.add(String(this.category).trim().toLowerCase());
+      }
+
+      this.topicTags = [...combined].slice(0, 8);
+    }
+
+    if (this.poll?.question) {
+      const hasOpenOptions = Array.isArray(this.poll.options) && this.poll.options.length >= 2;
+      if (!hasOpenOptions) {
+        this.poll = null;
+      } else {
+        this.poll.isClosed = Boolean(this.poll.isClosed) || Boolean(this.poll.closesAt && new Date(this.poll.closesAt) < new Date());
+        this.poll.totalVotes = (this.poll.options || []).reduce((sum, option) => sum + (option.voters?.length || option.voteCount || 0), 0);
+      }
+    }
+
+    this.engagementScore = Math.round((((this.likeCount || 0) * 2) + ((this.commentCount || 0) * 3) + (this.viewCount || 0) + ((this.shareCount || 0) * 3)) * 100) / 100;
+    this.trendingScore = calculateForumTrendScore(this);
+    this.spotlightScore = (this.engagementScore || 0) + ((getThreadMediaItems(this).length || 0) * 4) + (this.poll?.question ? 5 : 0);
+
     // Set deletedAt when isDeleted changes to true
     if (this.isModified('isDeleted') && this.isDeleted && !this.deletedAt) {
       this.deletedAt = new Date();
@@ -65,6 +133,10 @@ export const setupThreadMiddleware = (schema) => {
     // Ensure commentCount is valid
     if (update.commentCount !== undefined) {
       update.commentCount = Math.max(0, update.commentCount);
+    }
+
+    if (update.followers !== undefined) {
+      update.followerCount = Array.isArray(update.followers) ? update.followers.length : update.followerCount;
     }
 
     next();

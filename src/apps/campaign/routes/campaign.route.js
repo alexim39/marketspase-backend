@@ -18,13 +18,16 @@ import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 const router = express.Router();
 
 
-// GET routes in order of specificity - FIXED ORDER
-router.get('/', getCampaignsByStatusAndUserId);
-router.get('/user/:userId', GetAMarketerCampaigns);
-router.get('/promotions/proof/:promotionId', getProofDetails);
+// Public tracking endpoint
 router.get('/track/:upi', trackCampaignClick);
 
+// All remaining campaign routes require an authenticated actor.
 router.use(authenticate);
+
+// GET routes in order of specificity - FIXED ORDER
+router.get('/user/:userId', GetAMarketerCampaigns);
+router.get('/promotions/proof/:promotionId', getProofDetails);
+router.get('/', getCampaignsByStatusAndUserId);
 
 // MOST SPECIFIC DYNAMIC ROUTES LAST - FIXED: This should be BEFORE other dynamic routes
 router.get('/:id', getCampaignById);

@@ -1,4 +1,5 @@
 import { CampaignModel } from "../models/campaign.model.js";
+import { ensureSelfOrAdmin, getAuthenticatedUserId } from "../../../shared/utils/request-auth.util.js";
 
 /**
  * @description Fetches all campaigns owned by a specific user with pagination.
@@ -30,11 +31,16 @@ export const GetAMarketerCampaigns = async (req, res) => {
       });
     }
 
-    if (req.user.role !== 'admin' && req.userId !== userId) {
-      return res.status(403).json({
-        message: "You are not authorized to view these campaigns.",
+    const authenticatedUserId = getAuthenticatedUserId(req);
+    if (!authenticatedUserId) {
+      return res.status(401).json({
+        message: "Authentication is required to view campaigns.",
         success: false,
       });
+    }
+
+    if (!ensureSelfOrAdmin(req, userId, res, "You are not authorized to view these campaigns.")) {
+      return;
     }
 
     // Build query object

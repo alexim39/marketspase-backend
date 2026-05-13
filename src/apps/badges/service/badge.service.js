@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 import { CampaignModel } from '../../campaign/models/campaign.model.js';
 import { FeedPostModel } from '../../feeds/models/feed/index.js';
+import { CommentModel } from '../../forum/models/comment/index.js';
+import { ThreadModel } from '../../forum/models/thread/index.js';
 import { NotificationService } from '../../notification/services/notification.service.js';
 import { FollowModel } from '../../profile/models/follow/index.js';
 import { PromotionModel } from '../../promotion/models/promotion.model.js';
@@ -204,6 +206,32 @@ const DEFAULT_BADGE_DEFINITIONS = [
     reward: { experiencePoints: 20, label: '20 XP' },
     sortOrder: 130,
   },
+  {
+    key: 'forum-threads-3',
+    title: 'Conversation Starter',
+    description: 'Start 3 valuable forum discussions in the community.',
+    shortDescription: 'Create 3 forum threads',
+    icon: 'forum',
+    accentColor: '#0ea5e9',
+    category: 'community',
+    roles: ['all'],
+    criteria: { metric: 'forum_threads_created', targetValue: 3 },
+    reward: { experiencePoints: 18, label: '18 XP' },
+    sortOrder: 140,
+  },
+  {
+    key: 'forum-comments-15',
+    title: 'Helpful Contributor',
+    description: 'Add 15 thoughtful comments or replies in forum discussions.',
+    shortDescription: '15 forum comments',
+    icon: 'chat',
+    accentColor: '#14b8a6',
+    category: 'engagement',
+    roles: ['all'],
+    criteria: { metric: 'forum_comments_created', targetValue: 15 },
+    reward: { experiencePoints: 24, label: '24 XP' },
+    sortOrder: 150,
+  },
 ];
 
 const BADGE_METRIC_CATALOG = [
@@ -219,6 +247,9 @@ const BADGE_METRIC_CATALOG = [
   { value: 'store_orders_paid', label: 'Paid storefront orders', unit: 'orders', category: 'sales' },
   { value: 'community_posts_published', label: 'Community posts published', unit: 'posts', category: 'community' },
   { value: 'followers_count', label: 'Followers', unit: 'followers', category: 'community' },
+  { value: 'forum_threads_created', label: 'Forum threads created', unit: 'threads', category: 'community' },
+  { value: 'forum_comments_created', label: 'Forum comments created', unit: 'comments', category: 'community' },
+  { value: 'forum_engagement_score', label: 'Forum engagement score', unit: 'points', category: 'engagement' },
 ];
 
 const toObjectId = (value) => new mongoose.Types.ObjectId(value);
@@ -510,6 +541,8 @@ const getMetricsForUser = async (userId, existingUser = null) => {
     storeOrdersPaid,
     communityPostsPublished,
     followersCount,
+    forumThreadsCreated,
+    forumCommentsCreated,
   ] = await Promise.all([
     CampaignModel.countDocuments({ owner: objectId, isDeleted: { $ne: true } }),
     aggregateNumericResult([
@@ -536,7 +569,14 @@ const getMetricsForUser = async (userId, existingUser = null) => {
     OrderModel.countDocuments({ marketer: objectId, paymentStatus: 'paid', isDeleted: { $ne: true } }),
     FeedPostModel.countDocuments({ author: objectId, status: 'published' }),
     FollowModel.countDocuments({ following: objectId }),
+    ThreadModel.countDocuments({ author: objectId, isDeleted: { $ne: true } }),
+    CommentModel.countDocuments({ author: objectId, isDeleted: { $ne: true } }),
   ]);
+
+  const forumEngagementScore = roundMetric(
+    (toNumber(forumThreadsCreated) * 12) +
+    (toNumber(forumCommentsCreated) * 5),
+  );
 
   return {
     user,
@@ -553,6 +593,9 @@ const getMetricsForUser = async (userId, existingUser = null) => {
       store_orders_paid: toNumber(storeOrdersPaid),
       community_posts_published: toNumber(communityPostsPublished),
       followers_count: toNumber(followersCount),
+      forum_threads_created: toNumber(forumThreadsCreated),
+      forum_comments_created: toNumber(forumCommentsCreated),
+      forum_engagement_score: forumEngagementScore,
     },
   };
 };

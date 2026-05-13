@@ -3,6 +3,13 @@ import ProductPromotionService from "../../services/product-promotion.service.js
 import { StoreModel } from "../../models/store/index.js";
 
 export class ProductPromotionController {
+  constructor() {
+    this.publishProducts = this.publishProducts.bind(this);
+    this.unpublishProducts = this.unpublishProducts.bind(this);
+    this.unpublishSingleProduct = this.unpublishSingleProduct.bind(this);
+    this.getPublishedProducts = this.getPublishedProducts.bind(this);
+  }
+
   async ensureStoreOwnership(storeId, req, res) {
     const store = await StoreModel.findById(storeId).select('owner');
     if (!store) {
