@@ -8,6 +8,20 @@ import { withdrawalSuccessfulTemplate } from '../../services/email/withdrawalSuc
 import { withdrawalFailedTemplate } from '../../services/email/withdrawalFailedTemplate.js';
 import { getVerificationLevel } from '../../services/get-verify-level.service.js';
 import { processPayment, checkPaystackBalance } from '../../services/process-payment.js';
+import {
+  buildSignedQuote,
+  convertAmount,
+  getPaymentCurrencyConfig,
+  normalizeCurrencyCode,
+  roundCurrencyAmount,
+  verifySignedQuote,
+} from '../../services/payment-currency.service.js';
+import {
+  applyWalletCredit,
+  applyWalletDebit,
+  ensureWalletCurrencyState,
+  getWalletAmountForCurrency,
+} from '../../services/wallet-ledger.service.js';
 
 dotenv.config();
 
@@ -44,7 +58,8 @@ export const withdrawRequest = async (req, res) => {
     payableAmount,
     bankCode,
     currency,
-    finalAmount
+    finalAmount,
+    quote,
   } = req.body;
   const userId = req.userId;
 
@@ -83,13 +98,6 @@ export const withdrawRequest = async (req, res) => {
       });
     }
 
-    // 2) Optional: Check Paystack balance before proceeding
-    const balanceCheck = await checkPaystackBalance();
-    if (!balanceCheck.success || balanceCheck.balance < payableAmount) {
-      console.warn('Paystack balance warning:', balanceCheck);
-      // Continue anyway - webhook will handle failure if insufficient
-    }
-
     // 3) Bank ownership guard
     const ownershipCheck = await assertAccountNotUsedByAnotherUser({
       bankCode: bank,
@@ -121,51 +129,106 @@ export const withdrawRequest = async (req, res) => {
 
     let userWallet; 
     let serviceFee;
+    const withdrawalCurrency = normalizeCurrencyCode(currency || 'NGN');
+    const settlementCurrency = 'NGN';
+    const config = await getPaymentCurrencyConfig();
 
     if (role === 'promoter') {
-      serviceFee = Math.round(finalAmount * 0.20);
-      const amountPayable = finalAmount - serviceFee;
+      serviceFee = roundCurrencyAmount(finalAmount * 0.20);
+      const amountPayable = roundCurrencyAmount(finalAmount - serviceFee);
 
       userWallet = user.wallets.promoter; 
+      ensureWalletCurrencyState(userWallet, userWallet.baseCurrency || 'NGN');
       
-      if (userWallet.balance < amount) {
+      if (getWalletAmountForCurrency(userWallet, 'balance', withdrawalCurrency) < Number(amount)) {
         return res.status(400).json({ message: "Insufficient balance.", success: false });
       }
       
-      if (amountPayable !== payableAmount) {
+      if (Math.abs(amountPayable - payableAmount) > 1) {
         return res.status(400).json({ message: "invalid withdrawal amount or service charge must apply.", success: false });
       }
     }
 
     if (role === 'marketer') {
       serviceFee = 0;
-      const amountPayable = finalAmount - serviceFee;
+      const amountPayable = roundCurrencyAmount(finalAmount - serviceFee);
 
       userWallet = user.wallets.marketer; 
+      ensureWalletCurrencyState(userWallet, userWallet.baseCurrency || 'NGN');
       
-      if (userWallet.balance < amount) {
+      if (getWalletAmountForCurrency(userWallet, 'balance', withdrawalCurrency) < Number(amount)) {
         return res.status(400).json({ message: "Insufficient balance.", success: false });
       }
 
-      if (amountPayable !== payableAmount) {
+      if (Math.abs(amountPayable - payableAmount) > 1) {
         return res.status(400).json({ message: "invalid withdrawal amount.", success: false });
       }
     }
 
-    
-    // Deduct gross amount from user balance
-    userWallet.balance -= amount;
+    const grossAmount = roundCurrencyAmount(amount);
+    const netSourceAmount = roundCurrencyAmount(payableAmount);
+    const grossBaseAmount = roundCurrencyAmount(convertAmount(
+      grossAmount,
+      withdrawalCurrency,
+      userWallet.baseCurrency || 'NGN',
+      config,
+    ).amount);
+
+    const verifiedQuote = quote
+      ? await verifySignedQuote(quote, { purpose: 'wallet_withdrawal' })
+      : await buildSignedQuote({
+          amount: netSourceAmount,
+          fromCurrency: withdrawalCurrency,
+          toCurrency: settlementCurrency,
+          purpose: 'wallet_withdrawal',
+        });
+
+    if (normalizeCurrencyCode(verifiedQuote.sourceCurrency) !== withdrawalCurrency) {
+      return res.status(400).json({
+        success: false,
+        message: 'Withdrawal quote currency does not match the selected source currency.',
+      });
+    }
+
+    if (Math.abs(Number(verifiedQuote.sourceAmount || 0) - netSourceAmount) > 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'Withdrawal quote amount is no longer valid. Please refresh the withdrawal screen.',
+      });
+    }
+
+    const settlementAmount = roundCurrencyAmount(verifiedQuote.targetAmount);
+
+    // 2b) Optional: Check Paystack balance before proceeding
+    const balanceCheck = await checkPaystackBalance(settlementCurrency);
+    if (!balanceCheck.success || balanceCheck.balance < settlementAmount) {
+      console.warn('Paystack balance warning:', balanceCheck);
+      // Continue anyway - webhook will handle failure if insufficient
+    }
+
+    applyWalletDebit(userWallet, {
+      bucket: 'balance',
+      amount: grossAmount,
+      currency: withdrawalCurrency,
+      baseAmount: grossBaseAmount,
+      baseCurrency: userWallet.baseCurrency || 'NGN',
+    });
 
     // 6) Create transaction
     const tx = {
       reference: `WD_${Date.now()}_${Math.random().toString(36).slice(2, 15)}`,
       gateway: "paystack",
-      currency: "NGN",
+      currency: withdrawalCurrency,
+      baseCurrency: userWallet.baseCurrency || 'NGN',
+      baseAmount: grossBaseAmount,
+      settlementCurrency,
       fee: serviceFee,
       transferCode: undefined,
       failureReason: undefined,
-      amount,
-      amountPayable: payableAmount,
+      amount: grossAmount,
+      amountPayable: netSourceAmount,
+      settlementAmount,
+      exchangeRate: Number(verifiedQuote.exchangeRate || 1),
       type: "debit",
       category: "withdrawal",
       description: `MarketSpase withdrawal to ${bankName || bank} ending in ${accountNumber.slice(-4)}`,
@@ -183,7 +246,8 @@ export const withdrawRequest = async (req, res) => {
         createdBy: "withdrawRequest", 
         verifyLevel: verificationLevel,
         requestIp: req.ip,
-        userAgent: req.get('User-Agent')
+        userAgent: req.get('User-Agent'),
+        quote: verifiedQuote,
       },
     };
 
@@ -196,12 +260,13 @@ export const withdrawRequest = async (req, res) => {
       bank,
       accountNumber,
       accountName,
-      payableAmount,
+      settlementAmount,
       { 
         userId, 
         reason: `MarketSpase withdrawal to ${accountName}`, 
         reference: txRef.reference 
-      }
+      },
+      settlementCurrency,
     );
 
     // console.log('🔵 PAYMENT RESPONSE DETAILS:', {
@@ -238,7 +303,13 @@ export const withdrawRequest = async (req, res) => {
   // Check if transfer was blocked
   if (paymentResponse.status === "blocked" || paymentResponse.data?.status === "blocked") {
     // Refund gross
-    userWallet.balance += amount;
+    applyWalletCredit(userWallet, {
+      bucket: 'balance',
+      amount: grossAmount,
+      currency: withdrawalCurrency,
+      baseAmount: grossBaseAmount,
+      baseCurrency: userWallet.baseCurrency || 'NGN',
+    });
     txRef.status = "failed";
     txRef.failureReason = "Transfer blocked by provider";
     txRef.processedAt = new Date();
@@ -255,7 +326,13 @@ export const withdrawRequest = async (req, res) => {
     // Handle immediate failures
     if (!paymentResponse.success) {
       // Refund the user
-      userWallet.balance += amount;
+      applyWalletCredit(userWallet, {
+        bucket: 'balance',
+        amount: grossAmount,
+        currency: withdrawalCurrency,
+        baseAmount: grossBaseAmount,
+        baseCurrency: userWallet.baseCurrency || 'NGN',
+      });
       txRef.status = "failed";
       txRef.failureReason = paymentResponse.message || "Transfer failed";
       txRef.processedAt = new Date();
@@ -316,7 +393,10 @@ export const withdrawRequest = async (req, res) => {
           metadata: {
             transactionId: txRef._id,
             reference: txRef.reference,
-            amount: amount
+            amount: grossAmount,
+            currency: withdrawalCurrency,
+            settlementAmount,
+            settlementCurrency,
           }
         }
       );

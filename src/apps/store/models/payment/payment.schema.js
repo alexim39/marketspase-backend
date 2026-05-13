@@ -33,9 +33,26 @@ const paymentSchema = new mongoose.Schema({
     required: true, 
     min: 0 
   },
+  baseCurrency: {
+    type: String,
+    default: DEFAULTS.CURRENCY
+  },
   currency: { 
     type: String, 
     default: DEFAULTS.CURRENCY 
+  },
+  chargeAmount: {
+    type: Number,
+    default: null,
+    min: 0,
+  },
+  chargeCurrency: {
+    type: String,
+    default: DEFAULTS.CURRENCY
+  },
+  exchangeRate: {
+    type: Number,
+    default: null,
   },
   
   // Transaction identifiers
@@ -97,6 +114,9 @@ const paymentSchema = new mongoose.Schema({
   },
   webhookPayload: { 
     type: mongoose.Schema.Types.Mixed 
+  },
+  quoteSnapshot: {
+    type: mongoose.Schema.Types.Mixed
   },
   webhookProcessedAt: { 
     type: Date 

@@ -2,6 +2,7 @@ import { StoreModel } from '../../models/store/index.js';
 import { ProductModel, PromotionTrackingModel } from '../../models/promotion/index.js';
 import { StoreAnalyticsModel } from '../../models/store-analytics/index.js';
 import mongoose from 'mongoose';
+import { getStoreReviewStats, mergeStoreRatingAnalytics } from '../../services/review-aggregate.service.js';
 
 
 
@@ -150,13 +151,15 @@ export const getStoreByLink = async (req, res) => {
 
     // Get owner details
     const ownerDetails = store.owner ? {
-      name: store.owner.name,
+      name: store.owner.displayName || store.owner.username || store.owner.name,
       email: store.owner.email,
-      profilePicture: store.owner.profilePicture
+      avatar: store.owner.avatar || null,
+      phone: store.owner.personalInfo?.phone || null,
     } : null;
 
+    const reviewStats = await getStoreReviewStats(store._id);
     const responseData = {
-      ...store.toObject(),
+      ...mergeStoreRatingAnalytics(store, reviewStats),
       followerCount: store.followers?.length || 0,
       ownerDetails
     };
@@ -164,7 +167,13 @@ export const getStoreByLink = async (req, res) => {
     res.status(200).json({
       success: true,
       data: responseData,
-      analytics: analytics || undefined,
+      analytics: analytics
+        ? {
+            ...analytics,
+            rating: reviewStats.averageRating,
+            totalReviews: reviewStats.totalReviews,
+          }
+        : undefined,
       popularProducts: popularProducts.length > 0 ? popularProducts : undefined
     });
   } catch (error) {

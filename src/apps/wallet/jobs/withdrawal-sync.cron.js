@@ -7,6 +7,7 @@ import axios from 'axios';
 //import { withdrawalFailedTemplate } from '../../wallet/services/email/withdrawalFailedTemplate.js';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import { applyWalletCredit, ensureWalletCurrencyState } from '../services/wallet-ledger.service.js';
 
 dotenv.config();
 
@@ -266,7 +267,14 @@ async function updateTransactionStatus(withdrawal, paystackStatus, paystackData)
         
         // Refund the user
         const wallet = user.wallets[walletType];
-        wallet.balance += transaction.amount;
+        ensureWalletCurrencyState(wallet, wallet.baseCurrency || wallet.currency || 'NGN');
+        applyWalletCredit(wallet, {
+          bucket: 'balance',
+          amount: transaction.amount,
+          currency: transaction.currency || wallet.baseCurrency || wallet.currency || 'NGN',
+          baseAmount: transaction.baseAmount ?? transaction.amount,
+          baseCurrency: wallet.baseCurrency || wallet.currency || 'NGN',
+        });
         
         transaction.status = paystackStatus === 'reversed' ? 'reversed' : 'failed';
         transaction.failureReason = paystackData?.reason || `Transfer ${paystackStatus} on Paystack`;
@@ -307,7 +315,14 @@ async function updateTransactionStatus(withdrawal, paystackStatus, paystackData)
         
         // Refund the user
         const wallet = user.wallets[walletType];
-        wallet.balance += transaction.amount;
+        ensureWalletCurrencyState(wallet, wallet.baseCurrency || wallet.currency || 'NGN');
+        applyWalletCredit(wallet, {
+          bucket: 'balance',
+          amount: transaction.amount,
+          currency: transaction.currency || wallet.baseCurrency || wallet.currency || 'NGN',
+          baseAmount: transaction.baseAmount ?? transaction.amount,
+          baseCurrency: wallet.baseCurrency || wallet.currency || 'NGN',
+        });
         
         transaction.status = 'rejected';
         transaction.failureReason = paystackData?.reason || `Transfer ${paystackStatus} on Paystack`;

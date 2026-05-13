@@ -11,6 +11,18 @@ import { evaluateUserBadges } from "../../../badges/service/badge.service.js";
 import { awardGamificationProgress } from "../../../gamification/service/gamification.service.js";
 import { sendEmail } from "../../../../core/email.service.js";
 import {
+  buildSignedQuote,
+  convertAmount,
+  getPaymentCurrencyConfig,
+  normalizeCurrencyCode,
+  verifySignedQuote,
+} from "../../../wallet/services/payment-currency.service.js";
+import {
+  applyWalletCredit,
+  ensureWalletCurrencyState,
+  moveWalletReservedToBalance,
+} from "../../../wallet/services/wallet-ledger.service.js";
+import {
   calculateCommissionForAmount,
   getProductAffiliateSettings,
   roundMoney
@@ -36,6 +48,8 @@ export const createStorefrontOrder = async (req, res) => {
       shippingAddress,
       customerNote,
       paymentMethod = PAYMENT_METHOD.PAYSTACK,
+      checkoutCurrency,
+      checkoutQuote,
     } = req.body;
     const authenticatedCustomerId = req.userId || null;
     const effectiveCustomerId = customerId || authenticatedCustomerId;
@@ -207,6 +221,25 @@ export const createStorefrontOrder = async (req, res) => {
     const firstAttribution = orderItems.find((item) => item.trackingCode || item.trackingRef) || {};
     const buyerSnapshot = buildBuyerSnapshot(customer, normalizedShippingAddress, req.body.guestCustomer || {}, firstAttribution);
 
+    const normalizedCheckoutCurrency = normalizeCurrencyCode(checkoutCurrency || currency, currency);
+    const paymentQuote = await (checkoutQuote
+      ? verifySignedQuote(checkoutQuote, { purpose: 'storefront_checkout' })
+      : buildSignedQuote({
+          amount: totalAmount,
+          fromCurrency: currency,
+          toCurrency: normalizedCheckoutCurrency,
+          purpose: 'storefront_checkout',
+        }));
+
+    if (normalizeCurrencyCode(paymentQuote.sourceCurrency, currency) !== normalizeCurrencyCode(currency, currency)
+      || Math.abs(Number(paymentQuote.sourceAmount || 0) - totalAmount) > 1) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        success: false,
+        message: 'Checkout quote is no longer valid for the current order amount. Please refresh checkout.',
+      });
+    }
+
     const order = new OrderModel({
       orderNumber,
       store: orderStore._id,
@@ -221,6 +254,9 @@ export const createStorefrontOrder = async (req, res) => {
       discount,
       totalAmount,
       currency,
+      checkoutCurrency: paymentQuote.targetCurrency,
+      checkoutTotalAmount: paymentQuote.targetAmount,
+      checkoutExchangeRate: paymentQuote.exchangeRate,
       shippingAddress: normalizedShippingAddress,
       paymentStatus: ORDER_PAYMENT_STATUS.PENDING,
       paymentMethod,
@@ -240,7 +276,11 @@ export const createStorefrontOrder = async (req, res) => {
       store: orderStore._id,
       customer: customer?._id,
       amount: totalAmount,
+      baseCurrency: currency,
       currency: order.currency,
+      chargeAmount: paymentQuote.targetAmount,
+      chargeCurrency: paymentQuote.targetCurrency,
+      exchangeRate: paymentQuote.exchangeRate,
       transactionReference,
       paymentGateway: paymentMethod === PAYMENT_METHOD.PAYSTACK
         ? PAYMENT_GATEWAY.PAYSTACK
@@ -248,6 +288,7 @@ export const createStorefrontOrder = async (req, res) => {
       status: STORE_PAYMENT_STATUS.PENDING,
       customerEmail: buyerSnapshot.email,
       customerPhone: buyerSnapshot.phone,
+      quoteSnapshot: paymentQuote,
     });
 
     await payment.save({ session });
@@ -262,11 +303,15 @@ export const createStorefrontOrder = async (req, res) => {
         payment,
         orderAccessToken: signOrderAccessToken(order),
         checkout: {
-          amount: totalAmount,
-          currency: order.currency,
+          amount: paymentQuote.targetAmount,
+          currency: paymentQuote.targetCurrency,
           reference: transactionReference,
           marketerReservedAmount,
           promoterReservedAmount: totalPromoterCommission,
+          baseAmount: totalAmount,
+          baseCurrency: order.currency,
+          exchangeRate: paymentQuote.exchangeRate,
+          quote: paymentQuote,
         },
       },
     });
@@ -337,7 +382,11 @@ export const confirmStorefrontPayment = async (req, res) => {
       return res.status(400).json({ success: false, message: "Payment reference does not match this order" });
     }
 
-    const verification = await verifyPaystackPayment(reference, order.totalAmount);
+    const verification = await verifyPaystackPayment(
+      reference,
+      payment.chargeAmount || order.checkoutTotalAmount || order.totalAmount,
+      payment.chargeCurrency || order.checkoutCurrency || order.currency,
+    );
     const localCallbackAccepted = process.env.NODE_ENV !== "production" && paystackResult?.status === "success";
 
     if (!verification.verified && !localCallbackAccepted) {
@@ -1417,7 +1466,7 @@ async function fetchPopulatedOrder(orderId) {
   }
 }
 
-async function verifyPaystackPayment(reference, expectedAmount) {
+async function verifyPaystackPayment(reference, expectedAmount, expectedCurrency = 'NGN') {
   if (!process.env.PAYSTACK_SECRET_KEY) {
     return { verified: false, message: "Paystack secret key is not configured" };
   }
@@ -1430,7 +1479,10 @@ async function verifyPaystackPayment(reference, expectedAmount) {
 
     const data = response.data?.data;
     const paidAmount = roundMoney((data?.amount || 0) / 100);
-    const verified = data?.status === "success" && paidAmount >= roundMoney(expectedAmount);
+    const paidCurrency = normalizeCurrencyCode(data?.currency || expectedCurrency, expectedCurrency);
+    const verified = data?.status === "success"
+      && paidCurrency === normalizeCurrencyCode(expectedCurrency, expectedCurrency)
+      && paidAmount >= roundMoney(expectedAmount);
 
     return {
       verified,
@@ -1513,6 +1565,7 @@ async function holdOrderEscrow(order, payment, gatewayPayload, session) {
     userId: toObjectId(order.marketer),
     walletRole: "marketer",
     amount: order.marketerReservedAmount,
+    currency: order.currency,
     reference: `${payment.transactionReference}-MKT-HOLD`,
     category: "store_sale",
     description: `Reserved storefront sale funds for order ${order.orderNumber}`,
@@ -1525,6 +1578,7 @@ async function holdOrderEscrow(order, payment, gatewayPayload, session) {
       userId: promoterId,
       walletRole: "promoter",
       amount,
+      currency: order.currency,
       reference: `${payment.transactionReference}-PRM-HOLD-${promoterId}`,
       category: "commission",
       description: `Reserved affiliate commission for order ${order.orderNumber}`,
@@ -1537,34 +1591,48 @@ async function holdOrderEscrow(order, payment, gatewayPayload, session) {
   await updateStoreSalesCounters(order, session);
 }
 
-async function creditReservedWallet({ userId, walletRole, amount, reference, category, description, meta, session }) {
+async function creditReservedWallet({ userId, walletRole, amount, currency, reference, category, description, meta, session }) {
   const walletOwnerId = toObjectId(userId);
   if (!walletOwnerId || !amount || amount <= 0) return;
+  const user = await UserModel.findById(walletOwnerId).session(session);
+  if (!user) return;
 
-  await UserModel.updateOne(
-    { _id: walletOwnerId },
-    {
-      $inc: { [`wallets.${walletRole}.reserved`]: roundMoney(amount) },
-      $push: {
-        [`wallets.${walletRole}.transactions`]: {
-          $each: [{
-            amount: roundMoney(amount),
-            type: "credit",
-            category,
-            description,
-            reference,
-            gateway: "system",
-            status: "reserved",
-            meta,
-            createdAt: new Date(),
-          }],
-          $position: 0,
-          $slice: WALLET_TRANSACTION_LIMIT,
-        },
-      },
-    },
-    { session }
-  );
+  const wallet = user.wallets?.[walletRole];
+  if (!wallet) return;
+
+  ensureWalletCurrencyState(wallet, wallet.baseCurrency || wallet.currency || 'NGN');
+  const config = await getPaymentCurrencyConfig();
+  const nativeCurrency = normalizeCurrencyCode(currency || wallet.baseCurrency || 'NGN');
+  const baseCurrency = normalizeCurrencyCode(wallet.baseCurrency || wallet.currency || 'NGN');
+  const baseAmount = roundMoney(convertAmount(amount, nativeCurrency, baseCurrency, config).amount);
+
+  applyWalletCredit(wallet, {
+    bucket: 'reserved',
+    amount,
+    currency: nativeCurrency,
+    baseAmount,
+    baseCurrency,
+  });
+
+  wallet.transactions.unshift({
+    amount: roundMoney(amount),
+    baseAmount,
+    currency: nativeCurrency,
+    baseCurrency,
+    settlementCurrency: nativeCurrency,
+    settlementAmount: roundMoney(amount),
+    exchangeRate: amount ? roundMoney(baseAmount / amount) : 1,
+    type: "credit",
+    category,
+    description,
+    reference,
+    gateway: "system",
+    status: "reserved",
+    meta,
+    createdAt: new Date(),
+  });
+  wallet.transactions = wallet.transactions.slice(0, WALLET_TRANSACTION_LIMIT);
+  await user.save({ session });
 }
 
 async function releaseOrderEscrow(order, userId, confirmationRole, session) {
@@ -1574,6 +1642,7 @@ async function releaseOrderEscrow(order, userId, confirmationRole, session) {
     userId: toObjectId(order.marketer),
     walletRole: "marketer",
     amount: order.marketerReservedAmount,
+    currency: order.currency,
     reference: `${order.paymentReference}-MKT-RELEASE`,
     category: "store_sale",
     description: `Released storefront sale funds for order ${order.orderNumber}`,
@@ -1586,6 +1655,7 @@ async function releaseOrderEscrow(order, userId, confirmationRole, session) {
       userId: promoterId,
       walletRole: "promoter",
       amount,
+      currency: order.currency,
       reference: `${order.paymentReference}-PRM-RELEASE-${promoterId}`,
       category: "commission",
       description: `Released affiliate commission for order ${order.orderNumber}`,
@@ -1606,7 +1676,7 @@ async function releaseOrderEscrow(order, userId, confirmationRole, session) {
   await order.save({ session });
 }
 
-async function moveReservedToBalance({ userId, walletRole, amount, reference, category, description, meta, session }) {
+async function moveReservedToBalance({ userId, walletRole, amount, currency, reference, category, description, meta, session }) {
   const walletOwnerId = toObjectId(userId);
   if (!walletOwnerId || !amount || amount <= 0) return;
 
@@ -1617,10 +1687,25 @@ async function moveReservedToBalance({ userId, walletRole, amount, reference, ca
   if (!wallet) throw new Error(`Wallet not found for ${walletRole}`);
 
   const releaseAmount = roundMoney(amount);
-  wallet.reserved = roundMoney(Math.max(0, (wallet.reserved || 0) - releaseAmount));
-  wallet.balance = roundMoney((wallet.balance || 0) + releaseAmount);
+  ensureWalletCurrencyState(wallet, wallet.baseCurrency || wallet.currency || 'NGN');
+  const config = await getPaymentCurrencyConfig();
+  const nativeCurrency = normalizeCurrencyCode(currency || wallet.baseCurrency || 'NGN');
+  const baseCurrency = normalizeCurrencyCode(wallet.baseCurrency || wallet.currency || 'NGN');
+  const baseAmount = roundMoney(convertAmount(releaseAmount, nativeCurrency, baseCurrency, config).amount);
+  moveWalletReservedToBalance(wallet, {
+    amount: releaseAmount,
+    currency: nativeCurrency,
+    baseAmount,
+    baseCurrency,
+  });
   wallet.transactions.unshift({
     amount: releaseAmount,
+    baseAmount,
+    currency: nativeCurrency,
+    baseCurrency,
+    settlementCurrency: nativeCurrency,
+    settlementAmount: releaseAmount,
+    exchangeRate: releaseAmount ? roundMoney(baseAmount / releaseAmount) : 1,
     type: "credit",
     category,
     description,

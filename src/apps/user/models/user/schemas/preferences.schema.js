@@ -6,12 +6,17 @@ const themePreferencesSchema = new mongoose.Schema({
   systemDefault: { type: Boolean, default: true }
 }, { _id: false });
 
+const financialPreferencesSchema = new mongoose.Schema({
+  displayCurrency: { type: String, default: 'NGN', uppercase: true, trim: true },
+}, { _id: false });
+
 const preferencesSchema = new mongoose.Schema({
   notification: { type: Boolean, default: true },
   categoryBasedAds: { type: Boolean, default: false },
   locationBasedAds: { type: Boolean, default: false },
   adCategories: [{ type: String }],
-  theme: { type: themePreferencesSchema, default: () => ({}) }
+  theme: { type: themePreferencesSchema, default: () => ({}) },
+  financial: { type: financialPreferencesSchema, default: () => ({}) },
 }, { _id: false });
 
 export default preferencesSchema;

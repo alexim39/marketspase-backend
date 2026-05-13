@@ -10,6 +10,7 @@ import { PromotionTrackingModel } from '../../store/models/promotion/promotion/p
 import { PromotionModel } from '../../promotion/models/promotion.model.js';
 import { ThreadModel } from '../../forum/models/thread/thread.model.js';
 import { CommentModel } from '../../forum/models/comment/comment.model.js';
+import { refreshUserReputation } from '../../user/services/user-reputation.service.js';
 
 const PROFILE_WINDOW_DAYS = 30;
 const PROFILE_TOP_LIMIT = 4;
@@ -467,6 +468,12 @@ export const getProfile = async (req, res) => {
     }
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
+    const reputationSnapshot = await refreshUserReputation({
+      _id: userObjectId,
+      role: user.role,
+      loginStreak: user.loginStreak,
+      gamificationProfile: user.gamificationProfile,
+    });
     const sinceDate = new Date(Date.now() - PROFILE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
     const [
@@ -584,6 +591,8 @@ export const getProfile = async (req, res) => {
 
     res.json({
       ...user,
+      rating: reputationSnapshot.rating,
+      ratingCount: reputationSnapshot.ratingCount,
       professionalInfo: {
         ...(user.professionalInfo || {}),
         socialProfiles: compactSocialProfiles(user.professionalInfo?.socialProfiles),

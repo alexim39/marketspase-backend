@@ -1,4 +1,21 @@
 import { TestimonialModel } from './../models/testimonial/index.js';
+import { UserModel } from '../../user/models/user/index.js';
+
+const formatAdminTestimonial = (testimonial) => {
+  const item = testimonial?.toObject ? testimonial.toObject() : testimonial;
+  if (!item) {
+    return item;
+  }
+
+  return {
+    ...item,
+    user: item.user ? {
+      ...item.user,
+      name: item.user.displayName || item.user.username || item.user.name || 'MarketSpase User',
+      avatar: item.user.avatar || null,
+    } : null,
+  };
+};
 
 // Get all testimonials with optional filtering
 export const adminGetTestimonials = async (req, res) => {
@@ -25,7 +42,7 @@ export const adminGetTestimonials = async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
     
     const testimonials = await TestimonialModel.find(query)
-      .populate('user', 'name username avatar')
+      .populate('user', 'displayName username avatar')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum);
@@ -33,12 +50,12 @@ export const adminGetTestimonials = async (req, res) => {
     const total = await TestimonialModel.countDocuments(query);
     
     res.status(200).json({
-      data: testimonials,
+      data: testimonials.map(formatAdminTestimonial),
       totalPages: Math.ceil(total / limitNum),
       currentPage: pageNum,
       total,
       success: true, 
-      message: 'Testimonials found' 
+      message: 'Testimonials found'
     });
   } catch (error) {
     console.error('Error fetching testimonials:', error);
@@ -58,15 +75,23 @@ export const updateTestimonialStatus = async (req, res) => {
     
     const testimonial = await TestimonialModel.findByIdAndUpdate(
       id,
-      { status },
+      {
+        status,
+        reviewedBy: req.user?._id,
+        reviewedAt: new Date(),
+      },
       { new: true }
-    ).populate('user', 'name username avatar');
+    ).populate('user', 'displayName username avatar');
     
     if (!testimonial) {
       return res.status(404).json({success: false,  message: 'Testimonial not found' });
     }
     
-    res.json(testimonial);
+    if (testimonial?.user?._id) {
+      await syncUserTestimonials(testimonial.user._id);
+    }
+
+    res.json(formatAdminTestimonial(testimonial));
   } catch (error) {
     console.error('Error updating testimonial status:', error);
     res.status(500).json({ success: false, message: 'Server error while updating testimonial status' });
@@ -83,13 +108,13 @@ export const toggleFeatured = async (req, res) => {
       id,
       { isFeatured },
       { new: true }
-    ).populate('user', 'name username avatar');
+    ).populate('user', 'displayName username avatar');
     
     if (!testimonial) {
       return res.status(404).json({ success: false, message: 'Testimonial not found' });
     }
     
-    res.json(testimonial);
+    res.json(formatAdminTestimonial(testimonial));
   } catch (error) {
     console.error('Error toggling featured status:', error);
     res.status(500).json({ success: false, message: 'Server error while toggling featured status' });
@@ -107,9 +132,21 @@ export const deleteTestimonial = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Testimonial not found' });
     }
     
+    if (testimonial?.user) {
+      await UserModel.updateOne(
+        { _id: testimonial.user },
+        { $pull: { testimonials: testimonial._id } }
+      );
+    }
+
     res.json({ success: true, message: 'Testimonial deleted successfully' });
   } catch (error) {
     console.error('Error deleting testimonial:', error);
     res.status(500).json({ success: false, message: 'Server error while deleting testimonial' });
   }
+};
+
+const syncUserTestimonials = async (userId) => {
+  const testimonialIds = await TestimonialModel.find({ user: userId, isDeleted: false }).distinct('_id');
+  await UserModel.updateOne({ _id: userId }, { $set: { testimonials: testimonialIds } });
 };

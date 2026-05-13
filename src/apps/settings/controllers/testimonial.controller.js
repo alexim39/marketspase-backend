@@ -1,5 +1,6 @@
 import { UserModel } from './../../user/models/user/index.js';
 import { TestimonialModel } from './../models/testimonial/index.js';
+import { ensureSelfOrAdmin, getAuthenticatedUserId } from '../../../shared/utils/request-auth.util.js';
 
 /**
  * Create or update user testimonial
@@ -8,7 +9,17 @@ import { TestimonialModel } from './../models/testimonial/index.js';
  */
 export const createOrUpdateTestimonial = async (req, res) => {
   try {
-    const { userId, message, rating = 5 } = req.body;
+    const authenticatedUserId = getAuthenticatedUserId(req);
+    const candidateUserId = req.body.userId || authenticatedUserId;
+    const { message, rating = 5 } = req.body;
+
+    if (!authenticatedUserId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    if (!ensureSelfOrAdmin(req, candidateUserId, res, 'You can only manage your own testimonial')) {
+      return;
+    }
 
     // Validate input
     if (!message) {
@@ -20,13 +31,13 @@ export const createOrUpdateTestimonial = async (req, res) => {
     }
 
     // Get user data
-    const user = await UserModel.findById(userId);
+    const user = await UserModel.findById(candidateUserId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
     // Check if testimonial exists
-    let testimonial = await TestimonialModel.findOne({ user: userId });
+    let testimonial = await TestimonialModel.findOne({ user: candidateUserId, isDeleted: false });
 
     if (testimonial) {
       // Update existing testimonial
@@ -37,18 +48,17 @@ export const createOrUpdateTestimonial = async (req, res) => {
     } else {
       // Create new testimonial
       testimonial = await TestimonialModel.create({
-        user: userId,
-        name: `${user.name} ${user.lastname}`,
-        avatar: user.avatar,
-        jobTitle: user.personalInfo?.jobTitle,
+        user: candidateUserId,
         message,
         rating,
         status: 'pending'
       });
 
       // Add to user's testimonials array
-      user.testimonials.push(testimonial._id);
-      await user.save();
+      await UserModel.updateOne(
+        { _id: candidateUserId, testimonials: { $ne: testimonial._id } },
+        { $push: { testimonials: testimonial._id } }
+      );
     }
 
     res.status(200).json({
@@ -82,7 +92,6 @@ export const createOrUpdateTestimonial = async (req, res) => {
 export const getTestimonials = async (req, res) => {
   try {
     const { status = 'approved', limit = 10, page = 1 } = req.query;
-    //const userId = req.params; 
 
     // Validate status
     if (!['pending', 'approved', 'rejected'].includes(status)) {
@@ -96,18 +105,22 @@ export const getTestimonials = async (req, res) => {
     };
 
     // Get testimonials with populated user data
-    const testimonials = await TestimonialModel.find({ status })
+    const testimonials = await TestimonialModel.find({ status, isDeleted: false })
        .populate({
             path: 'user',
-            select: 'name lastname avatar personalInfo.address.state personalInfo.address.country personalInfo.jobTitle', // Ensure jobTitle is also selected if you need it
+            select: 'displayName username avatar personalInfo.address.state personalInfo.address.country professionalInfo.jobTitle',
             transform: (doc) => {
+            if (!doc) {
+                return null;
+            }
             return {
                 _id: doc._id,
-                name: `${doc.name} ${doc.lastname}`,
+                name: doc.displayName || doc.username || 'MarketSpase User',
+                username: doc.username,
                 avatar: doc.avatar,
-                state: doc.personalInfo?.address?.state,   // Add state here
-                country: doc.personalInfo?.address?.country, // Add country here
-                jobTitle: doc.personalInfo?.jobTitle // Keep jobTitle if needed
+                state: doc.personalInfo?.address?.state,
+                country: doc.personalInfo?.address?.country,
+                jobTitle: doc.professionalInfo?.jobTitle
             };
             }
         })
@@ -116,23 +129,7 @@ export const getTestimonials = async (req, res) => {
       .sort(options.sort)
       .lean();
 
-    // Add user reaction status if authenticated
-    // if (userId) {
-    //   for (const testimonial of testimonials) {
-    //     const reaction = testimonial.reactions.find(
-    //       r => r.userId && r.userId.toString() === userId.toString()
-    //     );
-    //     testimonial.userReaction = reaction ? reaction.reaction : null;
-        
-    //     // Convert reaction userIds to strings for consistent client-side handling
-    //     testimonial.reactions = testimonial.reactions.map(r => ({
-    //       ...r,
-    //       userId: r.userId?.toString()
-    //     }));
-    //   }
-    // }
-
-    const total = await TestimonialModel.countDocuments({ status });
+    const total = await TestimonialModel.countDocuments({ status, isDeleted: false });
 
     res.status(200).json({
       success: true,
@@ -167,9 +164,12 @@ export const getTestimonials = async (req, res) => {
  */
 export const reactToTestimonial = async (req, res) => {
   try {
-    const { userId, testimonialId, reaction } = req.body; // 'like' or 'dislike'
+    const userId = getAuthenticatedUserId(req);
+    const { testimonialId, reaction } = req.body; // 'like' or 'dislike'
 
-    //console.log('reactions ', userId, testimonialId, reaction);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
 
     // Validate reaction
     if (!['like', 'dislike'].includes(reaction)) {
@@ -284,35 +284,31 @@ export const reactToTestimonial = async (req, res) => {
 export const getUserTestimonial = async (req, res) => {
   try {
     const { userId } = req.params;
+    const currentUserId = getAuthenticatedUserId(req);
 
-    //console.log(userId)
+    if (currentUserId && !ensureSelfOrAdmin(req, userId, res, 'You can only access your own testimonial')) {
+      return;
+    }
 
     // Find testimonial for the specified user
-    const testimonial = await TestimonialModel.findOne({ user: userId })
+    const testimonial = await TestimonialModel.findOne({ user: userId, isDeleted: false })
       .populate({
         path: 'user',
-        //select: 'name lastname avatar personalInfo.address.state personalInfo.address.country',
-        // transform: (doc) => ({
-        //   _id: doc._id,
-        //   name: `${doc.name} ${doc.lastname}`,
-        //   avatar: doc.avatar,
-        //   state: doc.personalInfo?.address?.state,
-        //   country: doc.personalInfo?.address?.country,
-        // })
+        select: 'displayName username avatar personalInfo.address.state personalInfo.address.country professionalInfo.jobTitle',
       })
       .lean();
 
     if (!testimonial) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'No testimonial found for this user' 
+      return res.status(200).json({
+        success: true,
+        data: null,
       });
     }
 
-    // Add user reaction status if authenticated
-    if (userId) {
+    // Add viewer reaction status if authenticated
+    if (currentUserId) {
       const reaction = testimonial.reactions.find(
-        r => r.userId && r.userId.toString() === userId.toString()
+        r => r.userId && r.userId.toString() === currentUserId.toString()
       );
       testimonial.userReaction = reaction ? reaction.reaction : null;
       
@@ -328,7 +324,15 @@ export const getUserTestimonial = async (req, res) => {
       data: {
         ...testimonial,
         _id: testimonial._id.toString(),
-        user: testimonial.user,
+        user: testimonial.user ? {
+          _id: testimonial.user._id,
+          name: testimonial.user.displayName || testimonial.user.username || 'MarketSpase User',
+          username: testimonial.user.username,
+          avatar: testimonial.user.avatar,
+          state: testimonial.user.personalInfo?.address?.state,
+          country: testimonial.user.personalInfo?.address?.country,
+          jobTitle: testimonial.user.professionalInfo?.jobTitle,
+        } : null,
         reactions: testimonial.reactions || []
       }
     });

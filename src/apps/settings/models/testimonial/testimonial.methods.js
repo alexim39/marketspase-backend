@@ -1,5 +1,5 @@
 import { ERROR_MESSAGES, REACTION_TYPE, TESTIMONIAL_STATUS } from "./testimonial.constants.js";
-import { getUserReaction, validateMessage, validateRating } from "./testimonial.utils.js";
+import { formatTestimonialResponse, getUserReaction, validateMessage, validateRating } from "./testimonial.utils.js";
 
 export const setupTestimonialMethods = (schema) => {
   // Check if user has reacted
@@ -152,7 +152,6 @@ export const setupTestimonialMethods = (schema) => {
 
   // Get formatted response
   schema.methods.toResponse = function(userId = null) {
-    const { formatTestimonialResponse } = require('./testimonial.utils.js');
     return formatTestimonialResponse(this, userId);
   };
 

@@ -14,6 +14,14 @@ import { checkStoreLinkAvailability } from '../../controllers/storefront/check-s
 import { getStoreVerificationStatus } from '../../controllers/storefront/get-store-verification-status.js'
 import { getProductById } from '../../controllers/storefront/get-product-by-id.controller.js'
 import { getProductReviews } from '../../controllers/storefront/get-product-reviews.controller.js'
+import {
+  createProductReview,
+  deleteProductReview,
+  getCurrentUserProductReview,
+  reportProductReview,
+  toggleReviewHelpful,
+  updateProductReview
+} from '../../controllers/storefront/product-review.controller.js'
 import { getRelatedProducts } from '../../controllers/storefront/get-related-products.controller.js'
 import { getStoreById } from '../../controllers/storefront/get-store-by-id.controller.js'
 import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
@@ -39,6 +47,12 @@ router.get('/trending', getTrendingStores);
 // 2. Specific Product Routes
 router.get('/products/:productId/detail', getProductById);
 router.get('/products/:productId/reviews', getProductReviews);
+router.get('/products/:productId/reviews/me', authenticate, getCurrentUserProductReview);
+router.post('/products/:productId/reviews', authenticate, createProductReview);
+router.put('/reviews/:reviewId', authenticate, updateProductReview);
+router.delete('/reviews/:reviewId', authenticate, deleteProductReview);
+router.post('/reviews/:reviewId/helpful', authenticate, toggleReviewHelpful);
+router.post('/reviews/:reviewId/report', authenticate, reportProductReview);
 router.get('/products/:productId/related', getRelatedProducts);
 
 // 2b. Storefront checkout and order lifecycle

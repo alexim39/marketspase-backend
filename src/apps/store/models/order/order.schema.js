@@ -246,6 +246,19 @@ const orderSchema = new mongoose.Schema({
     type: String, 
     default: DEFAULTS.CURRENCY 
   },
+  checkoutCurrency: {
+    type: String,
+    default: DEFAULTS.CURRENCY
+  },
+  checkoutTotalAmount: {
+    type: Number,
+    default: null,
+    min: 0,
+  },
+  checkoutExchangeRate: {
+    type: Number,
+    default: null,
+  },
   
   // Shipping
   shippingAddress: { 

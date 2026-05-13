@@ -7,6 +7,13 @@ import axios from 'axios';
 // server.js or index.js
 import dotenv from 'dotenv';
 dotenv.config();
+import {
+  buildSignedQuote,
+  normalizeCurrencyCode,
+  roundCurrencyAmount,
+  verifySignedQuote,
+} from '../services/payment-currency.service.js';
+import { applyWalletCredit, ensureWalletCurrencyState } from '../services/wallet-ledger.service.js';
 
 // import referral service for paying referred marketer
 import { ReferralService } from './../../user/services/referral.service.js';
@@ -24,7 +31,12 @@ const sendError = (res, message, status = 500) => {
 
 export const verifyAndRecordPayment = async (req, res) => {
   const userId = req.userId;
-  const { amount, paystackResult } = req.body;
+  const {
+    amount,
+    currency,
+    paystackResult,
+    quote,
+  } = req.body;
   
   // 1. Basic Payload Validation
   if (!userId || !amount || !paystackResult?.response?.reference) {
@@ -76,8 +88,15 @@ export const verifyAndRecordPayment = async (req, res) => {
     }
 
     // 5. Verify amount matches (prevent tampering)
-    const paystackAmountInNaira = verificationData.amount / 100; // Paystack returns in kobo
-    if (Math.abs(paystackAmountInNaira - amount) > 1) { // Allow 1 naira rounding difference
+    const fundingCurrency = normalizeCurrencyCode(currency || verificationData.currency || 'NGN');
+    const paystackAmount = roundCurrencyAmount((verificationData.amount || 0) / 100);
+    if (normalizeCurrencyCode(verificationData.currency || fundingCurrency) !== fundingCurrency) {
+      await session.abortTransaction();
+      session.endSession();
+      return sendError(res, 'Currency mismatch with Paystack record.', 400);
+    }
+
+    if (Math.abs(paystackAmount - Number(amount)) > 1) {
       await session.abortTransaction();
       session.endSession();
       return sendError(res, 'Amount mismatch with Paystack record.', 400);
@@ -94,52 +113,66 @@ export const verifyAndRecordPayment = async (req, res) => {
     // 7. Check if this is first campaign funding
     const isFirstCampaignFunding = !user.qualificationMilestones?.firstCampaignFunded;
 
-    // 8. Update wallet with transaction (using reference field)
-    const updateResult = await UserModel.findByIdAndUpdate(
-      userId,
-      {
-        $inc: { 
-          'wallets.marketer.balance': amount 
-        },
-        $push: {
-          'wallets.marketer.transactions': {
-            amount: amount,
-            type: 'credit',
-            category: 'deposit',
-            description: `Paystack funding`,
-            reference: reference, // Store reference for future lookups
-            status: 'successful',
-            gateway: 'paystack',
-            meta: {
-              paystackReference: reference,
-              paystackResponse: {
-                id: verificationData.id,
-                domain: verificationData.domain,
-                channel: verificationData.channel,
-                ipAddress: verificationData.ip_address,
-                createdAt: verificationData.created_at
-              }
-            },
-            processedAt: new Date(),
-            createdAt: new Date()
-          }
-        },
-        ...(isFirstCampaignFunding && {
-          $set: {
-            'qualificationMilestones.firstCampaignFunded': true
-          }
-        })
-      },
-      { 
-        session, 
-        new: true,
-        runValidators: true
-      }
-    );
+    const verifiedQuote = quote
+      ? await verifySignedQuote(quote, { purpose: 'wallet_funding' })
+      : await buildSignedQuote({
+          amount: Number(amount),
+          fromCurrency: fundingCurrency,
+          toCurrency: fundingCurrency,
+          purpose: 'wallet_funding',
+        });
 
-    if (!updateResult) {
-      throw new Error('Failed to update user wallet');
+    const baseCurrency = normalizeCurrencyCode(verifiedQuote.baseCurrency || user.wallets?.marketer?.baseCurrency || 'NGN');
+    const nativeAmount = roundCurrencyAmount(verifiedQuote.targetCurrency === fundingCurrency
+      ? verifiedQuote.targetAmount
+      : Number(amount));
+    const baseAmount = roundCurrencyAmount(verifiedQuote.baseAmount);
+
+    ensureWalletCurrencyState(user.wallets.marketer, baseCurrency);
+    applyWalletCredit(user.wallets.marketer, {
+      bucket: 'balance',
+      amount: nativeAmount,
+      currency: fundingCurrency,
+      baseAmount,
+      baseCurrency,
+    });
+
+    user.wallets.marketer.transactions.unshift({
+      amount: nativeAmount,
+      baseAmount,
+      currency: fundingCurrency,
+      baseCurrency,
+      settlementCurrency: fundingCurrency,
+      settlementAmount: nativeAmount,
+      exchangeRate: Number(verifiedQuote.exchangeRate || 1),
+      type: 'credit',
+      category: 'deposit',
+      description: `Paystack funding`,
+      reference,
+      status: 'successful',
+      gateway: 'paystack',
+      meta: {
+        paystackReference: reference,
+        paystackResponse: {
+          id: verificationData.id,
+          domain: verificationData.domain,
+          channel: verificationData.channel,
+          ipAddress: verificationData.ip_address,
+          createdAt: verificationData.created_at,
+          currency: verificationData.currency,
+        },
+        quote: verifiedQuote,
+      },
+      processedAt: new Date(),
+      createdAt: new Date(),
+    });
+    user.wallets.marketer.transactions = user.wallets.marketer.transactions.slice(0, 500);
+
+    if (isFirstCampaignFunding) {
+      user.qualificationMilestones.firstCampaignFunded = true;
     }
+
+    const updateResult = await user.save({ session });
 
     // 9. Commit transaction
     await session.commitTransaction();
@@ -157,8 +190,8 @@ export const verifyAndRecordPayment = async (req, res) => {
       user.email, 
       'Payment Approved', 
       paymentApprovedEmailTemplate({
-        userName: user.displayName,
-        amount: amount,
+      userName: user.displayName,
+        amount: nativeAmount,
         transactionReference: reference,
         newBalance: updateResult.wallets.marketer.balance,
       })
@@ -169,7 +202,7 @@ export const verifyAndRecordPayment = async (req, res) => {
       success: true,
       message: 'Payment verified and wallet funded successfully.',
       newBalance: updateResult.wallets.marketer.balance,
-      transactionId: updateResult.wallets.marketer.transactions.slice(-1)[0]._id,
+      transactionId: updateResult.wallets.marketer.transactions[0]?._id,
       isFirstCampaignFunding
     });
 
@@ -417,6 +450,7 @@ export const verifyPaymentStatus = async (req, res) => {
       return res.status(200).json({
         success: true,
         exists: true,
+        recorded: true,
         message: 'Payment found in system'
       });
     }
@@ -432,6 +466,7 @@ export const verifyPaymentStatus = async (req, res) => {
     res.status(200).json({
       success: true,
       exists: false,
+      recorded: false,
       paystackStatus: response.data.data.status,
       message: 'Payment verified with Paystack but not in system'
     });

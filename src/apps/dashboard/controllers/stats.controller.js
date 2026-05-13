@@ -1,5 +1,13 @@
 import { UserModel } from '../../user/models/user/index.js';
 import { CampaignModel } from '../../campaign/models/campaign.model.js';
+import { CampaignClickModel } from '../../campaign/models/campaign-click.model.js';
+import { PromotionModel } from '../../promotion/models/promotion.model.js';
+import { StoreModel } from '../../store/models/store/index.js';
+import { ProductModel } from '../../store/models/promotion/index.js';
+import { OrderModel } from '../../store/models/order/index.js';
+import { FeedPostModel } from '../../feeds/models/feed/index.js';
+import { ThreadModel } from '../../forum/models/thread/index.js';
+import { UserBadgeModel } from '../../badges/models/user-badge.model.js';
 
 export const getCampaignStats = async (req, res) => {
   try {
@@ -251,3 +259,111 @@ export const getEngagementStats = async (req, res) => {
     throw error;
   }
 }
+
+export const getAdminOverviewStats = async () => {
+  try {
+    const now = new Date();
+    const last24Hours = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+
+    const [
+      totalUsers,
+      marketers,
+      promoters,
+      activeUsers,
+      totalCampaigns,
+      activeCampaigns,
+      pendingCampaigns,
+      totalPromotions,
+      submittedPromotions,
+      totalCampaignClicks,
+      totalStores,
+      totalProducts,
+      paidOrders,
+      grossMerchandiseValueResult,
+      totalFeedPosts,
+      totalThreads,
+      feedPosts24h,
+      forumThreads24h,
+      activeStreakUsers,
+      badgeAwards,
+      leveledUsers,
+    ] = await Promise.all([
+      UserModel.countDocuments({ isDeleted: false }),
+      UserModel.countDocuments({ isDeleted: false, role: 'marketer' }),
+      UserModel.countDocuments({ isDeleted: false, role: 'promoter' }),
+      UserModel.countDocuments({ isDeleted: false, isActive: true }),
+      CampaignModel.countDocuments({ isDeleted: false }),
+      CampaignModel.countDocuments({ isDeleted: false, status: 'active' }),
+      CampaignModel.countDocuments({ isDeleted: false, status: 'pending' }),
+      PromotionModel.countDocuments({}),
+      PromotionModel.countDocuments({
+        $or: [
+          { status: 'submitted' },
+          { status: 'pending' },
+        ],
+      }),
+      CampaignClickModel.countDocuments({}),
+      StoreModel.countDocuments({ isDeleted: { $ne: true } }),
+      ProductModel.countDocuments({ isDeleted: { $ne: true }, isPublished: true }),
+      OrderModel.countDocuments({ isDeleted: { $ne: true }, paymentStatus: 'paid' }),
+      OrderModel.aggregate([
+        {
+          $match: {
+            isDeleted: { $ne: true },
+            paymentStatus: 'paid',
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            grossMerchandiseValue: { $sum: '$totalAmount' },
+          },
+        },
+      ]),
+      FeedPostModel.countDocuments({ status: 'published' }),
+      ThreadModel.countDocuments({ isDeleted: { $ne: true }, isHidden: { $ne: true } }),
+      FeedPostModel.countDocuments({ status: 'published', createdAt: { $gte: last24Hours } }),
+      ThreadModel.countDocuments({ isDeleted: { $ne: true }, isHidden: { $ne: true }, createdAt: { $gte: last24Hours } }),
+      UserModel.countDocuments({ isDeleted: false, 'loginStreak.currentStreak': { $gt: 0 } }),
+      UserBadgeModel.countDocuments({}),
+      UserModel.countDocuments({ isDeleted: false, 'gamificationProfile.level': { $gt: 1 } }),
+    ]);
+
+    return {
+      users: {
+        totalUsers,
+        marketers,
+        promoters,
+        activeUsers,
+      },
+      ads: {
+        totalCampaigns,
+        activeCampaigns,
+        pendingCampaigns,
+        totalPromotions,
+        submittedPromotions,
+        totalCampaignClicks,
+      },
+      commerce: {
+        totalStores,
+        totalProducts,
+        paidOrders,
+        grossMerchandiseValue: grossMerchandiseValueResult?.[0]?.grossMerchandiseValue || 0,
+      },
+      community: {
+        totalFeedPosts,
+        totalThreads,
+        feedPosts24h,
+        forumThreads24h,
+      },
+      rewards: {
+        activeStreakUsers,
+        badgeAwards,
+        leveledUsers,
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching admin overview stats:', error);
+    throw error;
+  }
+};

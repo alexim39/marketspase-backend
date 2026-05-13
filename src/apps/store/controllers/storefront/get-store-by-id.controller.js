@@ -3,6 +3,7 @@ import { ProductModel } from '../../models/promotion/index.js';
 import { StoreAnalyticsModel } from '../../models/store-analytics/index.js';
 import { OrderModel, PAYMENT_STATUS as ORDER_PAYMENT_STATUS } from '../../models/order/index.js';
 import mongoose from 'mongoose';
+import { getStoreReviewStats, mergeStoreRatingAnalytics } from '../../services/review-aggregate.service.js';
 /**
  * @desc    Get store by ID with analytics
  * @route   GET /api/stores/:storeId
@@ -83,14 +84,17 @@ export const getStoreById = async (req, res) => {
       avatar: store.owner.avatar
     } : null;
 
+    const reviewStats = await getStoreReviewStats(storeId);
     const responseData = {
-      ...store.toObject(),
+      ...mergeStoreRatingAnalytics(store, reviewStats),
       followerCount: store.followers?.length || 0,
       owner: ownerDetails,
       statistics: {
         productCount,
         featuredCount,
         followerCount: store.followers?.length || 0,
+        rating: reviewStats.averageRating,
+        totalReviews: reviewStats.totalReviews,
         ...analytics
       }
     };

@@ -1,5 +1,7 @@
 import express from 'express';
 import { StoreController } from '../../controllers/admin/store.controller.js';
+import { StoreReviewAdminController } from '../../controllers/admin/review.controller.js';
+import { StoreModel } from '../../models/store/index.js';
 import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 import { requireAdmin } from '../../../../shared/middleware/authorization.middleware.js';
 
@@ -19,6 +21,8 @@ router.get('/categories',  StoreController.getStoreCategories);
 router.get('/owners',  StoreController.getStoreOwners);
 router.post('/export/:format',  StoreController.exportStores);
 router.post('/bulk-update',  StoreController.bulkUpdateStores);
+router.get('/reviews', StoreReviewAdminController.getReviews);
+router.patch('/reviews/:reviewId/moderate', StoreReviewAdminController.moderateReview);
 
 // Store-specific routes
 router.get('/:id',  StoreController.getStoreById);

@@ -7,6 +7,7 @@ import { CampaignModel } from "../../campaign/models/campaign.model.js"; // Add 
 import { PromotionModel } from "../../promotion/models/promotion.model.js"; // Add this import
 // import referral service for processing referrals
 import { ReferralService } from './../../user/services/referral.service.js';
+import { refreshUserReputation } from '../../user/services/user-reputation.service.js';
 import { ensureUidSelfOrAdmin } from '../../../shared/utils/request-auth.util.js';
 import { verifyFirebaseIdentityToken } from '../../../shared/middleware/auth.middleware.js';
 const referralService = new ReferralService();
@@ -139,7 +140,10 @@ export const Authenticate = async (req, res) => {
     }
 
     // 4. Final Response
+    const reputationSnapshot = await refreshUserReputation(user);
     const userObject = user.toObject();
+    userObject.rating = reputationSnapshot.rating;
+    userObject.ratingCount = reputationSnapshot.ratingCount;
     delete userObject.password;
 
     return res.status(200).json({
@@ -418,6 +422,9 @@ export const GetUser = async (req, res) => {
     }
 
     const user = userAgg[0];
+    const reputationSnapshot = await refreshUserReputation(user);
+    user.rating = reputationSnapshot.rating;
+    user.ratingCount = reputationSnapshot.ratingCount;
 
     await UserModel.updateOne(
       { _id: user._id },

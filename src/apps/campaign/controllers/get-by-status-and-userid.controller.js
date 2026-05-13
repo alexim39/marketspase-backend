@@ -2,6 +2,7 @@
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user/index.js";
 import mongoose from "mongoose";
+import { refreshUserReputation } from "../../user/services/user-reputation.service.js";
 
 /**
  * Strictly targeted campaigns by status & userId with pagination.
@@ -42,12 +43,21 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
 
     // ---- User + essentials ----
     const user = await UserModel.findById(userId)
-      .select("preferences personalInfo rating tags") // rating, tags optionally present
+      .select("preferences personalInfo rating tags role loginStreak gamificationProfile")
       .lean();
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
+
+    const reputationSnapshot = await refreshUserReputation({
+      _id: userId,
+      role: user.role,
+      loginStreak: user.loginStreak,
+      gamificationProfile: user.gamificationProfile,
+    });
+    user.rating = reputationSnapshot.rating;
+    user.ratingCount = reputationSnapshot.ratingCount;
 
     // Normalize sort
     const normalizedSortBy = ["createdAt", "priority"].includes(String(sortBy)) ? String(sortBy) : "createdAt";
