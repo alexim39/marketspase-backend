@@ -228,6 +228,55 @@ export class NotificationService {
     });
   }
 
+  static async createLevelUpNotification(userId, profile) {
+    const nextGoal = profile?.nextLevel
+      ? `${profile.experiencePointsToNextLevel || 0} XP to level ${profile.nextLevel}`
+      : 'You are currently at the top configured level.';
+
+    return this.createNotification({
+      recipient: userId,
+      type: 'level_up',
+      title: `Level ${profile?.currentLevel || 1} Reached`,
+      message: `You are now ${profile?.currentLevelTitle || 'Starter'}. ${nextGoal}`,
+      data: {
+        actionUrl: '/dashboard/gamification',
+        metadata: {
+          currentLevel: profile?.currentLevel || 1,
+          currentLevelTitle: profile?.currentLevelTitle || 'Starter',
+          totalExperiencePoints: profile?.totalExperiencePoints || 0,
+          nextLevel: profile?.nextLevel || null,
+          experiencePointsToNextLevel: profile?.experiencePointsToNextLevel || 0,
+        },
+      },
+      priority: 'medium',
+    });
+  }
+
+  static async createGamificationMilestoneNotification(userId, milestone) {
+    return this.createNotification({
+      recipient: userId,
+      type: 'gamification_milestone_unlocked',
+      title: milestone.titleSnapshot || 'Milestone Unlocked',
+      message: milestone.rewardLabelSnapshot
+        ? `${milestone.rewardLabelSnapshot} is now available in your progress journey.`
+        : `You unlocked a new milestone at level ${milestone.minLevel || milestone.sourceLevel || 1}.`,
+      data: {
+        actionUrl: '/dashboard/gamification',
+        metadata: {
+          milestoneKey: milestone.milestoneKey,
+          minLevel: milestone.minLevel,
+          sourceLevel: milestone.sourceLevel,
+          featureKey: milestone.featureKeySnapshot || null,
+          linkedBadgeKey: milestone.linkedBadgeKeySnapshot || null,
+          rewardLabel: milestone.rewardLabelSnapshot || '',
+          icon: milestone.iconSnapshot || 'military_tech',
+          accentColor: milestone.accentColorSnapshot || '#7c3aed',
+        },
+      },
+      priority: 'medium',
+    });
+  }
+
   static async markAsRead(notificationId, userId) {
     return NotificationModel.findOneAndUpdate(
       { _id: notificationId, recipient: userId },

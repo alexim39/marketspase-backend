@@ -2,6 +2,7 @@ import { FeedPostModel } from '../models/feed/index.js';
 import { UserModel } from '../../user/models/user/index.js';
 import { CampaignModel } from '../../campaign/models/index.js';
 import { evaluateUserBadges } from '../../badges/service/badge.service.js';
+import { awardGamificationProgress } from '../../gamification/service/gamification.service.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -70,6 +71,21 @@ export const createFeedPost = asyncHandler(async (req, res) => {
   await user.logActivity('campaign_update', `Created an update for campaign: ${campaign.title}`, {
     resourceId: post._id,
     metadata: { campaignId: campaign._id }
+  });
+
+  await awardGamificationProgress({
+    userId,
+    actionKey: 'community_post_published',
+    sourceKey: `feed_post:${post._id}:created`,
+    sourceType: 'feed_post',
+    sourceId: post._id,
+    metadata: {
+      postId: post._id?.toString?.() || null,
+      campaignId: campaign._id?.toString?.() || null,
+      hashtagCount: Array.isArray(post.hashtags) ? post.hashtags.length : 0,
+    },
+  }).catch((gamificationError) => {
+    console.error('Gamification update after community post creation failed:', gamificationError);
   });
 
   await evaluateUserBadges(userId, {

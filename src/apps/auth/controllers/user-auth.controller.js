@@ -399,6 +399,7 @@ export const GetUser = async (req, res) => {
           notificationSettings: 1,
           loginStreak: 1,
           badgeProfile: 1,
+          gamificationProfile: 1,
 
           // Cap activityLog to keep payload light (optional)
           activityLog: { $slice: ['$activityLog', 100] },

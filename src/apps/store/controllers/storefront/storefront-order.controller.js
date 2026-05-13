@@ -8,6 +8,7 @@ import { StoreModel } from "../../models/store/index.js";
 import { StoreCustomerModel } from "../../models/store-customer/index.js";
 import { UserModel } from "../../../user/models/user/index.js";
 import { evaluateUserBadges } from "../../../badges/service/badge.service.js";
+import { awardGamificationProgress } from "../../../gamification/service/gamification.service.js";
 import { sendEmail } from "../../../../core/email.service.js";
 import {
   calculateCommissionForAmount,
@@ -373,6 +374,53 @@ export const confirmStorefrontPayment = async (req, res) => {
         badgeUserIds.add(toIdString(item.promoterId));
       }
     });
+
+    const gamificationAwards = [];
+    if ((populatedOrder || order)?.marketer) {
+      gamificationAwards.push(
+        awardGamificationProgress({
+          userId: toIdString((populatedOrder || order).marketer),
+          actionKey: 'store_order_paid',
+          sourceKey: `order:${order._id}:marketer_paid`,
+          sourceType: 'store_order',
+          sourceId: order._id,
+          metadata: {
+            orderId: order._id?.toString?.() || null,
+            orderNumber: (populatedOrder || order).orderNumber || null,
+            totalAmount: Number((populatedOrder || order).totalAmount || 0),
+            marketerReservedAmount: Number((populatedOrder || order).marketerReservedAmount || 0),
+          },
+        })
+      );
+    }
+
+    const promoterAwarded = new Set();
+    ((populatedOrder || order)?.items || []).forEach((item) => {
+      const promoterId = toIdString(item.promoterId);
+      if (!promoterId || promoterAwarded.has(promoterId) || !Number(item.commissionEarned || 0)) {
+        return;
+      }
+
+      promoterAwarded.add(promoterId);
+      gamificationAwards.push(
+        awardGamificationProgress({
+          userId: promoterId,
+          actionKey: 'affiliate_sale_paid',
+          sourceKey: `order:${order._id}:promoter:${promoterId}:sale_paid`,
+          sourceType: 'store_order',
+          sourceId: order._id,
+          metadata: {
+            orderId: order._id?.toString?.() || null,
+            orderNumber: (populatedOrder || order).orderNumber || null,
+            totalAmount: Number(item.totalPrice || 0),
+            commissionEarned: Number(item.commissionEarned || 0),
+            productId: toIdString(item.product),
+          },
+        })
+      );
+    });
+
+    await Promise.allSettled(gamificationAwards);
 
     await Promise.allSettled(
       [...badgeUserIds]

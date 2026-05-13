@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { UserModel } from '../../user/models/user/index.js';
 import { TransactionModel } from '../../user/models/transaction/index.js';
 import { evaluateUserBadges } from '../../badges/service/badge.service.js';
+import { awardGamificationProgress } from '../../gamification/service/gamification.service.js';
 import { LoginStreakConfigModel } from '../models/login-streak-config.model.js';
 import { LeaderboardSnapshotModel } from '../models/leaderboard-snapshot.model.js';
 import { LoginStreakSessionModel } from '../models/login-streak-session.model.js';
@@ -751,6 +752,21 @@ export const pingLoginStreakSession = async (userId, sessionId = null) => {
     await mongoSession.commitTransaction();
 
     if (recentlyQualified) {
+      await awardGamificationProgress({
+        userId: user._id,
+        actionKey: 'login_qualified',
+        sourceKey: `login_streak:${todayDateKey}`,
+        sourceType: 'login_streak',
+        sourceId: streakSession._id,
+        metadata: {
+          dateKey: todayDateKey,
+          currentStreak: Number(user.loginStreak?.currentStreak || 0),
+          rewardPoints: Number(streakSession.rewardPointsGranted || 0),
+        },
+      }).catch((gamificationError) => {
+        console.error('Gamification update after streak qualification failed:', gamificationError);
+      });
+
       await evaluateUserBadges(user._id, {
         force: true,
         trigger: 'login_streak_qualified',

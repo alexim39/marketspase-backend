@@ -6,6 +6,7 @@ import { UserModel } from "../../user/models/user/index.js";
 import { logUserActivity } from "../../user/services/activity.service.js";
 import { generateUniqueUpi } from "../../promotion/utils/generateUniqueUpi.js";
 import { evaluateUserBadges } from "../../badges/service/badge.service.js";
+import { awardGamificationProgress } from "../../gamification/service/gamification.service.js";
 
 const MAX_TX_RETRIES = 5;
 const MAX_ACCEPTS_PER_CAMPAIGN_PER_USER = Number(process.env.MAX_ACCEPTS_PER_CAMPAIGN_PER_USER ?? 3);
@@ -287,6 +288,24 @@ export const acceptCampaign = async (req, res) => {
           { $set: { lastSeenAt: new Date() } }
         ).catch(err => console.error("lastSeenAt update failed:", err.message));
       });
+
+      if (!txResult.alreadyAccepted) {
+        await awardGamificationProgress({
+          userId: req.userId,
+          actionKey: 'promotion_accepted',
+          sourceKey: `promotion:${txResult.promotion._id}:accepted`,
+          sourceType: 'promotion',
+          sourceId: txResult.promotion._id,
+          metadata: {
+            campaignId: req.params.campaignId,
+            promotionId: txResult.promotion._id?.toString?.() || null,
+            upi: txResult.promotion.upi || null,
+            costPerClick: Number(txResult.promotion.costPerClick || 0),
+          },
+        }).catch((gamificationError) => {
+          console.error("Gamification update after campaign acceptance failed:", gamificationError);
+        });
+      }
 
       await evaluateUserBadges(req.userId, {
         force: true,

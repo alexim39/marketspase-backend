@@ -28,6 +28,7 @@ import ProfileIndexRouter from './src/apps/profile/routes/index.js';
 import TutorialIndexRouter from './src/apps/tutorial/routes/index.js';
 import { LoginStreakRouter } from './src/apps/streaks/index.js';
 import { BadgeRouter } from './src/apps/badges/index.js';
+import { GamificationRouter } from './src/apps/gamification/index.js';
 
 import { metricsRoutes } from './src/apps/metrics/index.js';
 import { aiAssistantRoutes } from './src/apps/ai-assistant/index.js';
@@ -148,6 +149,7 @@ app.use('/profile', ProfileIndexRouter);
 app.use('/tutorials', TutorialIndexRouter);
 app.use('/api/v1/streaks', LoginStreakRouter);
 app.use('/api/v1/badges', BadgeRouter);
+app.use('/api/v1/gamification', GamificationRouter);
 app.use('/api/v1/metrics', metricsRoutes);
 app.use('/api/v1/ai-assistant', aiAssistantRoutes);
 

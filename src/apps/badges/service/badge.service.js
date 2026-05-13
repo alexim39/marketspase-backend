@@ -7,6 +7,10 @@ import { PromotionModel } from '../../promotion/models/promotion.model.js';
 import { OrderModel } from '../../store/models/order/index.js';
 import { UserModel } from '../../user/models/user/index.js';
 import {
+  awardGamificationProgress,
+  getGamificationSummarySnapshot,
+} from '../../gamification/service/gamification.service.js';
+import {
   BADGE_CATEGORIES,
   BADGE_METRICS,
   BADGE_ROLES,
@@ -633,6 +637,25 @@ const notifyBadgeUnlocks = async (userId, unlockedBadges = []) => {
   )));
 };
 
+const awardGamificationForBadges = async (userId, unlockedBadges = []) => {
+  await Promise.allSettled(unlockedBadges.map((badge) => (
+    awardGamificationProgress({
+      userId,
+      actionKey: 'badge_unlocked',
+      sourceKey: `badge:${badge.badgeKey}`,
+      sourceType: 'badge',
+      sourceId: badge._id?.toString?.() || null,
+      metadata: {
+        badgeId: badge._id?.toString?.() || null,
+        badgeKey: badge.badgeKey,
+        badgeTitle: badge.titleSnapshot,
+        badgeCategory: badge.categorySnapshot || 'engagement',
+        badgeExperiencePoints: toNumber(badge.rewardSnapshot?.experiencePoints),
+      },
+    })
+  )));
+};
+
 export const evaluateUserBadges = async (userId, options = {}) => {
   const { force = false, trigger = 'system' } = options;
   const config = await ensureBadgeConfig();
@@ -715,6 +738,7 @@ export const evaluateUserBadges = async (userId, options = {}) => {
   const badgeProfile = await buildBadgeProfileSnapshot(user._id, config, new Date());
 
   if (newlyUnlocked.length) {
+    await awardGamificationForBadges(user._id, newlyUnlocked);
     await notifyBadgeUnlocks(user._id, newlyUnlocked);
   }
 
@@ -745,10 +769,11 @@ export const getUserBadgeOverview = async (viewerUserId, targetUserId) => {
     trigger: 'badge_overview',
   });
 
-  const [{ user, metrics }, badgeDefinitions, earnedBadges] = await Promise.all([
+  const [{ user, metrics }, badgeDefinitions, earnedBadges, gamificationProfile] = await Promise.all([
     getMetricsForUser(targetUserId),
     BadgeDefinitionModel.find({ isActive: true }).sort({ sortOrder: 1, createdAt: 1 }).lean(),
     UserBadgeModel.find({ user: targetUserId }).sort({ unlockedAt: -1, createdAt: -1 }).lean(),
+    getGamificationSummarySnapshot(targetUserId),
   ]);
 
   const earnedBadgeKeys = new Set(earnedBadges.map((badge) => badge.badgeKey));
@@ -775,6 +800,7 @@ export const getUserBadgeOverview = async (viewerUserId, targetUserId) => {
       },
       isOwner,
       badgeProfile,
+      gamificationProfile,
       earnedBadges: earnedBadges.map(formatUserBadge),
       featuredBadges: earnedBadges.slice(0, 3).map(formatUserBadge),
       nextBadges: isOwner ? computeNextBadges(badgeDefinitions, earnedBadgeKeys, metrics, user.role, 3) : [],
@@ -797,6 +823,7 @@ export const getMyBadgeFeed = async (userId, query = {}) => {
       feedRefreshMinutes: toNumber(config.feedRefreshMinutes || DEFAULT_CONFIG.feedRefreshMinutes),
       celebrationWindowHours: toNumber(config.celebrationWindowHours || DEFAULT_CONFIG.celebrationWindowHours),
       badgeProfile: overview.data.badgeProfile,
+      gamificationProfile: overview.data.gamificationProfile,
       recentUnlocks: overview.data.recentUnlocks.slice(0, limit),
       nextBadges: overview.data.nextBadges.slice(0, 3),
       recentlyUnlocked: overview.data.recentlyUnlocked || [],

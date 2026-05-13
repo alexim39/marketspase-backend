@@ -8,6 +8,7 @@ import { adminCampaignApprovalTemplate } from "../services/email/adminCampaignAp
 import { buildVideoThumbnailUrl } from "../services/thumbnail-generator.service.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 import { evaluateUserBadges } from "../../badges/service/badge.service.js";
+import { awardGamificationProgress } from "../../gamification/service/gamification.service.js";
 
 export const createCampaign = async (req, res) => {
   const session = await mongoose.startSession();
@@ -192,6 +193,22 @@ export const createCampaign = async (req, res) => {
         category: campaign.category
       })
     }).catch(err => console.error("Email send failed:", err));
+
+    await awardGamificationProgress({
+      userId: req.userId,
+      actionKey: 'campaign_created',
+      sourceKey: `campaign:${campaign._id}:created`,
+      sourceType: 'campaign',
+      sourceId: campaign._id,
+      metadata: {
+        campaignId: campaign._id?.toString?.() || null,
+        title: campaign.title,
+        budget: Number(campaign.budget || 0),
+        category: campaign.category || null,
+      },
+    }).catch((gamificationError) => {
+      console.error("Gamification update after campaign creation failed:", gamificationError);
+    });
 
     await evaluateUserBadges(req.userId, {
       force: true,

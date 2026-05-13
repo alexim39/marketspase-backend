@@ -15,7 +15,7 @@ export const getProfile = async (req, res) => {
     }
 
     const user = await UserModel.findById(userId)
-      .select('uid username displayName avatar personalInfo.biography personalInfo.address createdAt role rating ratingCount isVerified createdAt badgeProfile')
+      .select('uid username displayName avatar personalInfo.biography personalInfo.address createdAt role rating ratingCount isVerified createdAt badgeProfile gamificationProfile')
       .lean();
 
     if (!user) {

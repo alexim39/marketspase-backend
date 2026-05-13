@@ -20,7 +20,8 @@ import {
   activitySettingsSchema,
   qualificationMilestonesSchema,
   loginStreakSchema,
-  badgeProfileSchema
+  badgeProfileSchema,
+  gamificationProfileSchema
 } from "./schemas/index.js";
 
 const userSchema = new mongoose.Schema(
@@ -122,6 +123,7 @@ const userSchema = new mongoose.Schema(
 
     loginStreak: { type: loginStreakSchema, default: () => ({}) },
     badgeProfile: { type: badgeProfileSchema, default: () => ({}) },
+    gamificationProfile: { type: gamificationProfileSchema, default: () => ({}) },
 
     // Forum activity
     forumActivity: { type: forumActivitySchema, default: () => ({}) },

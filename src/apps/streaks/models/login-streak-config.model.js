@@ -33,7 +33,7 @@ const loginStreakConfigSchema = new mongoose.Schema({
   key: { type: String, default: 'default', unique: true, index: true },
   enabled: { type: Boolean, default: true },
   timezone: { type: String, default: 'Africa/Lagos' },
-  minimumSessionMinutes: { type: Number, default: 12, min: 1 },
+  minimumSessionMinutes: { type: Number, default: 15, min: 1 },
   cycleLengthDays: { type: Number, default: 7, min: 1 },
   pointValueNaira: { type: Number, default: 150, min: 1 },
   dailyRewards: {
