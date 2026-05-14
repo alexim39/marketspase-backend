@@ -1,13 +1,16 @@
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm install
+ENV NODE_ENV=production
+
+RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi \
+    && npm cache clean --force
 
 COPY . .
 
 EXPOSE 8080/tcp
 
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
