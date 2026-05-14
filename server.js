@@ -132,7 +132,9 @@ app.options('*', cors());
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));
 app.use('/auth', AuthRouter);
+app.use('/api/v1/auth', AuthRouter);
 app.use('/user', UserRouter);
+app.use('/api/v1/user', UserRouter);
 app.use('/wallet', WalletRouter);
 app.use('/campaign', CampaignRouter);
 app.use('/settings', SettingsRouter);
@@ -141,6 +143,7 @@ app.use('/dashboard', DashboardRouter);
 app.use('/promotion', PromoterRouter);
 app.use('/notifications', NotificationRouter);
 app.use('/financial', FinancialRouter);
+app.use('/api/v1/financial', FinancialRouter);
 app.use('/newsletter', NewsletterRouter);
 app.use('/stores', StoreIndexRouter);
 app.use('/forum', ForumIndexRouter);
@@ -159,7 +162,6 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
 /* DB connection */
 mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@cluster0.fblwb.mongodb.net/${process.env.MONGODB_DATABASE}?retryWrites=true&w=majority&appName=Cluster0`)
 .then(() => {
-    console.log('Connected to mongoDB');
 
     // Start cron jobs
     PromotionExpirationCheckerCronJobs();

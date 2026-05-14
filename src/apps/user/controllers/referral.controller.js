@@ -1,5 +1,6 @@
 import { ReferralService } from '../services/referral.service.js';
 import { UserModel } from '../models/user/index.js';
+import { ensureSelfOrAdmin } from '../../../shared/utils/request-auth.util.js';
 
 const referralService = new ReferralService();
 
@@ -24,14 +25,10 @@ export const ReferralStats = async (req, res) => {
             message: 'User not found.'
         });
     }
-    
-    // Verify user can only access their own stats
-    // if (user.role !== 'admin') {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: 'Access denied'
-    //   });
-    // }
+
+    if (!ensureSelfOrAdmin(req, userId, res, 'You are not allowed to view referral statistics for this user')) {
+      return;
+    }
 
     const stats = await referralService.getUserReferralStats(userId);
     
@@ -74,13 +71,10 @@ export const ReferralDetails = async (req, res) => {
             message: 'User not found.'
         });
     }
-    
-    // if (user.role !== 'admin') {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: 'Access denied'
-    //   });
-    // }
+
+    if (!ensureSelfOrAdmin(req, userId, res, 'You are not allowed to view referral details for this user')) {
+      return;
+    }
 
 
     // Paginate referrals

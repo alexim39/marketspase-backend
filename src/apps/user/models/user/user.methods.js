@@ -1,6 +1,14 @@
+import {
+  ACTIVITY_ACTIONS,
+  ACTIVITY_ACTIONS_ARRAY,
+  RESOURCE_TYPES_ARRAY,
+} from '../activity/activity.constants.js';
+
 export const setupUserMethods = (schema) => {
   const ensureArray = (value) => Array.isArray(value) ? value : [];
   const ensureObject = (value) => (value && typeof value === 'object' ? value : {});
+  const knownActions = new Set(ACTIVITY_ACTIONS_ARRAY);
+  const knownResourceTypes = new Set(RESOURCE_TYPES_ARRAY);
 
   // Check if user allows a specific notification type
   schema.methods.canReceiveNotification = function(notificationType, channel = 'inApp') {
@@ -105,12 +113,25 @@ export const setupUserMethods = (schema) => {
       return Promise.resolve(this);
     }
     
+    const normalizedAction = knownActions.has(action)
+      ? action
+      : ACTIVITY_ACTIONS.SYSTEM_EVENT;
+    const normalizedResourceType = options.resourceType && knownResourceTypes.has(options.resourceType)
+      ? options.resourceType
+      : undefined;
+
     const activity = {
-      action,
+      action: normalizedAction,
       description,
-      resourceType: options.resourceType,
+      resourceType: normalizedResourceType,
       resourceId: options.resourceId,
-      metadata: options.metadata || {},
+      metadata: {
+        ...(options.metadata || {}),
+        ...(normalizedAction !== action ? { originalAction: action } : {}),
+        ...(normalizedResourceType !== options.resourceType && options.resourceType
+          ? { originalResourceType: options.resourceType }
+          : {}),
+      },
       ipAddress: options.ipAddress,
       userAgent: options.userAgent,
       timestamp: new Date()

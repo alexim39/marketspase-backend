@@ -1,19 +1,33 @@
-// settings.controller.js (add this method)
-
 import { UserModel } from '../../user/models/user/index.js';
+import {
+  ensureSelfOrAdmin,
+  getAuthenticatedUserId,
+} from '../../../shared/utils/request-auth.util.js';
 
 export const updateThemePreferences = async (req, res) => {
   try {
-    const { userId, preferences } = req.body;
+    const { userId, preferences } = req.body || {};
+    const targetUserId = userId || getAuthenticatedUserId(req);
 
-    if (!userId) {
+    if (!targetUserId) {
       return res.status(400).json({
         success: false,
         message: 'User ID is required'
       });
     }
 
-    const user = await UserModel.findById(userId);
+    if (!ensureSelfOrAdmin(req, targetUserId, res, 'Not authorized to update these preferences')) {
+      return;
+    }
+
+    if (!preferences?.theme || typeof preferences.theme !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Theme preferences are required'
+      });
+    }
+
+    const user = await UserModel.findById(targetUserId);
     if (!user) {
       return res.status(404).json({
         success: false,

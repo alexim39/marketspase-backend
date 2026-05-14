@@ -41,7 +41,7 @@ const normalizeStringArray = (value, maxItems = 10, maxLength = 160) => {
  */
 export const UpdateProfessionalInfo = async (req, res) => {
   try {
-    const targetUserId = req.userId || req.body.userId;
+    const targetUserId = req.userId;
 
     if (!targetUserId) {
       return res.status(400).json({ success: false, message: 'User ID is required.' });

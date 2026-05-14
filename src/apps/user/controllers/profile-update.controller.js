@@ -358,7 +358,6 @@ function normalizePhoneWithoutLib(rawPhone, phoneDetails, addressCountryName) {
 export const UpdateProfile = async (req, res) => {
   try {
     const {
-      userId,
       email,
       phone,
       gender,
@@ -371,7 +370,7 @@ export const UpdateProfile = async (req, res) => {
       phoneDetails
     } = req.body;
 
-    const targetUserId = req.userId || userId;
+    const targetUserId = req.userId;
 
     //console.log('Profile update request body:', req.body);
 
