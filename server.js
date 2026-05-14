@@ -52,21 +52,48 @@ const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
 const app = express();
 
+const explicitAllowedOrigins = new Set([
+    'http://localhost:4200',
+    'http://localhost:4201',
+    'http://localhost:4202',
+    'https://marketspase.com',
+    'http://marketspase.com',
+    'https://www.marketspase.com',
+    'https://admin.marketspase.com',
+]);
+
+const localhostOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
+
+const isAllowedOrigin = (origin) => {
+    if (!origin) {
+        return true;
+    }
+
+    return explicitAllowedOrigins.has(origin) || localhostOriginPattern.test(origin);
+};
+
+const corsOriginDelegate = (origin, callback) => {
+    if (isAllowedOrigin(origin)) {
+        return callback(null, true);
+    }
+
+    return callback(new Error(`Origin ${origin} is not allowed by CORS`));
+};
+
+const corsOptions = {
+    credentials: true,
+    origin: corsOriginDelegate,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
 // Create HTTP server for Socket.io
 const httpServer = createServer(app);
 
 // FIXED: Setup Socket.io
 const io = new Server(httpServer, {
   cors: {
-    origin: [
-      'http://localhost:4200', 
-      'http://localhost:4201', 
-      'http://localhost:4202', 
-      'https://marketspase.com', 
-      'http://marketspase.com',
-      'https://www.marketspase.com',
-      'https://admin.marketspase.com',
-    ],
+    origin: corsOriginDelegate,
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -112,22 +139,9 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
 // CORS Configuration
-app.use(cors({
-    credentials: true,
-    origin: [
-        'http://localhost:4200', 
-        'http://localhost:4201', 
-        'http://localhost:4202', 
-        'https://marketspase.com', 
-        'http://marketspase.com',
-        'https://www.marketspase.com',
-        'https://admin.marketspase.com',
-    ],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+app.use(cors(corsOptions));
 
-app.options('*', cors());
+app.options('*', cors(corsOptions));
 
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));
@@ -137,6 +151,7 @@ app.use('/user', UserRouter);
 app.use('/api/v1/user', UserRouter);
 app.use('/wallet', WalletRouter);
 app.use('/campaign', CampaignRouter);
+app.use('/api/v1/campaign', CampaignRouter);
 app.use('/settings', SettingsRouter);
 app.use('/contact', ContactRouter);
 app.use('/dashboard', DashboardRouter);
