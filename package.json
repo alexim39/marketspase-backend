@@ -4,6 +4,9 @@
   "description": "API serving the client side of Async Marketspase web application",
   "main": "bootstrap.js",
   "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node bootstrap.js",

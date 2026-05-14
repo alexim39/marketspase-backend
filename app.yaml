@@ -1,4 +1,4 @@
-runtime: nodejs22 # or your Node.js version
+runtime: nodejs20 # or your Node.js version
 env: standard      # This line is usually present for standard environment
 service: default
-entrypoint: node server.js # or your main app file
+entrypoint: node bootstrap.js # or your main app file
