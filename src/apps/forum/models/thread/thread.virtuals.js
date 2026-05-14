@@ -89,7 +89,22 @@ export const setupThreadVirtuals = (schema) => {
 
   // Virtual for has media
   schema.virtual('hasMedia').get(function() {
-    return this.media && this.media.url;
+    return Boolean(
+      (Array.isArray(this.mediaItems) && this.mediaItems.length > 0) ||
+      (this.media && this.media.url)
+    );
+  });
+
+  schema.virtual('mediaCount').get(function() {
+    if (Array.isArray(this.mediaItems) && this.mediaItems.length > 0) {
+      return this.mediaItems.length;
+    }
+
+    return this.media?.url ? 1 : 0;
+  });
+
+  schema.virtual('isCarousel').get(function() {
+    return this.mediaCount > 1;
   });
 
   // Virtual for has tags

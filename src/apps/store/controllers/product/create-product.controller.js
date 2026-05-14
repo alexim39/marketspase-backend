@@ -3,6 +3,12 @@ import { ProductModel, InventoryHistoryModel } from '../../models/promotion/inde
 import { StoreModel } from '../../models/store/index.js';
 import { uploadToCloudinary } from '../../utils/cloudinary.js';
 import mongoose from 'mongoose';
+import {
+  calculateCommissionForAmount,
+  extractAffiliateSettingsFromBody,
+  getProductAffiliateSettings,
+  roundMoney
+} from '../../services/storefront-affiliate.service.js';
 
 export const createProduct = async (req, res) => {
   const session = await mongoose.startSession();
@@ -11,7 +17,7 @@ export const createProduct = async (req, res) => {
   try {
     console.log('Create product request received');
     
-    const userId = req.params?.userId || req.body.userId;
+    const userId = req.userId;
     if (!userId) {
       await session.abortTransaction();
       session.endSession();
@@ -311,6 +317,9 @@ export const createProduct = async (req, res) => {
       isActive: isActive,
       scheduledStart: scheduledStart || undefined,
       scheduledEnd: scheduledEnd || undefined,
+      affiliate: extractAffiliateSettingsFromBody(req.body),
+      createdBy: userId,
+      updatedBy: userId,
       meta: {
         createdBy: userId,
         updatedBy: userId
@@ -360,6 +369,8 @@ export const createProduct = async (req, res) => {
     session.endSession();
 
     // Format response
+    const affiliateSettings = getProductAffiliateSettings(savedProduct);
+    const commissionPerSale = calculateCommissionForAmount(savedProduct.price, affiliateSettings);
     const response = {
       _id: savedProduct._id,
       store: savedProduct.store,
@@ -396,6 +407,9 @@ export const createProduct = async (req, res) => {
       isActive: savedProduct.isActive,
       scheduledStart: savedProduct.scheduledStart,
       scheduledEnd: savedProduct.scheduledEnd,
+      affiliate: savedProduct.affiliate,
+      amountReceivable: roundMoney(savedProduct.price - commissionPerSale),
+      commissionPerSale,
       viewCount: savedProduct.viewCount,
       purchaseCount: savedProduct.purchaseCount,
       averageRating: savedProduct.averageRating,

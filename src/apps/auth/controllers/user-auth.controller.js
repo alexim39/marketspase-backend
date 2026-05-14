@@ -7,6 +7,9 @@ import { CampaignModel } from "../../campaign/models/campaign.model.js"; // Add 
 import { PromotionModel } from "../../promotion/models/promotion.model.js"; // Add this import
 // import referral service for processing referrals
 import { ReferralService } from './../../user/services/referral.service.js';
+import { refreshUserReputation } from '../../user/services/user-reputation.service.js';
+import { ensureUidSelfOrAdmin } from '../../../shared/utils/request-auth.util.js';
+import { verifyFirebaseIdentityToken } from '../../../shared/middleware/auth.middleware.js';
 const referralService = new ReferralService();
 
 
@@ -32,22 +35,27 @@ const logActivitySafe = async (userId, activity) => {
 // Authenticate/Verify Usery
 export const Authenticate = async (req, res) => {
   try {
-    const { firebaseUser } = req.body;
+    const { firebaseUser = {}, idToken } = req.body;
 
     // 1. Validate Input
-    if (!firebaseUser || !firebaseUser.uid) {
-      return res.status(400).json({ success: false, message: "Missing Firebase user data" });
+    if (!idToken) {
+      return res.status(401).json({ success: false, message: "Missing Firebase identity token" });
     }
 
+    const decodedToken = await verifyFirebaseIdentityToken(idToken);
     const {
-      uid,
-      displayName,
-      email,
-      photoURL,
+      uid = decodedToken.uid,
+      displayName = decodedToken.name || firebaseUser.displayName,
+      email = decodedToken.email || firebaseUser.email,
+      photoURL = decodedToken.picture || firebaseUser.photoURL,
       providerData,
       referralCode = null,
       userDevice = null,
     } = firebaseUser;
+
+    if (!uid) {
+      return res.status(400).json({ success: false, message: "Missing Firebase user data" });
+    }
 
     const authProvider = providerData?.[0]?.providerId || 'local';
 
@@ -132,7 +140,10 @@ export const Authenticate = async (req, res) => {
     }
 
     // 4. Final Response
+    const reputationSnapshot = await refreshUserReputation(user);
     const userObject = user.toObject();
+    userObject.rating = reputationSnapshot.rating;
+    userObject.ratingCount = reputationSnapshot.ratingCount;
     delete userObject.password;
 
     return res.status(200).json({
@@ -143,6 +154,9 @@ export const Authenticate = async (req, res) => {
 
   } catch (error) {
     console.error("Auth Error:", error);
+    if (error.code?.startsWith?.('auth/')) {
+      return res.status(401).json({ success: false, message: "Invalid or expired Firebase session." });
+    }
     if (error.code === 11000) {
       return res.status(409).json({ success: false, message: "Duplicate email or username." });
     }
@@ -337,6 +351,10 @@ export const GetUser = async (req, res) => {
       return res.status(400).json({ success: false, message: "User ID (UID) is required." });
     }
 
+    if (!ensureUidSelfOrAdmin(req, uid, res, "You are not authorized to access this user record")) {
+      return;
+    }
+
     // 2) Derive safe limits
     const clamp = (num, min, max) =>
       Number.isFinite(num) ? Math.max(min, Math.min(max, Math.trunc(num))) : undefined;
@@ -383,6 +401,9 @@ export const GetUser = async (req, res) => {
           // Saved payout accounts / notification settings (if needed in UI)
           savedAccounts: 1,
           notificationSettings: 1,
+          loginStreak: 1,
+          badgeProfile: 1,
+          gamificationProfile: 1,
 
           // Cap activityLog to keep payload light (optional)
           activityLog: { $slice: ['$activityLog', 100] },
@@ -401,6 +422,9 @@ export const GetUser = async (req, res) => {
     }
 
     const user = userAgg[0];
+    const reputationSnapshot = await refreshUserReputation(user);
+    user.rating = reputationSnapshot.rating;
+    user.ratingCount = reputationSnapshot.ratingCount;
 
     await UserModel.updateOne(
       { _id: user._id },

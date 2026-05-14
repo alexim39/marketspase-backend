@@ -36,11 +36,11 @@ const campaignSchema = new mongoose.Schema(
     currency: { type: String, default: DEFAULTS.CURRENCY },
 
     // Promotion & Tracking
-    maxPromoters: { type: Number, required: true, min: VALIDATION.MAX_PROMOTERS.MIN },
-    currentPromoters: { type: Number, required: true, min: 0, default: DEFAULTS.CURRENT_PROMOTERS },
-    totalPromotions: { type: Number, default: DEFAULTS.TOTAL_PROMOTIONS },
-    validatedPromotions: { type: Number, default: DEFAULTS.VALIDATED_PROMOTIONS },
-    paidPromotions: { type: Number, default: DEFAULTS.PAID_PROMOTIONS },
+    maxPromoters: { type: Number, min: VALIDATION.MAX_PROMOTERS.MIN }, // left for backwards compatibility, can be used for reference
+    currentPromoters: { type: Number, min: 0, default: DEFAULTS.CURRENT_PROMOTERS }, // left for backwards compatibility, can be used for reference
+    totalPromotions: { type: Number, default: DEFAULTS.TOTAL_PROMOTIONS }, // left for backwards compatibility, can be used for reference
+    validatedPromotions: { type: Number, default: DEFAULTS.VALIDATED_PROMOTIONS }, // left for backwards compatibility, can be used for reference
+    paidPromotions: { type: Number, default: DEFAULTS.PAID_PROMOTIONS }, // left for backwards compatibility, can be used for reference
     
     spentBudget: { type: Number, default: DEFAULTS.SPENT_BUDGET },
     totalPayouts: { type: Number, default: DEFAULTS.TOTAL_PAYOUTS },
@@ -50,12 +50,24 @@ const campaignSchema = new mongoose.Schema(
       type: String,
       enum: PAYOUT_MODEL_ARRAY,
       default: DEFAULTS.PAYOUT_MODEL
-    },
+    }, // left for backwards compatibility, can be used for reference
 
-    payoutTierId: { type: String, required: true },
-    payoutPerPromotion: { type: Number, required: true },
-    minViewsPerPromotion: { type: Number, required: true },
-    maxViewsPerPromotion: { type: Number },
+    costPerClick: {
+      type: Number,
+      default: DEFAULTS.COST_PER_CLICK,
+      min: 0
+    },
+    totalClicks: { type: Number, default: DEFAULTS.TOTAL_CLICKS, min: 0 },
+    billableClicks: { type: Number, default: DEFAULTS.BILLABLE_CLICKS, min: 0 },
+    invalidClicks: { type: Number, default: DEFAULTS.INVALID_CLICKS, min: 0 },
+    duplicateClicks: { type: Number, default: DEFAULTS.DUPLICATE_CLICKS, min: 0 },
+    exhaustedAt: Date,
+    lastClickAt: Date,
+
+    payoutTierId: { type: String }, // left for backwards compatibility, can be used for reference
+    payoutPerPromotion: { type: Number}, // left for backwards compatibility, can be used for reference
+    minViewsPerPromotion: { type: Number}, // left for backwards compatibility, can be used for reference
+    maxViewsPerPromotion: { type: Number }, // left for backwards compatibility, can be used for reference
     rejectedPromotions: { type: Number, default: DEFAULTS.REJECTED_PROMOTIONS },
 
     // Targeting & Requirements
@@ -132,7 +144,7 @@ const campaignSchema = new mongoose.Schema(
     submissionReminders: {
       lastSent: Date,
       sentCount: { type: Number, default: 0 }
-    },
+    }, // left for backwards compatibility, can be used for reference
 
     // Campaign deletion
     isDeleted: { type: Boolean, default: DEFAULTS.IS_DELETED },
@@ -146,7 +158,7 @@ const campaignSchema = new mongoose.Schema(
       default: DEFAULTS.DIFFICULTY
     },
     tags: [{ type: String }],
-    estimatedViews: { type: Number, default: 0 },
+    estimatedViews: { type: Number, default: 0 }, // NAME CHANGE SUGGESTION: estimatedReach - left for backwards compatibility, can be used for reference
     duration: { type: String },
 
     // A log for campaign actions

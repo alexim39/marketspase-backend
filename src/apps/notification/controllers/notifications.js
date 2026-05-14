@@ -1,15 +1,17 @@
 // routes/notifications.js
 import { NotificationService } from '../services/notification.service.js';
 import { NotificationModel } from '../models/notification.model.js';
+import { getAuthenticatedUserId } from '../../../shared/utils/request-auth.util.js';
 
+const getNotificationUserId = (req) => getAuthenticatedUserId(req);
 
 // Get user notifications
 export const getNotifications = async (req, res) => {
    try {
-    //console.log('Fetching notifications for user:', req.query.userId);
     const { limit = 20, skip = 0, status } = req.query;
+    const userId = getNotificationUserId(req);
     const notifications = await NotificationModel.getUserNotifications(
-      req.query.userId, 
+      userId, 
       { limit: parseInt(limit), skip: parseInt(skip), status }
     );
     
@@ -34,7 +36,7 @@ export const getNotifications = async (req, res) => {
 // Get unread count
 export const getUnreadCount = async (req, res) => {
    try {
-    const count = await NotificationService.getUserNotificationCount(req.query.userId);
+    const count = await NotificationService.getUserNotificationCount(getNotificationUserId(req));
     res.json({
       success: true,
       data: { count }
@@ -52,7 +54,7 @@ export const getUnreadCount = async (req, res) => {
 // Mark as read
 export const markAsRead = async (req, res) => {
     try {
-    const notification = await NotificationService.markAsRead(req.params.id);
+    const notification = await NotificationService.markAsRead(req.params.id, getNotificationUserId(req));
    /*  const notification = await NotificationService.markAsRead(
       req.params.id, 
       req.query.userId
@@ -82,8 +84,7 @@ export const markAsRead = async (req, res) => {
 // Mark all as read
 export const markAllAsRead = async (req, res) => {
    try {
-    //console.log('Marking all notifications as read for user3:', req.body);
-    await NotificationService.markAllAsRead(req.body.userId);
+    await NotificationService.markAllAsRead(getNotificationUserId(req));
     res.json({
       success: true,
       message: 'All notifications marked as read'
@@ -100,7 +101,7 @@ export const markAllAsRead = async (req, res) => {
 
 // Add SSE endpoint
 export const addSSEEndpoint = async (req, res) => {
- const userId = req.query.userId;
+ const userId = getNotificationUserId(req);
   
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',

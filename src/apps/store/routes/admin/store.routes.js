@@ -1,6 +1,9 @@
 import express from 'express';
 import { StoreController } from '../../controllers/admin/store.controller.js';
-//import { authenticate, authorize } from '../middleware/auth.js';
+import { StoreReviewAdminController } from '../../controllers/admin/review.controller.js';
+import { StoreModel } from '../../models/store/index.js';
+import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
+import { requireAdmin } from '../../../../shared/middleware/authorization.middleware.js';
 
 const router = express.Router();
 
@@ -8,7 +11,8 @@ const router = express.Router();
 // router.get('/public/stores', StoreController.getPublicStores);
 
 // Protected routes - require authentication
-//router.use(authenticate);
+router.use(authenticate);
+router.use(requireAdmin);
 
 // Store management routes
 router.get('/stores',  StoreController.getStores);
@@ -17,6 +21,8 @@ router.get('/categories',  StoreController.getStoreCategories);
 router.get('/owners',  StoreController.getStoreOwners);
 router.post('/export/:format',  StoreController.exportStores);
 router.post('/bulk-update',  StoreController.bulkUpdateStores);
+router.get('/reviews', StoreReviewAdminController.getReviews);
+router.patch('/reviews/:reviewId/moderate', StoreReviewAdminController.moderateReview);
 
 // Store-specific routes
 router.get('/:id',  StoreController.getStoreById);

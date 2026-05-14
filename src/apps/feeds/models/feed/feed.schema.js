@@ -32,6 +32,13 @@ const feedPostSchema = new mongoose.Schema({
     default: DEFAULTS.TYPE,
     index: true
   },
+
+  source: {
+    type: String,
+    enum: ['manual', 'campaign', 'product'],
+    default: 'manual',
+    index: true
+  },
   
   // For earnings type
   earnings: {
@@ -46,7 +53,32 @@ const feedPostSchema = new mongoose.Schema({
     campaignId: { type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' },
     name: { type: String },
     budget: { type: Number, min: 0 },
-    status: { type: String, enum: CAMPAIGN_STATUS_ARRAY }
+    status: { type: String, enum: CAMPAIGN_STATUS_ARRAY },
+    category: { type: String },
+    link: { type: String },
+    mediaUrl: { type: String },
+    mediaType: { type: String, enum: MEDIA_TYPE_ARRAY },
+    thumbnailUrl: { type: String },
+    progress: { type: Number, min: 0, max: 100 },
+    spentBudget: { type: Number, min: 0 }
+  },
+
+  product: {
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    storeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Store' },
+    storeName: { type: String },
+    storeLink: { type: String },
+    name: { type: String },
+    description: { type: String },
+    category: { type: String },
+    price: { type: Number, min: 0 },
+    originalPrice: { type: Number, min: 0 },
+    currency: { type: String, default: DEFAULTS.CURRENCY },
+    commissionType: { type: String },
+    commissionRate: { type: Number, min: 0 },
+    fixedCommission: { type: Number, min: 0 },
+    productUrl: { type: String },
+    mainImage: { type: String }
   },
   
   // For tip type
@@ -60,7 +92,9 @@ const feedPostSchema = new mongoose.Schema({
   media: [{
     url: { type: String, required: true },
     type: { type: String, enum: MEDIA_TYPE_ARRAY, required: true },
-    thumbnail: { type: String }
+    thumbnail: { type: String },
+    altText: { type: String },
+    order: { type: Number, default: 0 }
   }],
   
   // Engagement metrics
@@ -95,6 +129,12 @@ const feedPostSchema = new mongoose.Schema({
     platform: { type: String, enum: SHARE_PLATFORM_ARRAY, required: true },
     sharedAt: { type: Date, default: Date.now }
   }],
+
+  socialMetrics: {
+    externalShares: { type: Number, default: 0, min: 0 },
+    externalClicks: { type: Number, default: 0, min: 0 },
+    profileVisits: { type: Number, default: 0, min: 0 }
+  },
   
   // Reach metrics
   reach: {
@@ -139,6 +179,29 @@ const feedPostSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     username: { type: String }
   }],
+
+  challenge: {
+    tag: { type: String, lowercase: true, trim: true },
+    title: { type: String, trim: true },
+    description: { type: String, trim: true },
+    rewardLabel: { type: String, trim: true },
+    startsAt: { type: Date },
+    endsAt: { type: Date },
+    isOfficial: { type: Boolean, default: false }
+  },
+
+  settings: {
+    postAnonymously: { type: Boolean, default: false },
+    disableComments: { type: Boolean, default: false },
+    allowExternalShare: { type: Boolean, default: true }
+  },
+
+  recommendation: {
+    primaryCategory: { type: String, trim: true, lowercase: true },
+    topicalTags: [{ type: String, trim: true, lowercase: true }],
+    engagementVelocity: { type: Number, default: 0 },
+    lastScoredAt: { type: Date }
+  },
   
   // Trending score (calculated periodically)
   trendingScore: { type: Number, default: DEFAULTS.TRENDING_SCORE, index: -1 },

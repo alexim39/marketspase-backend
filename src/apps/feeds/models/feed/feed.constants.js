@@ -2,6 +2,9 @@
 export const FEED_POST_TYPE = {
   EARNINGS: 'earnings',
   CAMPAIGN: 'campaign',
+  PRODUCT: 'product',
+  STORY: 'story',
+  CHALLENGE: 'challenge',
   QUESTION: 'question',
   TIP: 'tip',
   ACHIEVEMENT: 'achievement',
@@ -39,7 +42,8 @@ export const CAMPAIGN_STATUS_ARRAY = Object.values(CAMPAIGN_STATUS);
 export const MEDIA_TYPE = {
   IMAGE: 'image',
   VIDEO: 'video',
-  LINK: 'link'
+  LINK: 'link',
+  DOCUMENT: 'document'
 };
 
 export const MEDIA_TYPE_ARRAY = Object.values(MEDIA_TYPE);
@@ -49,6 +53,10 @@ export const SHARE_PLATFORM = {
   TWITTER: 'twitter',
   LINKEDIN: 'linkedin',
   FACEBOOK: 'facebook',
+  WHATSAPP: 'whatsapp',
+  INSTAGRAM: 'instagram',
+  TIKTOK: 'tiktok',
+  NATIVE: 'native',
   COPY: 'copy',
   OTHER: 'other'
 };

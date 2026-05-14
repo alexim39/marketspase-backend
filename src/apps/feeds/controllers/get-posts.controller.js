@@ -1,4 +1,5 @@
 import { FeedPostModel } from '../models/feed/index.js';
+import { getAuthorPopulation, shapeFeedPost, trackFeedImpressions } from '../services/feed-discovery.service.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -13,7 +14,7 @@ export const getFeedPosts = asyncHandler(async (req, res) => {
     author
   } = req.query;
 
-  const userId = req.query.userId;
+  const userId = req.userId || null;
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
   // Build query
@@ -44,12 +45,11 @@ export const getFeedPosts = asyncHandler(async (req, res) => {
 
   // Get posts
   const posts = await FeedPostModel.find(query)
-    .populate({
-      path: 'author',
-      select: 'username displayName avatar role rating badge'
-    })
-    .populate('campaign.campaignId', 'name budget status')
-    .populate('earnings.campaignId', 'name')
+    .populate(getAuthorPopulation())
+    .populate('campaign.campaignId', 'title budget status link mediaUrl mediaType thumbnailUrl category')
+    .populate('product.productId', 'name price originalPrice currency category images')
+    .populate('product.storeId', 'name storeLink')
+    .populate('earnings.campaignId', 'title')
     .sort(sortOptions)
     .skip(skip)
     .limit(parseInt(limit))
@@ -58,41 +58,12 @@ export const getFeedPosts = asyncHandler(async (req, res) => {
   // Get total count
   const totalPosts = await FeedPostModel.countDocuments(query);
 
-  // Add user interaction data
-  if (userId) {
-    posts.forEach(post => {
-
-      // Add counts
-      post.likeCount = post.likes?.length || 0;
-      post.commentCount = post.comments?.length || 0;
-      post.shareCount = post.shares?.length || 0;
-
-      post.isLiked = post.likes?.some(like => 
-        like.user?.toString() === userId.toString()
-      ) || false;
-      post.isSaved = post.savedBy?.some(saved => 
-        saved.user?.toString() === userId.toString()
-      ) || false;
-      
-      // Remove likes/saved arrays from response
-      delete post.likes;
-      delete post.savedBy;
-    });
-  }
-
-  // Track impressions
-  if (userId) {
-    posts.forEach(async (post) => {
-      await FeedPostModel.findByIdAndUpdate(post._id, {
-        $inc: { 'reach.impressions': 1 },
-        $addToSet: { 'reach.uniqueViews': userId }
-      });
-    });
-  }
+  const shapedPosts = posts.map((post) => shapeFeedPost(post, userId));
+  await trackFeedImpressions(shapedPosts, userId).catch(() => null);
 
   return res.status(200).json(
     new ApiResponse(200, {
-      posts,
+      posts: shapedPosts,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),

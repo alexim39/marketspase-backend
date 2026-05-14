@@ -5,6 +5,14 @@ export const getVerifiedAccounts = async (req, res) => {
     const { userId } = req.params;
 
     try {
+        if (req.user.role !== 'admin' && req.userId !== userId) {
+            return res.status(403).json({
+                message: "You are not allowed to view these verified accounts",
+                success: false,
+                code: "FORBIDDEN"
+            });
+        }
+
         const user = await UserModel.findById(userId);
         if (!user) {
             return res.status(404).json({

@@ -23,8 +23,8 @@ export const transferFunds = async (req, res) => {
       recipientUsername,
       recipientId,
       note,
-      sourceUserId
     } = req.body;
+    const sourceUserId = req.userId;
 
     // Validate amount
     const transferAmount = parseFloat(amount);
@@ -355,6 +355,12 @@ export const transferFunds = async (req, res) => {
 export const getWalletBalances = async (req, res) => {
   try {
     const { userId } = req.params;
+    if (req.user.role !== 'admin' && req.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not allowed to view these wallet balances'
+      });
+    }
 
     const user = await UserModel.findById(userId).select('wallets');
     if (!user) {
@@ -444,6 +450,12 @@ export const searchUsers = async (req, res) => {
 export const checkWithdrawableAmount = async (req, res) => {
   try {
     const { userId, walletType } = req.params;
+    if (req.user.role !== 'admin' && req.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not allowed to inspect this wallet'
+      });
+    }
 
     const user = await UserModel.findById(userId).select(`wallets.${walletType}`);
     if (!user) {

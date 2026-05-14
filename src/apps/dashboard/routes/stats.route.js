@@ -3,10 +3,14 @@ import {
   getCampaignStats, 
   getUserStats, 
   getRevenueStats,
-  getEngagementStats
+  getEngagementStats,
+  getAdminOverviewStats
 } from '../controllers/stats.controller.js';
 import { catchAsync } from '../services/catch-async.middleware.js'; // Optional error handling middleware
 import { getUsersOnlineCount } from './../controllers/online-count.controller.js'
+import { getLiveActivityFeed } from '../controllers/live-activity.controller.js';
+import { authenticate } from '../../../shared/middleware/auth.middleware.js';
+import { requireAdmin } from '../../../shared/middleware/authorization.middleware.js';
 
 const StatsRouter = express.Router();
 
@@ -145,6 +149,15 @@ StatsRouter.get('/engagement', catchAsync(async (req, res) => {
   });
 }));
 
+StatsRouter.get('/admin-overview', authenticate, requireAdmin, catchAsync(async (_req, res) => {
+  const data = await getAdminOverviewStats();
+  return res.status(200).json({
+    success: true,
+    data,
+  });
+}));
+
 StatsRouter.get('/online-count', catchAsync(getUsersOnlineCount))
+StatsRouter.get('/live-activity', authenticate, catchAsync(getLiveActivityFeed))
 
 export default StatsRouter;

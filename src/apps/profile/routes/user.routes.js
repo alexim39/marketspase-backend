@@ -1,5 +1,4 @@
 import express from 'express';
-//import { authMiddleware } from '../middleware/auth.js';
 import {
   getProfile,
   getUserPosts,
@@ -8,17 +7,15 @@ import {
   toggleFollow,
 } from '../controllers/user.controller.js';
 import { getSuggestedUsers } from '../controllers/get-suggested-user-controller.js';
+import { authenticate, optionalAuthenticate } from '../../../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
 
-// All routes require authentication to know current user
-//router.use(authMiddleware);
-
 router.get('/suggested', getSuggestedUsers);
-router.get('/:userId/profile', getProfile);
-router.get('/:userId/posts', getUserPosts);
-router.get('/:userId/followers', getFollowers);
-router.get('/:userId/following', getFollowing);
-router.post('/:userId/follow', toggleFollow);
+router.get('/:userId/profile', optionalAuthenticate, getProfile);
+router.get('/:userId/posts', optionalAuthenticate, getUserPosts);
+router.get('/:userId/followers', optionalAuthenticate, getFollowers);
+router.get('/:userId/following', optionalAuthenticate, getFollowing);
+router.post('/:userId/follow', authenticate, toggleFollow);
 
 export default router;

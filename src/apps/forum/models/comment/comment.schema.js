@@ -19,7 +19,7 @@ const commentSchema = new mongoose.Schema(
     
     thread: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Thread',
+      ref: 'Forumthread',
       required: [true, ERROR_MESSAGES.THREAD_REQUIRED],
       index: true
     },
@@ -28,6 +28,23 @@ const commentSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Forumcomment',
       index: true
+    },
+
+    replies: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Forumcomment',
+    }],
+
+    replyCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    isReply: {
+      type: Boolean,
+      default: false,
+      index: true,
     },
     
     likeCount: {
@@ -98,7 +115,9 @@ const commentSchema = new mongoose.Schema(
     metadata: {
       ipAddress: String,
       userAgent: String,
-      source: { type: String, default: 'web' }
+      source: { type: String, default: 'web' },
+      containsUrls: { type: Boolean, default: false },
+      urls: { type: [String], default: [] },
     }
   },
   {

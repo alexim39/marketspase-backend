@@ -1,5 +1,6 @@
 import { FeedPostModel } from '../models/feed/index.js';
 import { UserModel } from '../../user/models/user/index.js';
+import { getAuthorPopulation, shapeFeedPost } from '../services/feed-discovery.service.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -7,7 +8,8 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 // Update a feed post
 export const updateFeedPost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const { userId, content, hashtags } = req.body;
+  const { content, hashtags, settings, challenge } = req.body;
+  const userId = req.userId;
 
   // Find the post
   const post = await FeedPostModel.findById(postId);
@@ -35,33 +37,37 @@ export const updateFeedPost = asyncHandler(async (req, res) => {
   if (hashtags !== undefined) {
     post.hashtags = hashtags.map(tag => ({ tag: tag.toLowerCase() }));
   }
+  if (settings !== undefined) {
+    const parsedSettings = typeof settings === 'string' ? JSON.parse(settings) : settings;
+    post.settings = {
+      ...post.settings?.toObject?.(),
+      ...parsedSettings
+    };
+  }
+  if (challenge !== undefined) {
+    const parsedChallenge = typeof challenge === 'string' ? JSON.parse(challenge) : challenge;
+    post.challenge = parsedChallenge?.tag
+      ? {
+          ...post.challenge?.toObject?.(),
+          ...parsedChallenge,
+          tag: parsedChallenge.tag.toString().replace(/^#/, '').toLowerCase()
+        }
+      : undefined;
+  }
 
   // Optionally update `updatedAt` automatically via pre-save hook
   await post.save();
 
   // Return the updated post with populated author
   const updatedPost = await FeedPostModel.findById(postId)
-    .populate({
-      path: 'author',
-      select: 'username displayName avatar role rating badge'
-    })
-    .populate('campaign.campaignId', 'name budget status')
-    .populate('earnings.campaignId', 'name')
+    .populate(getAuthorPopulation())
+    .populate('campaign.campaignId', 'title budget status link mediaUrl mediaType thumbnailUrl category')
+    .populate('product.productId', 'name price originalPrice currency category images')
+    .populate('product.storeId', 'name storeLink')
+    .populate('earnings.campaignId', 'title')
     .lean();
 
-  // Add interaction flags (if needed, similar to getFeedPosts)
-  if (userId) {
-    updatedPost.isLiked = updatedPost.likes?.some(like => 
-      like.user?.toString() === userId.toString()
-    ) || false;
-    updatedPost.isSaved = updatedPost.savedBy?.some(saved => 
-      saved.user?.toString() === userId.toString()
-    ) || false;
-    delete updatedPost.likes;
-    delete updatedPost.savedBy;
-  }
-
   return res.status(200).json(
-    new ApiResponse(200, updatedPost, 'Post updated successfully')
+    new ApiResponse(200, shapeFeedPost(updatedPost, userId), 'Post updated successfully')
   );
 });

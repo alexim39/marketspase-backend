@@ -36,4 +36,8 @@ export const setupUserIndexes = (schema) => {
   schema.index({ role: 1, isActive: 1, createdAt: -1 });
   schema.index({ isVerified: 1, isActive: 1 });
   schema.index({ rating: -1, ratingCount: -1 });
+  schema.index({ role: 1, 'personalInfo.address.country': 1, isDeleted: 1 });
+  schema.index({ role: 1, 'personalInfo.address.state': 1, isDeleted: 1 });
+  schema.index({ role: 1, 'personalInfo.gender': 1, isDeleted: 1 });
+  schema.index({ 'personalInfo.dob': 1 });
 };

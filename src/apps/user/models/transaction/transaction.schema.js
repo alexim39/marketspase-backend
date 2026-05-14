@@ -19,6 +19,8 @@ const transactionSchema = new mongoose.Schema({
   // Gateway info
   gateway: { type: String, default: DEFAULTS.GATEWAY },
   currency: { type: String, default: DEFAULTS.CURRENCY },
+  baseCurrency: { type: String, default: DEFAULTS.CURRENCY },
+  settlementCurrency: { type: String, default: DEFAULTS.CURRENCY },
   fee: { type: Number, default: DEFAULTS.FEE },              // in kobo if amount is kobo
   transferCode: { type: String, trim: true },     // for payouts
   failureReason: { type: String, trim: true },    // for failed payouts
@@ -28,6 +30,9 @@ const transactionSchema = new mongoose.Schema({
   // Amounts (store **kobo** if Paystack)
   amount: { type: Number, required: true },
   amountPayable: { type: Number, default: DEFAULTS.AMOUNT_PAYABLE },    // net amount after fees (for withdrawals)
+  baseAmount: { type: Number, default: null },
+  settlementAmount: { type: Number, default: null },
+  exchangeRate: { type: Number, default: null },
 
   // Directions & categories
   type: {

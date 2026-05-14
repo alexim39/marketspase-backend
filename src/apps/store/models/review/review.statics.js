@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { REVIEW_STATUS } from "./review.constants.js";
+import { formatReviewResponse } from "./review.utils.js";
 
 export const setupReviewStatics = (schema) => {
   // Get product statistics
@@ -102,10 +103,7 @@ export const setupReviewStatics = (schema) => {
       .skip(skip)
       .lean();
 
-    const formattedReviews = reviews.map(review => {
-      const { formatReviewResponse } = require('./review.utils.js');
-      return formatReviewResponse(review, userId);
-    });
+    const formattedReviews = reviews.map(review => formatReviewResponse(review, userId));
 
     const total = await this.countDocuments(query);
 

@@ -7,7 +7,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 // Save/Unsave post
 export const toggleSavePost = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const { userId } = req.body;
+  const userId = req.userId;
 
   // console.log('save postId ', postId)
   // console.log('save body ', userId)

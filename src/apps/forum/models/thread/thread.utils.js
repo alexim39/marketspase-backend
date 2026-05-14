@@ -125,6 +125,11 @@ export const calculateTrendingScore = (thread) => {
  */
 export const formatThreadResponse = (thread, userId = null) => {
   const threadObj = thread.toObject ? thread.toObject() : thread;
+  const mediaItems = Array.isArray(threadObj.mediaItems) && threadObj.mediaItems.length
+    ? threadObj.mediaItems
+    : threadObj.media?.url
+      ? [threadObj.media]
+      : [];
   
   // Handle deleted threads
   if (threadObj.isDeleted) {
@@ -145,11 +150,18 @@ export const formatThreadResponse = (thread, userId = null) => {
     content: threadObj.content,
     author: threadObj.author,
     tags: threadObj.tags || [],
-    media: threadObj.media,
+    media: mediaItems[0] || threadObj.media || null,
+    mediaItems,
+    mediaCount: mediaItems.length,
+    isCarousel: mediaItems.length > 1,
     category: threadObj.category,
+    topicTags: threadObj.topicTags || [],
+    poll: threadObj.poll || null,
     likeCount: threadObj.likeCount || 0,
     commentCount: threadObj.commentCount || 0,
     viewCount: threadObj.viewCount || 0,
+    shareCount: threadObj.shareCount || 0,
+    followerCount: threadObj.followerCount || 0,
     isPinned: threadObj.isPinned || false,
     isLocked: threadObj.isLocked || false,
     status: threadObj.status || 'active',
@@ -159,7 +171,8 @@ export const formatThreadResponse = (thread, userId = null) => {
 
   // Add user-specific flags
   if (userId) {
-    formatted.isLiked = threadObj.likedBy?.includes(userId) || false;
+    formatted.isLiked = threadObj.likedBy?.some?.((entry) => entry?.toString?.() === userId.toString()) || false;
+    formatted.isFollowing = threadObj.followers?.some?.((entry) => entry?.toString?.() === userId.toString()) || false;
     formatted.isOwnThread = threadObj.author?._id?.toString() === userId.toString() || 
                            threadObj.author?.toString() === userId.toString();
   }

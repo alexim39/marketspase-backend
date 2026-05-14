@@ -13,44 +13,49 @@ import { deleteUser } from '../../controllers/admin/delete-soft-user.controller.
 import { restoreUser } from '../../controllers/admin/restore-user-soft.controller.js'
 import { updateUserDisplayName } from '../../controllers/admin/update-user-displayname.controller.js'
 import { markMarketingRep } from '../../controllers/admin/make-marketing-rep.controller.js'
+import { getUserAnalytics } from '../../controllers/admin/get-user-analytics.controller.js';
+import { requireAdmin } from '../../../../shared/middleware/authorization.middleware.js';
 
 
 const AdminIndexRouter = express.Router();
 
+AdminIndexRouter.use(requireAdmin);
+
 // admin - get all users
 AdminIndexRouter.get('/users', getUsers);
 
+// analytics and summary routes should stay above parameterised user routes
+AdminIndexRouter.get('/users/summary', getUserSummary);
+AdminIndexRouter.get('/summary', getUserSummary);
+AdminIndexRouter.get('/users/stream', streamUsers);
+AdminIndexRouter.get('/stream', streamUsers);
+AdminIndexRouter.get('/users/analytics', getUserAnalytics);
+
 // admin - get all users by role
+AdminIndexRouter.get('/users/role/:role', getUsersByRole);
 AdminIndexRouter.get('/users/:role', getUsersByRole);
 
 // admin - get all users role statistics
+AdminIndexRouter.get('/users/role/:role/stats', getRoleStatistics);
 AdminIndexRouter.get('/users/:role/stats', getUserStatsByRole);
-
-// admin - get a user
-AdminIndexRouter.get('/:id', getUserById);
 
 // toggle user active status
 AdminIndexRouter.patch('/:id/status', toggleUserActiveStatus);
 
 // update user displayname
+AdminIndexRouter.patch('/users/:userId/display-name', updateUserDisplayName);
 AdminIndexRouter.patch('/:userId/display-name', updateUserDisplayName);
 
-// Role-based routes
-AdminIndexRouter.get('/summary', getUserSummary);
-
-// Role-based routes
+// legacy aliases kept for compatibility with older admin app builds
 AdminIndexRouter.get('/admin/users/role/:role/stats', getRoleStatistics);
-
-//
-AdminIndexRouter.get('/stream', streamUsers);
-
-//
+AdminIndexRouter.patch('/users/make-marketing-rep', markMarketingRep);
+AdminIndexRouter.patch('/make-marketing-rep', markMarketingRep);
 AdminIndexRouter.patch('/admin/:id/restore', restoreUser); 
 
 AdminIndexRouter.delete('/admin/:id', deleteUser);
 
-// update user displayname
-AdminIndexRouter.patch('/make-marketing-rep', markMarketingRep);
+// admin - get a user
+AdminIndexRouter.get('/:id', getUserById);
 
 
 export default AdminIndexRouter;

@@ -7,6 +7,8 @@ import { sendEmail } from "../../../core/email.service.js";
 import { adminCampaignApprovalTemplate } from "../services/email/adminCampaignApprovalTemplate.js";
 import { buildVideoThumbnailUrl } from "../services/thumbnail-generator.service.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
+import { evaluateUserBadges } from "../../badges/service/badge.service.js";
+import { awardGamificationProgress } from "../../gamification/service/gamification.service.js";
 
 export const createCampaign = async (req, res) => {
   const session = await mongoose.startSession();
@@ -14,16 +16,16 @@ export const createCampaign = async (req, res) => {
   try {
     const campaign = await session.withTransaction(async () => {
       const {
-        owner,
         title,
         caption,
         link,
         category,
         budget,
-        payoutTierId,
-        payoutPerPromotion,
-        minViewsPerPromotion,
-        maxViewsPerPromotion,
+        costPerClick = 80,
+        //payoutTierId,
+        //payoutPerPromotion,
+        //minViewsPerPromotion,
+        //maxViewsPerPromotion,
         startDate,
         endDate,
         currency = "NGN",
@@ -36,7 +38,13 @@ export const createCampaign = async (req, res) => {
         hasEndDate,
         ageTarget = "all",
       } = req.body;
+      const owner = req.userId;
 
+      console.log("Received campaign creation request with body:", req.body);
+      console.log("Received campaign creation request with params:", req.params);
+      console.log("Received campaign creation request with query:", req.query);
+
+     
       // 1️⃣ VALIDATION
       if (!owner || !title || !budget || !category) {
         const err = new Error("Missing required fields.");
@@ -45,24 +53,31 @@ export const createCampaign = async (req, res) => {
       }
 
       const numericBudget = Number(budget);
+      const numericCostPerClick = Number(costPerClick);
       if (!Number.isFinite(numericBudget) || numericBudget < 1000) {
         const err = new Error("Minimum campaign budget is ₦1000.");
         err.status = 400;
         throw err;
       }
 
-      if (!payoutTierId || !payoutPerPromotion || !minViewsPerPromotion) {
-        const err = new Error("Payout tier selection is required.");
+      if (!Number.isFinite(numericCostPerClick) || numericCostPerClick <= 0) {
+        const err = new Error("Invalid cost per click.");
         err.status = 400;
         throw err;
       }
 
-      const numericPayout = Number(payoutPerPromotion);
+     /*  if (!payoutTierId || !payoutPerPromotion || !minViewsPerPromotion) {
+        const err = new Error("Payout tier selection is required.");
+        err.status = 400;
+        throw err;
+      } */
+
+     /*  const numericPayout = Number(payoutPerPromotion);
       if (!Number.isFinite(numericPayout) || numericPayout <= 0) {
         const err = new Error("Invalid payout amount.");
         err.status = 400;
         throw err;
-      }
+      } */
 
       // 2️⃣ LOAD MARKETER + WALLET CHECK
       const marketer = await UserModel.findById(owner)
@@ -110,14 +125,17 @@ export const createCampaign = async (req, res) => {
       }
 
       // 4️⃣ MAX PROMOTERS & VIEW ESTIMATION
-      const maxPromoters = Math.floor(numericBudget / numericPayout);
-      if (maxPromoters < 1) {
-        const err = new Error("Budget too low for selected payout tier.");
-        err.status = 400;
-        throw err;
-      }
+      // const maxPromoters = Math.floor(numericBudget / numericPayout);
+      // if (maxPromoters < 1) {
+      //   const err = new Error("Budget too low for selected payout tier.");
+      //   err.status = 400;
+      //   throw err;
+      // }
 
-      const estimatedViews = maxPromoters * Number(minViewsPerPromotion);
+      //const estimatedViews = maxPromoters * Number(minViewsPerPromotion);
+      // estimatedReach = computed(() => {
+      const estimatedViews = Math.floor(numericBudget / numericCostPerClick);
+
 
       const campaignDoc = new CampaignModel({
         owner,
@@ -130,13 +148,15 @@ export const createCampaign = async (req, res) => {
         thumbnailUrl,
         budget: numericBudget,
         currency,
-        maxPromoters,
-        currentPromoters: 0,
-        payoutModel: "fixed_per_promoter",
-        payoutTierId,
-        payoutPerPromotion: numericPayout,
-        minViewsPerPromotion,
-        maxViewsPerPromotion,
+        payoutModel: "pay_per_click",
+        costPerClick: numericCostPerClick,
+        //maxPromoters,
+        //currentPromoters: 0,
+        //payoutModel: "fixed_per_promoter",
+        //payoutTierId,
+        //payoutPerPromotion: numericPayout,
+        //minViewsPerPromotion,
+        //maxViewsPerPromotion,
         estimatedViews,
         enableTarget,
         ageTarget,
@@ -173,6 +193,29 @@ export const createCampaign = async (req, res) => {
         category: campaign.category
       })
     }).catch(err => console.error("Email send failed:", err));
+
+    await awardGamificationProgress({
+      userId: req.userId,
+      actionKey: 'campaign_created',
+      sourceKey: `campaign:${campaign._id}:created`,
+      sourceType: 'campaign',
+      sourceId: campaign._id,
+      metadata: {
+        campaignId: campaign._id?.toString?.() || null,
+        title: campaign.title,
+        budget: Number(campaign.budget || 0),
+        category: campaign.category || null,
+      },
+    }).catch((gamificationError) => {
+      console.error("Gamification update after campaign creation failed:", gamificationError);
+    });
+
+    await evaluateUserBadges(req.userId, {
+      force: true,
+      trigger: 'campaign_created',
+    }).catch((badgeError) => {
+      console.error("Badge evaluation after campaign creation failed:", badgeError);
+    });
 
     return res.status(201).json({
       success: true,

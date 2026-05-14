@@ -5,12 +5,12 @@ import {
   searchUsers,
   checkWithdrawableAmount 
 } from '../../controllers/transfer/transfer.controller.js';
-//import { authenticate } from '../middleware/auth.js';
+import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
 
 // All routes require authentication
-//router.use(authenticate);
+router.use(authenticate);
 
 // Transfer funds
 router.post('/', transferFunds);

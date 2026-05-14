@@ -6,7 +6,8 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 // Get comments for a post with pagination
 export const getPostComments = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  let { page = 1, limit = 20, userId } = req.query;
+  let { page = 1, limit = 20 } = req.query;
+  const userId = req.userId || null;
   page = parseInt(page);
   limit = parseInt(limit);
 

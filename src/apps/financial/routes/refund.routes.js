@@ -6,6 +6,9 @@ import { UserModel } from '../../user/models/user/index.js';
 
 const RefundRouter = express.Router();
 
+const getAuthenticatedAdminId = (req) =>
+  req.userId || req.user?.id || req.user?._id?.toString?.() || null;
+
 /**
  * @route GET /api/financial/refund/history
  * @description Get all refund history (not specific to a promoter)
@@ -185,7 +188,7 @@ RefundRouter.post('/validate', async (req, res) => {
 RefundRouter.post('/bulk', async (req, res) => {
   try {
     const { refunds } = req.body;
-    const adminId = req.user?.id || req.user?._id;
+    const adminId = getAuthenticatedAdminId(req);
 
     if (!adminId) {
       return res.status(401).json({
@@ -265,7 +268,8 @@ RefundRouter.get('/:identifier/refund-history', async (req, res) => {
  */
 RefundRouter.post('/', async (req, res) => {
   try {
-    const { promoterUserId, amount, reason, walletType, metadata, adminId } = req.body;
+    const { promoterUserId, amount, reason, walletType, metadata } = req.body;
+    const adminId = getAuthenticatedAdminId(req);
 
     console.log('Refund request received:', { 
       promoterUserId, 

@@ -7,7 +7,8 @@ import mongoose from 'mongoose';
  */
 export const getTransactionSummary = async (req, res) => {
   try {
-    const { userId, role, period = 'all' } = req.query;
+    const { role, period = 'all' } = req.query;
+    const userId = req.userId;
 
     // Validate required parameters
     if (!userId || !role) {

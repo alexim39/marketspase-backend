@@ -1,5 +1,6 @@
 import express from 'express';
 //import { verifyJWT } from '../middlewares/auth.middleware.js';
+import { cloudinaryMediaUpload } from '../../../core/cloudinary.service.js';
 import { toggleCommentLike } from '../controllers/toggle-comment-like.controller.js';
 import { updateFeedPost } from '../controllers/update-post.controller.js';
 import { deleteFeedPost } from '../controllers/delete-post.controller.js';
@@ -13,25 +14,27 @@ import { getPostById } from '../controllers/get-post-byid.controller.js';
 import { getTrendingHashtags } from '../controllers/get-trending-hashtags.controller.js';
 import { getCommunityFeed } from '../controllers/get-community-post.controller.js';
 import { getPostComments } from '../controllers/get-post-comments.controller.js';
+import { authenticate, optionalAuthenticate } from '../../../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
 
 // Public routes
-router.get('/list', getFeedPosts);
-router.get('/community', getCommunityFeed);
+router.get('/list', optionalAuthenticate, getFeedPosts);
+router.get('/community', optionalAuthenticate, getCommunityFeed);
 router.get('/trending/hashtags', getTrendingHashtags);
-router.get('/:postId/comments', getPostComments);
+router.get('/:postId/comments', optionalAuthenticate, getPostComments);
+router.get('/:postId', optionalAuthenticate, getPostById);
+
+router.use(authenticate);
 
 router.post('/:postId/comments/:commentId/like', toggleCommentLike);
-router.get('/:postId', getPostById);
-
-router.post('/create', createFeedPost);
+router.post('/create', cloudinaryMediaUpload.array('media', 6), createFeedPost);
 router.post('/:postId/like', togglePostLike);
 router.post('/:postId/save', toggleSavePost);
 router.post('/:postId/comments', addComment);
 router.post('/:postId/share', sharePost);
 
-router.put('/:postId', updateFeedPost);    // Edit post
+router.put('/:postId', cloudinaryMediaUpload.array('media', 6), updateFeedPost);    // Edit post
 router.delete('/:postId', deleteFeedPost); 
 
 export default router;

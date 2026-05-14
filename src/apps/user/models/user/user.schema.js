@@ -18,7 +18,10 @@ import {
   forumActivitySchema,
   referralSchema,
   activitySettingsSchema,
-  qualificationMilestonesSchema
+  qualificationMilestonesSchema,
+  loginStreakSchema,
+  badgeProfileSchema,
+  gamificationProfileSchema
 } from "./schemas/index.js";
 
 const userSchema = new mongoose.Schema(
@@ -117,6 +120,10 @@ const userSchema = new mongoose.Schema(
     
     // Track qualification milestones
     qualificationMilestones: { type: qualificationMilestonesSchema, default: () => ({}) },
+
+    loginStreak: { type: loginStreakSchema, default: () => ({}) },
+    badgeProfile: { type: badgeProfileSchema, default: () => ({}) },
+    gamificationProfile: { type: gamificationProfileSchema, default: () => ({}) },
 
     // Forum activity
     forumActivity: { type: forumActivitySchema, default: () => ({}) },

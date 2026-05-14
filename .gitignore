@@ -3,3 +3,6 @@
 package-lock.json
 cron.log
 /scripts
+/dist
+/docs
+/logs

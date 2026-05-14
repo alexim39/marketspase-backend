@@ -12,4 +12,5 @@ export const setupProductIndexes = (schema) => {
   schema.index({ store: 1, category: 1, price: 1, isActive: 1 });
   schema.index({ store: 1, isFeatured: 1, createdAt: -1 });
   schema.index({ store: 1, tags: 1, isActive: 1 });
+  schema.index({ "affiliate.enabled": 1, "affiliate.commissionRate": -1 });
 };

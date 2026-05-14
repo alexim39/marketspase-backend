@@ -8,7 +8,9 @@ export const getWithdrawalRequests = async (req, res) => {
       page = 1,
       limit = 10,
       search = '',
-      userRole = 'all' // New filter: 'all', 'promoter', 'marketer'
+      userRole = 'all',
+      fromDate,
+      toDate,
     } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -38,8 +40,23 @@ export const getWithdrawalRequests = async (req, res) => {
     }
 
     // We need to query BOTH promoter and marketer wallets for withdrawals
-    const promoterPipeline = buildWithdrawalPipeline('promoter', userMatchConditions, status);
-    const marketerPipeline = buildWithdrawalPipeline('marketer', userMatchConditions, status);
+    const transactionDateFilter = {};
+    if (fromDate) {
+      const parsedFromDate = new Date(fromDate);
+      if (!Number.isNaN(parsedFromDate.getTime())) {
+        transactionDateFilter.$gte = parsedFromDate;
+      }
+    }
+
+    if (toDate) {
+      const parsedToDate = new Date(toDate);
+      if (!Number.isNaN(parsedToDate.getTime())) {
+        transactionDateFilter.$lte = parsedToDate;
+      }
+    }
+
+    const promoterPipeline = buildWithdrawalPipeline('promoter', userMatchConditions, status, transactionDateFilter);
+    const marketerPipeline = buildWithdrawalPipeline('marketer', userMatchConditions, status, transactionDateFilter);
 
     // Execute both pipelines in parallel
     const [promoterResults, marketerResults] = await Promise.all([
@@ -82,7 +99,7 @@ export const getWithdrawalRequests = async (req, res) => {
 /**
  * Build aggregation pipeline for a specific wallet type
  */
-function buildWithdrawalPipeline(walletType, userMatchConditions, status) {
+function buildWithdrawalPipeline(walletType, userMatchConditions, status, transactionDateFilter = {}) {
   const pipeline = [
     { $match: userMatchConditions.length > 0 ? { $and: userMatchConditions } : {} },
     { $unwind: `$wallets.${walletType}.transactions` },
@@ -98,6 +115,12 @@ function buildWithdrawalPipeline(walletType, userMatchConditions, status) {
   if (status !== 'all') {
     pipeline.push({
       $match: { [`wallets.${walletType}.transactions.status`]: status }
+    });
+  }
+
+  if (Object.keys(transactionDateFilter).length > 0) {
+    pipeline.push({
+      $match: { [`wallets.${walletType}.transactions.createdAt`]: transactionDateFilter }
     });
   }
 

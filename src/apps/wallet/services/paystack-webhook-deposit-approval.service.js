@@ -4,6 +4,13 @@ import { sendEmail } from "../../../core/email.service.js";
 import { paymentApprovedEmailTemplate } from './email/paymentApprovedTemplate.js';
 import { ReferralService } from '../../user/services/referral.service.js';
 import mongoose from 'mongoose';
+import {
+  buildSignedQuote,
+  normalizeCurrencyCode,
+  roundCurrencyAmount,
+  verifySignedQuote,
+} from './payment-currency.service.js';
+import { applyWalletCredit, ensureWalletCurrencyState } from './wallet-ledger.service.js';
 
 const referralService = new ReferralService();
 
@@ -29,8 +36,9 @@ export default async function handler(req, res) {
     session.startTransaction();
 
     try {
-      const { reference, metadata, amount: amountInKobo, customer } = event.data;
-      const amountInNaira = amountInKobo / 100;
+      const { reference, metadata, amount: amountInMinorUnits, customer, currency: paystackCurrency } = event.data;
+      const chargedAmount = roundCurrencyAmount((amountInMinorUnits || 0) / 100);
+      const fundingCurrency = normalizeCurrencyCode(paystackCurrency || metadata?.currency || 'NGN');
 
       // Extract user info from metadata
       let userId = metadata?.userId;
@@ -78,58 +86,69 @@ export default async function handler(req, res) {
       }
 
       // Determine funding amount from metadata or use full amount
-      const fundingAmount = metadata?.fundingAmount || amountInNaira;
+      const verifiedQuote = metadata?.quote
+        ? await verifySignedQuote(metadata.quote, { purpose: 'wallet_funding' })
+        : await buildSignedQuote({
+            amount: Number(metadata?.fundingAmount || chargedAmount),
+            fromCurrency: fundingCurrency,
+            toCurrency: fundingCurrency,
+            purpose: 'wallet_funding',
+          });
+
+      const fundingAmount = roundCurrencyAmount(verifiedQuote.targetAmount || metadata?.fundingAmount || chargedAmount);
+      const baseAmount = roundCurrencyAmount(verifiedQuote.baseAmount);
+      const baseCurrency = normalizeCurrencyCode(verifiedQuote.baseCurrency || 'NGN');
       
       // Check if first campaign funding
       const isFirstCampaignFunding = !user.qualificationMilestones?.firstCampaignFunded;
 
-      // Update wallet
-      const updatedUser = await UserModel.findByIdAndUpdate(
-        userId,
-        {
-          $inc: { 
-            'wallets.marketer.balance': fundingAmount 
-          },
-          $push: {
-            'wallets.marketer.transactions': {
-              amount: fundingAmount,
-              type: 'credit',
-              category: 'deposit',
-              description: `Paystack funding`,
-              reference: reference,
-              status: 'successful',
-              gateway: 'paystack',
-              meta: {
-                fullWebhookPayload: {
-                  id: event.data.id,
-                  domain: event.data.domain,
-                  channel: event.data.channel,
-                  ipAddress: event.data.ip_address,
-                  createdAt: event.data.created_at,
-                  paidAt: event.data.paid_at
-                },
-                metadata: metadata
-              },
-              processedAt: new Date(),
-              createdAt: new Date()
-            }
-          },
-          ...(isFirstCampaignFunding && {
-            $set: {
-              'qualificationMilestones.firstCampaignFunded': true
-            }
-          })
-        },
-        { 
-          session, 
-          new: true,
-          runValidators: true
-        }
-      );
+      ensureWalletCurrencyState(user.wallets.marketer, baseCurrency);
+      applyWalletCredit(user.wallets.marketer, {
+        bucket: 'balance',
+        amount: fundingAmount,
+        currency: fundingCurrency,
+        baseAmount,
+        baseCurrency,
+      });
 
-      if (!updatedUser) {
-        throw new Error('Failed to update user wallet');
+      user.wallets.marketer.transactions.unshift({
+        amount: fundingAmount,
+        baseAmount,
+        currency: fundingCurrency,
+        baseCurrency,
+        settlementCurrency: fundingCurrency,
+        settlementAmount: chargedAmount,
+        exchangeRate: Number(verifiedQuote.exchangeRate || 1),
+        type: 'credit',
+        category: 'deposit',
+        description: `Paystack funding`,
+        reference,
+        status: 'successful',
+        gateway: 'paystack',
+        meta: {
+          fullWebhookPayload: {
+            id: event.data.id,
+            domain: event.data.domain,
+            channel: event.data.channel,
+            ipAddress: event.data.ip_address,
+            createdAt: event.data.created_at,
+            paidAt: event.data.paid_at,
+            currency: paystackCurrency,
+          },
+          metadata,
+          quote: verifiedQuote,
+        },
+        processedAt: new Date(),
+        createdAt: new Date(),
+      });
+      user.wallets.marketer.transactions = user.wallets.marketer.transactions.slice(0, 500);
+
+      if (isFirstCampaignFunding) {
+        user.qualificationMilestones.firstCampaignFunded = true;
       }
+
+      await user.save({ session });
+      const updatedUser = user;
 
       await session.commitTransaction();
       session.endSession();

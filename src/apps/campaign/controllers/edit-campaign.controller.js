@@ -12,7 +12,8 @@ export const EditCampaign = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { campaignId, performedBy } = req.params;
+    const { campaignId } = req.params;
+    const performedBy = req.userId;
     const {
       title,
       caption,
@@ -151,7 +152,8 @@ export const UpdateCampaignPartial = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { campaignId, performedBy } = req.params;
+    const { campaignId } = req.params;
+    const performedBy = req.userId;
     const updateData = req.body;
 
     // Validate required fields

@@ -19,7 +19,7 @@ export const submitProof = async (req, res) => {
   try {
     const { promotionId, viewsCount, notes } = req.body;
     const proofImages = req.files;
-    const { promoterId } = req.params;
+    const promoterId = req.userId;
 
     // Basic validations
     if (!promotionId || !viewsCount || !proofImages || proofImages.length === 0) {

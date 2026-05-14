@@ -7,7 +7,8 @@ import mongoose from "mongoose";
 const MAX_RETRIES = 5;
 
 export const downloadPromotion = async (req, res) => {
-  const { campaignId, promoterId, promotionId } = req.body;
+  const { campaignId, promotionId } = req.body;
+  const promoterId = req.userId;
 
   // Validate early (outside txn)
   if (!campaignId || !promoterId || !promotionId) {
@@ -200,7 +201,7 @@ export const downloadPromotion = async (req, res) => {
       }
 
       await UserModel.updateOne(
-        { _id: creditRes._id },
+        { _id: promoterId },
         { $set: { lastSeenAt: new Date() } }
       );
 

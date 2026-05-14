@@ -3,6 +3,12 @@ import { ProductModel, InventoryHistoryModel, PriceHistoryModel } from '../../mo
 import { StoreModel } from '../../models/store/index.js';
 import { uploadToCloudinary, deleteFromCloudinary } from '../../utils/cloudinary.js'; // Add deleteFromCloudinary here
 import mongoose from 'mongoose';
+import {
+  calculateCommissionForAmount,
+  extractAffiliateSettingsFromBody,
+  getProductAffiliateSettings,
+  roundMoney
+} from '../../services/storefront-affiliate.service.js';
 
 export const updateProduct = async (req, res) => {
   const session = await mongoose.startSession();
@@ -11,7 +17,7 @@ export const updateProduct = async (req, res) => {
   try {
     //console.log('Update product request received');
     
-    const userId = req.params?.userId || req.body.userId;
+    const userId = req.userId;
     const storeId = req.params.storeId;
     const productId = req.params.productId;
 
@@ -326,7 +332,9 @@ export const updateProduct = async (req, res) => {
       isActive: isActive !== undefined ? isActive : existingProduct.isActive,
       scheduledStart: scheduledStart || existingProduct.scheduledStart,
       scheduledEnd: scheduledEnd || existingProduct.scheduledEnd,
+      affiliate: extractAffiliateSettingsFromBody(req.body, existingProduct),
       slug: slug,
+      updatedBy: userId,
       'meta.updatedBy': userId,
       'meta.updatedAt': new Date()
     };
@@ -436,6 +444,9 @@ export const updateProduct = async (req, res) => {
 
 // Helper function to format product response
 function formatProductResponse(product) {
+  const affiliateSettings = getProductAffiliateSettings(product);
+  const commissionPerSale = calculateCommissionForAmount(product.price, affiliateSettings);
+
   return {
     _id: product._id,
     store: product.store,
@@ -472,6 +483,9 @@ function formatProductResponse(product) {
     isActive: product.isActive,
     scheduledStart: product.scheduledStart,
     scheduledEnd: product.scheduledEnd,
+    affiliate: product.affiliate,
+    amountReceivable: roundMoney(product.price - commissionPerSale),
+    commissionPerSale,
     viewCount: product.viewCount,
     purchaseCount: product.purchaseCount,
     averageRating: product.averageRating,

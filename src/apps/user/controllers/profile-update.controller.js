@@ -358,7 +358,6 @@ function normalizePhoneWithoutLib(rawPhone, phoneDetails, addressCountryName) {
 export const UpdateProfile = async (req, res) => {
   try {
     const {
-      userId,
       email,
       phone,
       gender,
@@ -371,16 +370,18 @@ export const UpdateProfile = async (req, res) => {
       phoneDetails
     } = req.body;
 
+    const targetUserId = req.userId;
+
     //console.log('Profile update request body:', req.body);
 
-    if (!userId) {
+    if (!targetUserId) {
       return res.status(400).json({ success: false, message: 'User ID is required to update the profile.' });
     }
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
       return res.status(400).json({ success: false, message: 'Invalid user ID format.' });
     }
 
-    const existingUser = await UserModel.findById(userId).lean();
+    const existingUser = await UserModel.findById(targetUserId).lean();
     if (!existingUser) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
@@ -397,7 +398,7 @@ export const UpdateProfile = async (req, res) => {
       if (cleanedEmail) {
         const existingUserWithEmail = await UserModel.findOne({
           email: cleanedEmail,
-          _id: { $ne: userId },
+          _id: { $ne: targetUserId },
         }).lean();
         if (existingUserWithEmail) {
           return res.status(409).json({
@@ -442,7 +443,7 @@ export const UpdateProfile = async (req, res) => {
         // Uniqueness pre-check on canonical digits-only
         const existingUserWithPhone = await UserModel.findOne({
           'personalInfo.phone': canonical.digits,
-          _id: { $ne: userId },
+          _id: { $ne: targetUserId },
         }).lean();
         if (existingUserWithPhone) {
           return res.status(409).json({
@@ -484,7 +485,7 @@ export const UpdateProfile = async (req, res) => {
     }
 
     const updatedUser = await UserModel.findByIdAndUpdate(
-      userId,
+      targetUserId,
       updateData,
       { new: true, runValidators: true, context: 'query' }
     ).select('-password');

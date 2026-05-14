@@ -1,102 +1,155 @@
 import { UserModel } from '../../user/models/user/index.js';
+import { AD_PREFERENCE_CATEGORIES } from '../../user/models/user/schemas/preferences.schema.js';
+import {
+  ensureSelfOrAdmin,
+  getAuthenticatedUserId,
+} from '../../../shared/utils/request-auth.util.js';
 
+const ALLOWED_AD_CATEGORIES = new Set(AD_PREFERENCE_CATEGORIES);
+const MAX_AD_CATEGORIES = 6;
 
+const normalizeCategoryInput = (categories) => {
+  const submittedCategories = Array.isArray(categories) ? categories : [];
+  const normalized = [];
+  const invalid = [];
+
+  for (const rawCategory of submittedCategories) {
+    const category = String(rawCategory || '').trim().toLowerCase();
+    if (!category) {
+      continue;
+    }
+
+    if (!ALLOWED_AD_CATEGORIES.has(category)) {
+      invalid.push(category);
+      continue;
+    }
+
+    if (!normalized.includes(category)) {
+      normalized.push(category);
+    }
+  }
+
+  return { normalized, invalid };
+};
 
 export const UpdateAdPreferences = async (req, res) => {
-  const { userId, preferences } = req.body;
-
-  // Validate required fields
-  if (!userId || !preferences) {
-    return res.status(400).json({
-      success: false,
-      message: 'User ID and preferences are required'
-    });
-  }
-
-  // Get user data
-  const user = await UserModel.findById(userId);
-  if (!user) {
-    return res.status(404).json({ success: false, message: 'User not found' });
-  }
-
-  // Verify authorization
-  if (userId !== user._id.toString() && user.role !== 'admin') {
-    return res.status(403).json({
-      success: false,
-      message: 'Not authorized to update these preferences'
-    });
-  }
-
   try {
-    // Build update object dynamically with only provided fields
-    const updateFields = {};
-    
-    // if (preferences.notification !== undefined) {
-    //   updateFields['preferences.notification'] = preferences.notification;
-    // }
-    
-    if (preferences.categoryBasedAds !== undefined) {
-      updateFields['preferences.categoryBasedAds'] = preferences.categoryBasedAds;
-    }
-    
-    if (preferences.locationBasedAds !== undefined) {
-      updateFields['preferences.locationBasedAds'] = preferences.locationBasedAds;
-    }
-    
-    if (preferences.adCategories !== undefined) {
-      updateFields['preferences.adCategories'] = Array.isArray(preferences.adCategories) 
-        ? preferences.adCategories 
-        : [];
+    const { userId, preferences } = req.body || {};
+    const targetUserId = userId || getAuthenticatedUserId(req);
+
+    if (!targetUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required',
+      });
     }
 
-    // If no valid fields to update
+    if (!preferences || typeof preferences !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid preferences payload is required',
+      });
+    }
+
+    if (!ensureSelfOrAdmin(req, targetUserId, res, 'Not authorized to update these preferences')) {
+      return;
+    }
+
+    const user = await UserModel.findById(targetUserId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const updateFields = {};
+    const hasCategoryToggle = Object.prototype.hasOwnProperty.call(preferences, 'categoryBasedAds');
+    const hasLocationToggle = Object.prototype.hasOwnProperty.call(preferences, 'locationBasedAds');
+    const hasAdCategories = Object.prototype.hasOwnProperty.call(preferences, 'adCategories');
+
+    if (hasCategoryToggle) {
+      updateFields['preferences.categoryBasedAds'] = Boolean(preferences.categoryBasedAds);
+    }
+
+    if (hasLocationToggle) {
+      updateFields['preferences.locationBasedAds'] = Boolean(preferences.locationBasedAds);
+    }
+
+    if (hasAdCategories) {
+      if (!Array.isArray(preferences.adCategories)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Ad categories must be provided as an array',
+        });
+      }
+
+      if (preferences.adCategories.length > MAX_AD_CATEGORIES) {
+        return res.status(400).json({
+          success: false,
+          message: `A maximum of ${MAX_AD_CATEGORIES} ad categories can be selected`,
+        });
+      }
+
+      const { normalized, invalid } = normalizeCategoryInput(preferences.adCategories);
+      if (invalid.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'One or more selected ad categories are invalid',
+          invalidCategories: invalid,
+        });
+      }
+
+      updateFields['preferences.adCategories'] = normalized;
+    }
+
+    const resultingCategoryBasedAds = hasCategoryToggle
+      ? Boolean(preferences.categoryBasedAds)
+      : Boolean(user.preferences?.categoryBasedAds);
+
+    if (!resultingCategoryBasedAds) {
+      updateFields['preferences.adCategories'] = [];
+    }
+
     if (Object.keys(updateFields).length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'No valid preference fields to update'
+        message: 'No valid preference fields to update',
       });
     }
 
     const updatedUser = await UserModel.findByIdAndUpdate(
-      userId,
+      targetUserId,
       { $set: updateFields },
-      { 
+      {
         new: true,
-        runValidators: true 
-      }
+        runValidators: true,
+      },
     ).select('preferences');
-
-    if (!updatedUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
 
     res.status(200).json({
       success: true,
       message: 'Ad preferences updated successfully',
       data: {
-        preferences: updatedUser.preferences
-      }
+        preferences: updatedUser?.preferences,
+      },
     });
-
   } catch (error) {
     console.error('Error updating ad preferences:', error);
 
     if (error.name === 'ValidationError') {
-      const errors = Object.values(error.errors).map(err => err.message);
+      const errors = Object.values(error.errors).map((entry) => entry.message);
       return res.status(400).json({
         success: false,
         message: 'Validation error',
-        errors: errors
+        errors,
       });
     }
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Server error while updating preferences',
-      error: process.env.NODE_ENV === 'production' ? undefined : error.message
+      error: process.env.NODE_ENV === 'production' ? undefined : error.message,
     });
   }
 };

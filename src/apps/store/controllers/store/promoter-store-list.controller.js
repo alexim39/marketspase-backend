@@ -17,11 +17,9 @@ export const storeController = {
         sortBy = 'createdAt',
         sortOrder = 'desc',
         minProducts = 0,
-        userId  // Get userId from request body
       } = req.query;
 
-      // Also check body for userId if not in query
-      const currentUserId = userId || req.body.userId;
+      const currentUserId = req.userId;
 
       if (!currentUserId) {
         return res.status(401).json({
@@ -196,7 +194,7 @@ export const storeController = {
 
       
       const { storeId } = req.params;
-      const { userId } = req.body; // Get userId from request body (sent from frontend)
+      const userId = req.userId;
 
       if (!userId) {
         return res.status(401).json({
@@ -223,7 +221,8 @@ export const storeController = {
         res.status(200).json({
           success: true,
           message: 'Store unfollowed',
-          isFollowing: false
+          isFollowing: false,
+          followerCount: store.followers.length
         });
       } else {
         // Follow
@@ -233,7 +232,8 @@ export const storeController = {
         res.status(200).json({
           success: true,
           message: 'Store followed',
-          isFollowing: true
+          isFollowing: true,
+          followerCount: store.followers.length
         });
       }
     } catch (error) {
@@ -249,7 +249,7 @@ export const storeController = {
   // Get followed stores for current user
   async getFollowedStores(req, res) {
     try {
-      const { userId } = req.query; // Get userId from query params
+      const userId = req.userId;
       
       if (!userId) {
         return res.status(401).json({

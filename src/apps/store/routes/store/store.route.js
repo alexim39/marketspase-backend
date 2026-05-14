@@ -10,11 +10,13 @@ import { getStoreProducts } from '../../controllers/store/store-products.control
 import { getStoreProduct } from '../../controllers/store/store-product.controller.js'
 import { permanentDeleteStore } from '../../controllers/store/delete-store.controller.js'
 import PromoterStoreListRouter from './promoter-store-list.route.js';
+import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
 
 // Mount store routes
 router.use('/promoter-store-list', PromoterStoreListRouter);
+router.use(authenticate);
 
 // Create store (with file upload for logo)
 router.post('/', upload.single('logo'), createStore);

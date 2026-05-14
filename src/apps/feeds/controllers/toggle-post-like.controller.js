@@ -8,7 +8,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 // Like/Unlike post
 export const togglePostLike = asyncHandler(async (req, res) => {
   const { postId } = req.params;
-  const { userId } = req.body;
+  const userId = req.userId;
 
   // console.log('like postId ', postId)
   // console.log('lik body ', userId)

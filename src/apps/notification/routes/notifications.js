@@ -1,8 +1,11 @@
 // routes/notifications.js
 import express from 'express';
 import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, addSSEEndpoint } from '../controllers/notifications.js';
+import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 
 const NotificationRouter = express.Router();
+
+NotificationRouter.use(authenticate);
 
 // Get user notifications
 NotificationRouter.get('/', getNotifications);

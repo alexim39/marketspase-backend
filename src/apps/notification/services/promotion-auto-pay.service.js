@@ -110,9 +110,10 @@ export const promotionAutoPayService = async (options = {}) => {
       if (updated) {
         paid++;
         logger.log(`✅ Paid promotion ${updated._id}`);
+        
+        // Apply payment accounting only if update succeeded
+        await applyPaymentAccounting(updated._id);
       }
-
-      await applyPaymentAccounting(updated._id);
     }
 
     // If we returned fewer than a full page, likely we’re done

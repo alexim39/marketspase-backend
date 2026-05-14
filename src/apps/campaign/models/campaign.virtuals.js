@@ -65,8 +65,11 @@ export const setupCampaignVirtuals = (schema) => {
 
   // Virtual for canAcceptPromoters
   schema.virtual('canAcceptPromoters').get(function() {
+    const unitCost = Number(this.costPerClick ?? this.payoutPerPromotion ?? 0);
+    const hasPromoterSlot = !this.maxPromoters || this.currentPromoters < this.maxPromoters;
+
     return this.status === 'active' && 
-           this.currentPromoters < this.maxPromoters &&
-           this.remainingBudget >= this.payoutPerPromotion;
+           hasPromoterSlot &&
+           this.remainingBudget >= unitCost;
   });
 };

@@ -1,13 +1,42 @@
 // controllers/product/product-promotion.controller.js
 import ProductPromotionService from "../../services/product-promotion.service.js";
+import { StoreModel } from "../../models/store/index.js";
 
 export class ProductPromotionController {
+  constructor() {
+    this.publishProducts = this.publishProducts.bind(this);
+    this.unpublishProducts = this.unpublishProducts.bind(this);
+    this.unpublishSingleProduct = this.unpublishSingleProduct.bind(this);
+    this.getPublishedProducts = this.getPublishedProducts.bind(this);
+  }
+
+  async ensureStoreOwnership(storeId, req, res) {
+    const store = await StoreModel.findById(storeId).select('owner');
+    if (!store) {
+      res.status(404).json({
+        success: false,
+        message: 'Store not found'
+      });
+      return null;
+    }
+
+    if (req.user?.role !== 'admin' && store.owner?.toString() !== req.userId) {
+      res.status(403).json({
+        success: false,
+        message: 'You are not allowed to manage promotion settings for this store'
+      });
+      return null;
+    }
+
+    return store;
+  }
+
   /**
    * Publish products for promotion
    */
   async publishProducts(req, res) {
     try {
-      const { storeId, userId } = req.params;
+      const { storeId } = req.params;
       const { productIds } = req.body;
 
       if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
@@ -17,10 +46,15 @@ export class ProductPromotionController {
         });
       }
 
+      const store = await this.ensureStoreOwnership(storeId, req, res);
+      if (!store) {
+        return;
+      }
+
       const result = await ProductPromotionService.publishProductsForPromotion(
         productIds,
         storeId,
-        userId
+        req.userId
       );
 
       return res.status(200).json({
@@ -54,6 +88,11 @@ export class ProductPromotionController {
         });
       }
 
+      const store = await this.ensureStoreOwnership(storeId, req, res);
+      if (!store) {
+        return;
+      }
+
       const result = await ProductPromotionService.unpublishProducts(
         productIds,
         storeId
@@ -81,6 +120,11 @@ export class ProductPromotionController {
       const { storeId, productId } = req.params;
 
       //console.log('Unpublishing single product:', { storeId, productId });
+
+      const store = await this.ensureStoreOwnership(storeId, req, res);
+      if (!store) {
+        return;
+      }
 
       const result = await ProductPromotionService.unpublishProducts(
         [productId],
@@ -115,6 +159,11 @@ export class ProductPromotionController {
     try {
       const { storeId } = req.params;
       const { page, limit, includeInactive } = req.query;
+
+      const store = await this.ensureStoreOwnership(storeId, req, res);
+      if (!store) {
+        return;
+      }
 
       const result = await ProductPromotionService.getPublishedProducts(storeId, {
         page: parseInt(page) || 1,

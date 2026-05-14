@@ -19,7 +19,8 @@ export const TRANSACTION_CATEGORIES = [
   'birthday_bonus',
   'balance_recalculation',
   'promoter_balance_reset',
-  'negative_reserved_fix'
+  'negative_reserved_fix',
+  'ai_subscription'
 ];
 
 // Transaction statuses

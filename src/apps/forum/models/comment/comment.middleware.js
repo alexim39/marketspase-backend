@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { validateContent, extractMentions, extractHashtags, extractUrls } from "./comment.utils.js";
 
 export const setupCommentMiddleware = (schema) => {
@@ -41,6 +42,10 @@ export const setupCommentMiddleware = (schema) => {
     // Ensure likeCount matches likedBy array
     if (this.isModified('likedBy')) {
       this.likeCount = this.likedBy.length;
+    }
+
+    if (this.isModified('replies')) {
+      this.replyCount = Array.isArray(this.replies) ? this.replies.length : 0;
     }
 
     // Set deletedAt when isDeleted changes to true

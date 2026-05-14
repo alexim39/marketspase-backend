@@ -7,9 +7,21 @@ dotenv.config();
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_API = 'https://api.paystack.co';
 
-export const processPayment = async (bankCode, accountNumber, accountName, amount, metadata) => {
+const normalizeCurrency = (value, fallback = 'NGN') => String(value || fallback).trim().toUpperCase();
+
+export const processPayment = async (bankCode, accountNumber, accountName, amount, metadata, currency = 'NGN') => {
   try {
     console.log('Processing payment with metadata:', metadata);
+
+    const payoutCurrency = normalizeCurrency(currency, 'NGN');
+    if (payoutCurrency !== 'NGN') {
+      return {
+        success: false,
+        status: 'failed',
+        message: `Paystack transfer payouts are currently configured only for NGN bank transfers in this MarketSpase environment`,
+        insufficientBalance: false
+      };
+    }
 
     const koboAmount = amount * 100;
 
@@ -43,7 +55,8 @@ export const processPayment = async (bankCode, accountNumber, accountName, amoun
       accountName,
       accountNumber,
       bankCode,
-      metadata.userId
+      metadata.userId,
+      payoutCurrency
     );
 
     if (!recipient.status || !recipient.data) {
@@ -64,7 +77,8 @@ export const processPayment = async (bankCode, accountNumber, accountName, amoun
       koboAmount,
       recipient.data.recipient_code,
       reference,
-      metadata.reason || 'MarketSpase withdrawal'
+      metadata.reason || 'MarketSpase withdrawal',
+      payoutCurrency
     );
 
     console.log('Full transfer response:', JSON.stringify(transfer, null, 2));
@@ -133,14 +147,14 @@ async function resolveAccount(bankCode, accountNumber) {
   }
 }
 
-async function createTransferRecipient(name, accountNumber, bankCode, userId) {
+async function createTransferRecipient(name, accountNumber, bankCode, userId, currency = 'NGN') {
   try {
     const response = await axios.post(`${PAYSTACK_API}/transferrecipient`, {
       type: 'nuban',
       name: name,
       account_number: accountNumber,
       bank_code: bankCode,
-      currency: 'NGN',
+      currency: normalizeCurrency(currency, 'NGN'),
       metadata: {
         userId: userId,
         source: 'withdrawal_request'
@@ -161,7 +175,7 @@ async function createTransferRecipient(name, accountNumber, bankCode, userId) {
   }
 }
 
-async function initiateTransfer(amount, recipientCode, reference, reason) {
+async function initiateTransfer(amount, recipientCode, reference, reason, currency = 'NGN') {
   try {
     const response = await axios.post(`${PAYSTACK_API}/transfer`, {
       source: 'balance',
@@ -169,7 +183,7 @@ async function initiateTransfer(amount, recipientCode, reference, reason) {
       recipient: recipientCode,
       reference: reference,  // This ensures Paystack uses OUR reference
       reason: reason,
-      currency: 'NGN'
+      currency: normalizeCurrency(currency, 'NGN')
     }, {
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -190,7 +204,7 @@ async function initiateTransfer(amount, recipientCode, reference, reason) {
 /**
  * Check Paystack balance
  */
-export const checkPaystackBalance = async () => {
+export const checkPaystackBalance = async (currency = 'NGN') => {
   try {
     const response = await axios.get(`${PAYSTACK_API}/balance`, {
       headers: {
@@ -198,11 +212,14 @@ export const checkPaystackBalance = async () => {
       }
     });
     
+    const normalizedCurrency = normalizeCurrency(currency, 'NGN');
     if (response.data.status && response.data.data.length > 0) {
+      const matchingBalance = response.data.data.find((entry) => normalizeCurrency(entry.currency) === normalizedCurrency)
+        || response.data.data[0];
       return {
         success: true,
-        balance: response.data.data[0].balance,
-        currency: response.data.data[0].currency
+        balance: Number(matchingBalance.balance || 0) / 100,
+        currency: normalizeCurrency(matchingBalance.currency || normalizedCurrency)
       };
     }
     

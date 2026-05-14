@@ -12,10 +12,14 @@ export const UpdateUsername = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { userId, username } = req.body;
+    const rawUsername = req.body?.username;
+    const username = typeof rawUsername === 'string' ? rawUsername.trim() : '';
+    const userId = req.userId;
 
     // 1. Validate required fields
     if (!username || !userId) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({
         success: false,
         message: 'Username and user ID are required.',
@@ -57,6 +61,7 @@ export const UpdateUsername = async (req, res) => {
 
     // 5. Update the username and save
     user.username = username;
+    user.referralInfo.referralCode = username;
     await user.save({ session });
 
     // 6. Commit transaction and end session

@@ -2,6 +2,7 @@
 import express from 'express';
 import {
   getFinancialOverview,
+  getFinancialAnalytics,
   getFinancialStats,
   exportTransactions,
   exportWithdrawals
@@ -18,6 +19,7 @@ const router = express.Router();
 // Financial overview and stats
 router.get('/overview', getFinancialOverview);
 router.get('/stats', getFinancialStats);
+router.get('/analytics', getFinancialAnalytics);
 
 // Withdrawal management
 router.get('/withdrawals', getWithdrawalRequests);

@@ -9,3 +9,6 @@ export { default as preferencesSchema } from './preferences.schema.js';
 export * from './device.schemas.js';
 export { default as activitySettingsSchema } from './activitySettings.schema.js';
 export { default as qualificationMilestonesSchema } from './qualificationMilestones.schema.js';
+export { default as loginStreakSchema } from './loginStreak.schema.js';
+export { default as badgeProfileSchema } from './badgeProfile.schema.js';
+export { default as gamificationProfileSchema } from './gamificationProfile.schema.js';

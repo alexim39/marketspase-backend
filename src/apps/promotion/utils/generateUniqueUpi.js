@@ -1,4 +1,4 @@
-import crypto from "crypto";
+/* import crypto from "crypto";
 
 const BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -17,3 +17,23 @@ export const generateUniqueUpi = () => {
 
   return `${timeBase36}${randomPart}`; // 8 characters
 };
+ */
+
+
+import crypto from "crypto";
+
+// Defined character set: Uppercase, Lowercase, and Numbers (62 chars)
+const CHARS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+export const generateUniqueUpi = () => {
+  let result = "";
+  // Generate 10 random characters
+  for (let i = 0; i < 10; i++) {
+    const randomIndex = crypto.randomInt(0, CHARS.length);
+    result += CHARS[randomIndex];
+  }
+  return result;
+};
+
+// Example usage:
+// console.log(`https://marketspase.com{generateUniqueUpi()}`);

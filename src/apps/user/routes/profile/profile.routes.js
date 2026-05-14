@@ -3,6 +3,7 @@ import express from 'express';
 import { UpdateProfile } from '../../controllers/profile-update.controller.js'
 import { UpdateUsername } from '../../controllers/profile/update-username.controller.js';
 import { UpdateProfessionalInfo } from '../../controllers/profile/update-user-professtion.controller.js';
+import { UpdatePublicIdentity } from '../../controllers/profile/update-public-identity.controller.js';
 
 const ProfileRouter = express.Router();
 
@@ -19,6 +20,13 @@ ProfileRouter.put('/personal', UpdateProfile);
  * /api/users/profile/profession:
  */
 ProfileRouter.put('/profession', UpdateProfessionalInfo);
+
+/**
+ * Submits the public identity data to the controller.
+ * Method: put
+ * /api/users/profile/public-identity:
+ */
+ProfileRouter.put('/public-identity', UpdatePublicIdentity);
 
 /**
  * Submits the user data to the controller.

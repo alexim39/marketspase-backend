@@ -4,10 +4,14 @@ import { CampaignModel } from "../models/index.js";
 import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { logUserActivity } from "../../user/services/activity.service.js";
+import { generateUniqueUpi } from "../../promotion/utils/generateUniqueUpi.js";
+import { evaluateUserBadges } from "../../badges/service/badge.service.js";
+import { awardGamificationProgress } from "../../gamification/service/gamification.service.js";
 
 const MAX_TX_RETRIES = 5;
-// Make this env-configurable if you like; default to 3
 const MAX_ACCEPTS_PER_CAMPAIGN_PER_USER = Number(process.env.MAX_ACCEPTS_PER_CAMPAIGN_PER_USER ?? 3);
+const DEFAULT_COST_PER_CLICK = Number(process.env.DEFAULT_CAMPAIGN_COST_PER_CLICK ?? 80);
+const ACTIVE_PROMOTION_STATUSES = ["accepted", "submitted", "downloaded"];
 
 const isRetryableTxnError = (err) =>
   err?.errorLabels?.includes("TransientTransactionError") ||
@@ -16,129 +20,241 @@ const isRetryableTxnError = (err) =>
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const getRequestBaseUrl = (req) => {
+  const configuredBaseUrl =
+    process.env.PROMOTION_TRACKING_BASE_URL ||
+    process.env.API_URL ||
+    process.env.BACKEND_URL;
+
+  if (configuredBaseUrl) return configuredBaseUrl.replace(/\/$/, "");
+
+  const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+  return `${protocol}://${req.get("host")}`;
+};
+
+const buildPromotionUrl = (req, upi) => {
+  const baseUrl = getRequestBaseUrl(req);
+  const trackingPath = process.env.PROMOTION_TRACKING_PATH || "/campaign/track";
+  return `${baseUrl}${trackingPath.replace(/\/$/, "")}/${upi}`;
+};
+
+const buildWhatsAppDestinationUrl = (user) => {
+  const phone =
+    user?.personalInfo?.phone ||
+    user?.personalInfo?.phoneDetails?.fullNumber ||
+    user?.personalInfo?.phoneDetails?.nationalNumber;
+
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return process.env.FRONTEND_URL || "https://marketspase.com";
+
+  const baseUrl = process.env.WHATSAPP_CHAT_BASE_URL || "https://wa.me";
+  return `${baseUrl.replace(/\/$/, "")}/${digits}`;
+};
+
+const getDestinationUrl = (campaign, marketer) => {
+  if (typeof campaign.link === "string" && campaign.link.trim()) {
+    return campaign.link.trim();
+  }
+
+  return buildWhatsAppDestinationUrl(marketer);
+};
+
+const getCampaignRemainingBudget = (campaign) =>
+  Number(campaign.budget ?? 0) -
+  (Number(campaign.spentBudget ?? 0) + Number(campaign.reservedBudget ?? 0));
+
+const getCampaignCostPerClick = (campaign) => {
+  const costPerClick = Number(campaign.costPerClick ?? DEFAULT_COST_PER_CLICK);
+  if (!Number.isFinite(costPerClick) || costPerClick <= 0) {
+    throw { status: 500, message: "Invalid campaign cost-per-click configuration" };
+  }
+  return costPerClick;
+};
+
+const generatePromotionUpi = async (session) => {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const upi = generateUniqueUpi();
+    const exists = await PromotionModel.exists({ upi }).session(session);
+    if (!exists) return upi;
+  }
+
+  throw { status: 503, message: "Unable to generate promotion link. Please retry." };
+};
+
+const ensurePromotionLink = async ({ promotion, campaign, marketer, req, session }) => {
+  const costPerClick = getCampaignCostPerClick(campaign);
+  const upi = promotion.upi || await generatePromotionUpi(session);
+  const promotionUrl = buildPromotionUrl(req, upi);
+
+  promotion.upi = upi;
+  promotion.promotionUrl = promotionUrl;
+  promotion.destinationUrl = getDestinationUrl(campaign, marketer);
+  promotion.payoutModel = "pay_per_click";
+  promotion.costPerClick = costPerClick;
+  promotion.payoutAmount = Number(promotion.payoutAmount ?? 0);
+  promotion.isActive = true;
+  promotion.hasReservedFromMarketer = false;
+  promotion.hasReservedForPromoter = false;
+  promotion.payoutSnapshot = {
+    model: "pay_per_click",
+    costPerClick,
+    lockedAt: promotion.payoutSnapshot?.lockedAt || new Date(),
+  };
+
+  if (!promotion.clickStats) {
+    promotion.clickStats = {
+      totalClicks: 0,
+      billableClicks: 0,
+      invalidClicks: 0,
+      duplicateClicks: 0,
+      earnedAmount: 0,
+    };
+  }
+
+  await promotion.save({ session });
+  return promotion;
+};
+
 export const acceptCampaign = async (req, res) => {
-  
-  let lastErr;
   for (let attempt = 1; attempt <= MAX_TX_RETRIES; attempt++) {
     const session = await mongoose.startSession();
+    let txResult = null;
+
     try {
-      const promotion = await session.withTransaction(async () => {
+      await session.withTransaction(async () => {
         const { campaignId } = req.params;
-        const { userId } = req.body;
+        const userId = req.userId;
 
-        //console.log('campaignId ',campaignId)
-        //console.log('userId ',userId)
-
-        /* 1️⃣ Load campaign */
         const campaign = await CampaignModel.findById(campaignId)
           .session(session)
           .select(`
-            _id title owner status
-            payoutTierId payoutPerPromotion
-            minViewsPerPromotion maxViewsPerPromotion
-            maxPromoters currentPromoters
+            _id title owner status link
+            budget spentBudget reservedBudget currency
+            costPerClick payoutModel
+            maxPromoters currentPromoters totalPromotions
           `);
+
         if (!campaign) throw { status: 404, message: "Campaign not found" };
-        if (campaign.status !== "active")
+        if (campaign.status !== "active") {
           throw { status: 400, message: "Campaign is not active" };
-        if (campaign.currentPromoters >= campaign.maxPromoters)
+        }
+
+        const marketer = await UserModel.findById(campaign.owner)
+          .session(session)
+          .select("personalInfo.phone personalInfo.phoneDetails");
+
+        if (!marketer) {
+          throw { status: 404, message: "Campaign owner not found" };
+        }
+
+        const costPerClick = getCampaignCostPerClick(campaign);
+        const destinationUrl = getDestinationUrl(campaign, marketer);
+        const remainingBudget = getCampaignRemainingBudget(campaign);
+        if (remainingBudget < costPerClick) {
+          await CampaignModel.updateOne(
+            { _id: campaign._id, status: "active" },
+            {
+              $set: { status: "exhausted", exhaustedAt: new Date() },
+              $push: {
+                activityLog: {
+                  action: "Campaign Exhausted",
+                  details: "Campaign does not have enough remaining budget for another click.",
+                  timestamp: new Date(),
+                },
+              },
+            },
+            { session }
+          );
+          throw { status: 400, message: "Campaign budget exhausted" };
+        }
+
+        const hasPromoterLimit = Number.isFinite(Number(campaign.maxPromoters)) && Number(campaign.maxPromoters) > 0;
+        if (hasPromoterLimit && Number(campaign.currentPromoters ?? 0) >= Number(campaign.maxPromoters)) {
           throw { status: 400, message: "Campaign has reached promoter limit" };
+        }
 
-        //console.log('campaign ',campaign)
-
-        /* 2️⃣ Load promoter */
         const promoter = await UserModel.findById(userId)
           .session(session)
           .select("_id role");
-        if (!promoter || promoter.role !== "promoter")
+
+        if (!promoter || promoter.role !== "promoter") {
           throw { status: 403, message: "Only promoters can accept campaigns" };
+        }
 
-        //console.log('promoter ',promoter)
-
-        /* 3️⃣ Idempotency check (block if an active accept already exists for this campaign) */
         const existingPromotion = await PromotionModel.findOne({
           campaign: campaign._id,
           promoter: promoter._id,
-          status: { $in: ["accepted", "submitted", "downloaded"] },
+          status: { $in: ACTIVE_PROMOTION_STATUSES },
         }).session(session);
-        if (existingPromotion)
-          throw { status: 409, message: "Campaign already accepted" }; // keeps existing behavior
 
-        //console.log('existingPromotion ',existingPromotion)
+        if (existingPromotion) {
+          const promotion = await ensurePromotionLink({
+            promotion: existingPromotion,
+            campaign,
+            marketer,
+            req,
+            session,
+          });
 
-        /* 3️⃣.a Lifetime cap: prevent >3 accepts for the same campaign by the same promoter */
+          txResult = { promotion, alreadyAccepted: true };
+          return;
+        }
+
         const lifetimeCount = await PromotionModel.countDocuments({
           campaign: campaign._id,
           promoter: promoter._id,
-          // Count ALL statuses to enforce a true lifetime cap
         }).session(session);
+
         if (lifetimeCount >= MAX_ACCEPTS_PER_CAMPAIGN_PER_USER) {
           throw {
             status: 403,
             message: `Limit reached: you can only accept this campaign ${MAX_ACCEPTS_PER_CAMPAIGN_PER_USER} times`,
           };
         }
-        // (This is inside the same transaction, so concurrent requests won't slip through) 
 
+        const upi = await generatePromotionUpi(session);
+        const promotionUrl = buildPromotionUrl(req, upi);
 
-        /* 4️⃣ Load marketer + reserve funds */
-        const marketer = await UserModel.findById(campaign.owner)
-          .session(session)
-          .select("wallets.marketer");
-
-          //console.log('marketer ',marketer)
-
-        const payout = Number(campaign.payoutPerPromotion);
-        if (!Number.isFinite(payout) || payout <= 0) {
-          throw {
-            status: 500,
-            message: "Invalid campaign payout configuration",
-          };
-        }
-        if (marketer.wallets.marketer.balance < payout)
-          throw { status: 400, message: "Campaign budget exhausted" };
-
-        marketer.wallets.marketer.balance = Number(marketer.wallets.marketer.balance ?? 0) - payout;
-        marketer.wallets.marketer.reserved = Number(marketer.wallets.marketer.reserved ?? 0) + payout;
-        marketer.wallets.marketer.transactions.push({
-          type: "debit",
-          category: "reserved_credit",
-          amount: Number(payout),
-          currency: "NGN",
-          description: `Reserved payout for campaign "${campaign.title}"`,
-          createdAt: new Date(),
-        });
-        await marketer.save({ session });
-
-        /* 5️⃣ Create promotion with locked payout snapshot */
         const promotion = await new PromotionModel({
           campaign: campaign._id,
           promoter: promoter._id,
+          upi,
           status: "accepted",
           acceptedAt: new Date(),
-          payoutAmount: payout,
+          payoutModel: "pay_per_click",
+          costPerClick,
+          payoutAmount: 0,
           payoutSnapshot: {
-            model: "range_based",
-            tierId: campaign.payoutTierId,
-            payoutAmount: payout,
-            minViews: campaign.minViewsPerPromotion,
-            maxViews: campaign.maxViewsPerPromotion,
+            model: "pay_per_click",
+            costPerClick,
             lockedAt: new Date(),
           },
+          promotionUrl,
+          destinationUrl,
+          isActive: true,
           viewsAchieved: 0,
           isDownloaded: false,
-          hasReservedFromMarketer: true,
+          hasReservedFromMarketer: false,
+          hasReservedForPromoter: false,
           hasBeenPaid: false,
+          clickStats: {
+            totalClicks: 0,
+            billableClicks: 0,
+            invalidClicks: 0,
+            duplicateClicks: 0,
+            earnedAmount: 0,
+          },
         }).save({ session });
 
-        /* 6️⃣ Increment campaign counter */
         await CampaignModel.updateOne(
           { _id: campaign._id },
-          { $inc: { currentPromoters: 1 } },
+          {
+            $inc: { currentPromoters: 1, totalPromotions: 1 },
+            $set: { payoutModel: "pay_per_click", costPerClick },
+          },
           { session }
         );
 
-        /* 7️⃣ Activity log */
         await logUserActivity({
           session,
           userId: promoter._id,
@@ -148,44 +264,76 @@ export const acceptCampaign = async (req, res) => {
           resourceId: campaign._id,
           metadata: {
             promotionId: promotion._id,
-            payout,
-            minViews: campaign.minViewsPerPromotion,
-            maxViews: campaign.maxViewsPerPromotion,
+            upi,
+            promotionUrl,
+            destinationUrl,
+            costPerClick,
+            payoutModel: "pay_per_click",
           },
         });
 
-        return promotion;
+        txResult = { promotion, alreadyAccepted: false };
       },
       {
-        maxCommitTimeMS: 8000,      // cap commit time
+        maxCommitTimeMS: 8000,
         readConcern: { level: "snapshot" },
-        writeConcern: { w: "majority" }
-      }
-      );
+        writeConcern: { w: "majority" },
+      });
 
       session.endSession();
 
-       // do NOT await
       setImmediate(() => {
         UserModel.updateOne(
-          { _id: req.body.userId },
+          { _id: req.userId },
           { $set: { lastSeenAt: new Date() } }
         ).catch(err => console.error("lastSeenAt update failed:", err.message));
       });
 
+      if (!txResult.alreadyAccepted) {
+        await awardGamificationProgress({
+          userId: req.userId,
+          actionKey: 'promotion_accepted',
+          sourceKey: `promotion:${txResult.promotion._id}:accepted`,
+          sourceType: 'promotion',
+          sourceId: txResult.promotion._id,
+          metadata: {
+            campaignId: req.params.campaignId,
+            promotionId: txResult.promotion._id?.toString?.() || null,
+            upi: txResult.promotion.upi || null,
+            costPerClick: Number(txResult.promotion.costPerClick || 0),
+          },
+        }).catch((gamificationError) => {
+          console.error("Gamification update after campaign acceptance failed:", gamificationError);
+        });
+      }
+
+      await evaluateUserBadges(req.userId, {
+        force: true,
+        trigger: txResult.alreadyAccepted ? 'campaign_accept_refresh' : 'campaign_accepted',
+      }).catch((badgeError) => {
+        console.error("Badge evaluation after campaign acceptance failed:", badgeError);
+      });
+
       return res.json({
         success: true,
-        message: "Campaign accepted successfully",
-        promotion,
+        message: txResult.alreadyAccepted
+          ? "Campaign already accepted. Promotion link returned."
+          : "Campaign accepted successfully",
+        promotion: txResult.promotion,
+        upi: txResult.promotion.upi,
+        promotionUrl: txResult.promotion.promotionUrl,
+        destinationUrl: txResult.promotion.destinationUrl,
+        costPerClick: txResult.promotion.costPerClick,
       });
 
     } catch (err) {
       session.endSession();
+
       if (isRetryableTxnError(err) && attempt < MAX_TX_RETRIES) {
         await delay(50 * 2 ** attempt);
-        lastErr = err;
         continue;
       }
+
       return res.status(err?.status ?? 500).json({
         success: false,
         message: err?.message ?? "Failed to accept campaign",

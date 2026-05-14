@@ -1,5 +1,5 @@
 import { ERROR_MESSAGES, FLAG_THRESHOLD } from "./review.constants.js";
-import { isHelpfulByUser, isReportedByUser } from "./review.utils.js";
+import { formatReviewResponse, isHelpfulByUser, isReportedByUser } from "./review.utils.js";
 
 export const setupReviewMethods = (schema) => {
   // Mark review as helpful
@@ -154,7 +154,6 @@ export const setupReviewMethods = (schema) => {
 
   // Get formatted response
   schema.methods.toResponse = function(userId = null) {
-    const { formatReviewResponse } = require('./review.utils.js');
     return formatReviewResponse(this, userId);
   };
 };

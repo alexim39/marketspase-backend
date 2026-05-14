@@ -6,6 +6,7 @@ import {
   VALIDATION
 } from "./promotion.constants.js";
 import { isValidProofViews } from "./promotion.utils.js";
+import { spread } from "axios";
 
 const promotionSchema = new mongoose.Schema(
   {
@@ -55,7 +56,33 @@ const promotionSchema = new mongoose.Schema(
       min: 0,
     },
 
+    payoutModel: {
+      type: String,
+      enum: ["fixed_per_promoter", "pay_per_click"],
+      default: "pay_per_click",
+    },
+
+    costPerClick: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    payoutSnapshot: {
+      model: {
+        type: String,
+        enum: ["range_based", "fixed_per_promoter", "pay_per_click"],
+      },
+      tierId: String,
+      payoutAmount: Number,
+      costPerClick: Number,
+      minViews: Number,
+      maxViews: Number,
+      lockedAt: Date,
+    },
+
     viewsUsedForPayout: Number,
+    viewsAchieved: { type: Number, default: 0, min: 0 },
 
     rejectionReason: String,
     notes: String,
@@ -68,6 +95,30 @@ const promotionSchema = new mongoose.Schema(
     upi: {
       type: String,
       unique: true,
+      sparse: true,
+      trim: true,
+    },
+
+    promotionUrl: {
+      type: String,
+      trim: true,
+    },
+    destinationUrl: {
+      type: String,
+      trim: true,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
+    clickStats: {
+      totalClicks: { type: Number, default: 0, min: 0 },
+      billableClicks: { type: Number, default: 0, min: 0 },
+      invalidClicks: { type: Number, default: 0, min: 0 },
+      duplicateClicks: { type: Number, default: 0, min: 0 },
+      earnedAmount: { type: Number, default: 0, min: 0 },
+      lastClickAt: Date,
     },
 
     validatedBy: {

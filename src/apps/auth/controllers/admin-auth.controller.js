@@ -76,11 +76,16 @@ export const signin = async (req, res) => {
   expiresIn: "1d",
   });
 
+  const isSecureRequest =
+    process.env.NODE_ENV === 'production'
+    || req.secure
+    || req.headers['x-forwarded-proto'] === 'https';
+
   res.cookie("jwt", token, {
-  httpOnly: true,
-  sameSite: "none",
-  secure: true,
-  maxAge: 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    sameSite: isSecureRequest ? "none" : "lax",
+    secure: isSecureRequest,
+    maxAge: 24 * 60 * 60 * 1000,
   });
 
   res.status(200).json({ success: true, message: "SignedIn" });
@@ -93,7 +98,17 @@ export const signin = async (req, res) => {
 
 // Logout
 export const signout = async (req, res) => {
-  res.cookie("jwt", "", { maxAge: 0 });
+  const isSecureRequest =
+    process.env.NODE_ENV === 'production'
+    || req.secure
+    || req.headers['x-forwarded-proto'] === 'https';
+
+  res.cookie("jwt", "", {
+    httpOnly: true,
+    sameSite: isSecureRequest ? "none" : "lax",
+    secure: isSecureRequest,
+    maxAge: 0,
+  });
   res.json({ success: true, message: "Logged out successfully" });
 };
 

@@ -10,9 +10,12 @@ import PromoRouter from './promo/promo.routes.js';
 import ProfileRouter from './profile/profile.routes.js';
 import ReferralRouter from './referral/referral.routes.js';
 import AdminIndexRouter from './admin/Admin-index.routes.js';
+import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 
 
 const UserRouter = express.Router();
+
+UserRouter.use(authenticate);
 
 // Mount PromoRouter under UserRouter
 UserRouter.use('/promo', PromoRouter);

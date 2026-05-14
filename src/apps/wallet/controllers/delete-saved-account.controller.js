@@ -9,6 +9,10 @@ export const deleteSavedAccount = async (req, res) => {
             return res.status(400).json({ success: false, message: 'User ID and Account ID are required.' });
         }
 
+        if (req.user.role !== 'admin' && req.userId !== userId) {
+            return res.status(403).json({ success: false, message: 'You are not allowed to delete saved accounts for this user.' });
+        }
+
         // Find the user by ID
         const user = await UserModel.findById(userId);
 
