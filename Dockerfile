@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim
+FROM node:20
 
 WORKDIR /app
 
@@ -6,8 +6,7 @@ COPY package*.json ./
 
 ENV NODE_ENV=production
 
-RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi \
-    && npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force
 
 COPY . .
 
