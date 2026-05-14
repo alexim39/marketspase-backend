@@ -3,5 +3,4 @@
 cron.log
 /scripts
 /dist
-/docs
 /logs
