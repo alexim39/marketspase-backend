@@ -150,6 +150,7 @@ app.use('/api/v1/auth', AuthRouter);
 app.use('/user', UserRouter);
 app.use('/api/v1/user', UserRouter);
 app.use('/wallet', WalletRouter);
+app.use('/api/v1/wallet', WalletRouter);
 app.use('/campaign', CampaignRouter);
 app.use('/api/v1/campaign', CampaignRouter);
 app.use('/settings', SettingsRouter);

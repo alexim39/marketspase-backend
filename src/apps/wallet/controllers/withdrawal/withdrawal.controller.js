@@ -62,6 +62,9 @@ export const withdrawRequest = async (req, res) => {
     quote,
   } = req.body;
   const userId = req.userId;
+  const requestedAmount = asNumber(amount);
+  const requestedPayableAmount = asNumber(payableAmount);
+  const requestedFinalAmount = asNumber(finalAmount ?? amount);
 
   //console.log('Withdrawal request body:', req.body);
 
@@ -73,11 +76,27 @@ export const withdrawRequest = async (req, res) => {
     });
   }
 
-  if (Number.isNaN(amount) || amount <= 0) {
+  if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
     return res.status(400).json({
       message: "Invalid withdrawal amount.",
       success: false,
       code: "INVALID_AMOUNT",
+    });
+  }
+
+  if (!Number.isFinite(requestedPayableAmount) || requestedPayableAmount < 0) {
+    return res.status(400).json({
+      message: "Invalid payable amount.",
+      success: false,
+      code: "INVALID_PAYABLE_AMOUNT",
+    });
+  }
+
+  if (!['promoter', 'marketer'].includes(role)) {
+    return res.status(400).json({
+      message: "Invalid wallet role selected for withdrawal.",
+      success: false,
+      code: "INVALID_WALLET_ROLE",
     });
   }
 
@@ -132,41 +151,60 @@ export const withdrawRequest = async (req, res) => {
     const withdrawalCurrency = normalizeCurrencyCode(currency || 'NGN');
     const settlementCurrency = 'NGN';
     const config = await getPaymentCurrencyConfig();
+    const selectedCurrencyConfig = config.supportedCurrencies.find(
+      (item) => item.code === withdrawalCurrency,
+    );
+
+    if (!selectedCurrencyConfig?.capabilities?.withdrawal) {
+      return res.status(400).json({
+        success: false,
+        message: `${withdrawalCurrency} is not enabled for withdrawals.`,
+        code: "WITHDRAWAL_CURRENCY_NOT_SUPPORTED",
+      });
+    }
 
     if (role === 'promoter') {
-      serviceFee = roundCurrencyAmount(finalAmount * 0.20);
-      const amountPayable = roundCurrencyAmount(finalAmount - serviceFee);
+      serviceFee = roundCurrencyAmount(requestedFinalAmount * 0.20);
+      const amountPayable = roundCurrencyAmount(requestedFinalAmount - serviceFee);
 
       userWallet = user.wallets.promoter; 
       ensureWalletCurrencyState(userWallet, userWallet.baseCurrency || 'NGN');
       
-      if (getWalletAmountForCurrency(userWallet, 'balance', withdrawalCurrency) < Number(amount)) {
-        return res.status(400).json({ message: "Insufficient balance.", success: false });
+      if (getWalletAmountForCurrency(userWallet, 'balance', withdrawalCurrency) < requestedAmount) {
+        return res.status(400).json({
+          message: `Insufficient balance in ${withdrawalCurrency}.`,
+          success: false,
+          code: "INSUFFICIENT_SOURCE_BALANCE",
+        });
       }
       
-      if (Math.abs(amountPayable - payableAmount) > 1) {
+      if (Math.abs(amountPayable - requestedPayableAmount) > 1) {
         return res.status(400).json({ message: "invalid withdrawal amount or service charge must apply.", success: false });
       }
     }
 
     if (role === 'marketer') {
       serviceFee = 0;
-      const amountPayable = roundCurrencyAmount(finalAmount - serviceFee);
+      const amountPayable = roundCurrencyAmount(requestedFinalAmount - serviceFee);
 
       userWallet = user.wallets.marketer; 
       ensureWalletCurrencyState(userWallet, userWallet.baseCurrency || 'NGN');
       
-      if (getWalletAmountForCurrency(userWallet, 'balance', withdrawalCurrency) < Number(amount)) {
-        return res.status(400).json({ message: "Insufficient balance.", success: false });
+      if (getWalletAmountForCurrency(userWallet, 'balance', withdrawalCurrency) < requestedAmount) {
+        return res.status(400).json({
+          message: `Insufficient balance in ${withdrawalCurrency}.`,
+          success: false,
+          code: "INSUFFICIENT_SOURCE_BALANCE",
+        });
       }
 
-      if (Math.abs(amountPayable - payableAmount) > 1) {
+      if (Math.abs(amountPayable - requestedPayableAmount) > 1) {
         return res.status(400).json({ message: "invalid withdrawal amount.", success: false });
       }
     }
 
-    const grossAmount = roundCurrencyAmount(amount);
-    const netSourceAmount = roundCurrencyAmount(payableAmount);
+    const grossAmount = roundCurrencyAmount(requestedAmount);
+    const netSourceAmount = roundCurrencyAmount(requestedPayableAmount);
     const grossBaseAmount = roundCurrencyAmount(convertAmount(
       grossAmount,
       withdrawalCurrency,
@@ -450,6 +488,14 @@ export const withdrawRequest = async (req, res) => {
 
   } catch (error) {
     console.error("Withdrawal error:", error);
+
+    if (error?.status && error.status < 500) {
+      return res.status(error.status).json({
+        success: false,
+        message: error.message || "Withdrawal request could not be processed.",
+        code: "WITHDRAWAL_VALIDATION_FAILED",
+      });
+    }
     
     // Attempt to refund if error occurred after deduction
     try {
