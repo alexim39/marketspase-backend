@@ -43,6 +43,7 @@ The feed post document now supports:
 - product snapshots for storefront-driven posts
 - ordered media items with `altText`, `thumbnail`, and `order`
 - `socialMetrics.externalShares`
+- `socialMetrics.chatClicks`
 - `challenge` metadata
 - `settings` for anonymous posting, comment control, and external sharing
 - `recommendation` metadata used by the discovery service
@@ -135,7 +136,16 @@ Enhancements:
 
 - comments now respect `settings.disableComments`
 - shares increment both the visible `shareCount` and `socialMetrics.externalShares`
+- WhatsApp contact taps increment the visible `chatCount` and `socialMetrics.chatClicks`
 - public post links can be shared beyond the dashboard
+
+`chatCount` is now treated as a first-class social engagement signal alongside likes, comments, and shares. It is included in:
+
+- feed post payload shaping
+- total engagement stats
+- creator spotlight scoring
+- challenge trend scoring
+- recommendation ranking
 
 ## Public Sharing
 
@@ -176,22 +186,48 @@ That matches the current implementation.
 - media carousel behavior
 - source-aware composer for campaign/product/manual posts
 - external sharing via copy, WhatsApp, native share, and selected social targets
+- WhatsApp contact engagement counting
+
+### Responsive presentation
+
+#### Mobile feed
+
+The mobile feed is intentionally immersive and full-height:
+
+- one post per viewport using vertical snap scrolling
+- media-first presentation with overlay actions
+- bottom-aligned creator/context metadata
+- action rail for likes, comments, shares, saves, and WhatsApp contact taps
+
+This layout is handled by `feed-page-mobile.component.*` and is designed to feel closer to short-form social apps while preserving MarketSpase's existing interaction flow.
+
+#### Desktop feed
+
+The desktop feed is optimized for density and scanning:
+
+- wider central content rail
+- compact rectangular cards in a two-column feed grid on large screens
+- shared `FeedPostCardComponent` styling that supports side-by-side text/media presentation
+- persistent right rail for search, topics, challenges, and creator/forum spotlight
+
+On narrower desktop widths, the grid collapses safely to a single column without changing the underlying feed logic.
 
 ## API Summary
 
 ### Read
 
-- `GET /feed/community`
-- `GET /feed/:postId`
-- `GET /feed/posts`
+- `GET /api/v1/feed/community`
+- `GET /api/v1/feed/:postId`
+- `GET /api/v1/feed/posts`
 
 ### Write
 
-- `POST /feed/create`
-- `PUT /feed/:postId`
-- `DELETE /feed/:postId`
-- `POST /feed/:postId/comments`
-- `POST /feed/:postId/share`
+- `POST /api/v1/feed/create`
+- `PUT /api/v1/feed/:postId`
+- `DELETE /api/v1/feed/:postId`
+- `POST /api/v1/feed/:postId/comments`
+- `POST /api/v1/feed/:postId/share`
+- `POST /api/v1/feed/:postId/chat-click`
 - existing like/save routes remain in use
 
 ### Multipart notes

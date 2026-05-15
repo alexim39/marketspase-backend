@@ -133,6 +133,7 @@ const feedPostSchema = new mongoose.Schema({
   socialMetrics: {
     externalShares: { type: Number, default: 0, min: 0 },
     externalClicks: { type: Number, default: 0, min: 0 },
+    chatClicks: { type: Number, default: 0, min: 0 },
     profileVisits: { type: Number, default: 0, min: 0 }
   },
   

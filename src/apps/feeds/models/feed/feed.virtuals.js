@@ -19,6 +19,11 @@ export const setupFeedVirtuals = (schema) => {
     return this.shares?.length || 0;
   });
 
+  // Virtual for WhatsApp chat click count
+  schema.virtual('chatCount').get(function() {
+    return this.socialMetrics?.chatClicks || this.socialMetrics?.externalClicks || 0;
+  });
+
   // Virtual for unique view count
   schema.virtual('uniqueViewCount').get(function() {
     return this.reach?.uniqueViews?.length || 0;
@@ -26,7 +31,7 @@ export const setupFeedVirtuals = (schema) => {
 
   // Virtual for engagement rate
   schema.virtual('engagementRate').get(function() {
-    const total = this.likeCount + this.commentCount + this.shareCount;
+    const total = this.likeCount + this.commentCount + this.shareCount + this.chatCount;
     if (this.reach?.impressions === 0) return 0;
     return (total / (this.reach?.impressions || 1)) * 100;
   });

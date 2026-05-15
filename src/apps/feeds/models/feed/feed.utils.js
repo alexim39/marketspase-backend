@@ -97,6 +97,7 @@ export const getPrimaryMediaType = (post) => {
  */
 export const formatPostResponse = (post, userId = null) => {
   const postObj = post.toObject ? post.toObject() : post;
+  const chatCount = post.socialMetrics?.chatClicks || post.socialMetrics?.externalClicks || 0;
   
   return {
     ...postObj,
@@ -104,6 +105,7 @@ export const formatPostResponse = (post, userId = null) => {
     commentCount: post.comments?.length || 0,
     saveCount: post.savedBy?.length || 0,
     shareCount: post.shares?.length || 0,
+    chatCount,
     uniqueViewCount: post.reach?.uniqueViews?.length || 0,
     isLiked: userId ? post.likes?.some(like => like.user?.toString() === userId.toString()) : false,
     isSaved: userId ? post.savedBy?.some(saved => saved.user?.toString() === userId.toString()) : false,

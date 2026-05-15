@@ -7,10 +7,10 @@ import { logUserActivity } from "../../user/services/activity.service.js";
 import { generateUniqueUpi } from "../../promotion/utils/generateUniqueUpi.js";
 import { evaluateUserBadges } from "../../badges/service/badge.service.js";
 import { awardGamificationProgress } from "../../gamification/service/gamification.service.js";
+import { resolveCampaignCostPerClick, hasValidCampaignCostPerClick } from "../services/campaign-pricing.service.js";
 
 const MAX_TX_RETRIES = 5;
 const MAX_ACCEPTS_PER_CAMPAIGN_PER_USER = Number(process.env.MAX_ACCEPTS_PER_CAMPAIGN_PER_USER ?? 3);
-const DEFAULT_COST_PER_CLICK = Number(process.env.DEFAULT_CAMPAIGN_COST_PER_CLICK ?? 80);
 const ACTIVE_PROMOTION_STATUSES = ["accepted", "submitted", "downloaded"];
 
 const isRetryableTxnError = (err) =>
@@ -63,13 +63,8 @@ const getCampaignRemainingBudget = (campaign) =>
   Number(campaign.budget ?? 0) -
   (Number(campaign.spentBudget ?? 0) + Number(campaign.reservedBudget ?? 0));
 
-const getCampaignCostPerClick = (campaign) => {
-  const costPerClick = Number(campaign.costPerClick ?? DEFAULT_COST_PER_CLICK);
-  if (!Number.isFinite(costPerClick) || costPerClick <= 0) {
-    throw { status: 500, message: "Invalid campaign cost-per-click configuration" };
-  }
-  return costPerClick;
-};
+const getCampaignCostPerClick = (campaign) =>
+  resolveCampaignCostPerClick(campaign?.costPerClick, campaign?.payoutPerPromotion);
 
 const generatePromotionUpi = async (session) => {
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -112,6 +107,13 @@ const ensurePromotionLink = async ({ promotion, campaign, marketer, req, session
   }
 
   await promotion.save({ session });
+
+  if (!hasValidCampaignCostPerClick(campaign?.costPerClick)) {
+    campaign.costPerClick = costPerClick;
+    campaign.payoutModel = "pay_per_click";
+    await campaign.save({ session });
+  }
+
   return promotion;
 };
 
@@ -130,7 +132,7 @@ export const acceptCampaign = async (req, res) => {
           .select(`
             _id title owner status link
             budget spentBudget reservedBudget currency
-            costPerClick payoutModel
+            costPerClick payoutPerPromotion payoutModel
             maxPromoters currentPromoters totalPromotions
           `);
 
