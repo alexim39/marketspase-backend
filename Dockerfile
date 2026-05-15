@@ -1,15 +1,13 @@
-FROM node:20
+FROM node:20-alpine
 
 WORKDIR /app
 
 COPY package*.json ./
 
-ENV NODE_ENV=production
-
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm install
 
 COPY . .
 
 EXPOSE 8080/tcp
 
-CMD ["npm", "start"]
+CMD ["node", "server.js"]
