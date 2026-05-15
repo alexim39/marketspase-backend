@@ -57,6 +57,14 @@ export const AGE_TARGET = {
 
 export const AGE_TARGET_ARRAY = Object.values(AGE_TARGET);
 
+// Campaign Goals
+export const CAMPAIGN_GOAL = {
+  AWARENESS: 'awareness',
+  LEADS: 'leads'
+};
+
+export const CAMPAIGN_GOAL_ARRAY = Object.values(CAMPAIGN_GOAL);
+
 // Promotion Types
 export const PROMOTION_TYPE = {
   PRODUCT_PROMOTION: 'product_promotion',
@@ -121,6 +129,7 @@ export const DEFAULTS = {
   BILLABLE_CLICKS: 0,
   INVALID_CLICKS: 0,
   DUPLICATE_CLICKS: 0,
+  CAMPAIGN_GOAL: CAMPAIGN_GOAL.AWARENESS,
   MIN_RATING: 0,
   ENABLE_TARGET: false,
   HAS_END_DATE: false,

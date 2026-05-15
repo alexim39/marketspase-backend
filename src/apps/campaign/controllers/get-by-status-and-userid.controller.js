@@ -205,6 +205,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       mediaType: 1,
       budget: 1,
       payoutPerPromotion: 1,
+      costPerClick: 1,
       currency: 1,
       maxPromoters: 1,
       currentPromoters: 1,
@@ -213,6 +214,8 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       validatedPromotions: 1,
       paidPromotions: 1,
       spentBudget: 1,
+      reservedBudget: 1,
+      payoutModel: 1,
       enableTarget: 1,
       ageTarget: 1,
       targetLocations: 1,
@@ -238,11 +241,31 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       .exec();
 
     if (!campaigns || campaigns.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: status
-          ? `No campaigns found with status "${status}".`
-          : "No campaigns found.",
+      return res.status(200).json({
+        success: true,
+        data: [],
+        message: "No campaigns matched the current targeting rules.",
+        metadata: {
+          pagination: {
+            currentPage: pageNum,
+            totalPages: 0,
+            totalFilteredCampaigns: 0,
+            totalAllCampaigns: 0,
+            campaignsPerPage: limitNum,
+            hasNextPage: false,
+            hasPrevPage: pageNum > 1,
+            nextPage: null,
+            prevPage: pageNum > 1 ? pageNum - 1 : null,
+          },
+          targeting: {
+            enforced: shouldEnforceTarget,
+            includeNonTargeted: allowNonTargeted,
+            ageTargetApplied: userAge !== null,
+            locationTargetApplied: wantsLocationTargeting && locationTerms.length > 0,
+            minRatingApplied: userRating !== null,
+            requirementsApplied: hasUserTags,
+          },
+        },
       });
     }
 
@@ -273,6 +296,31 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
         return new Date(b.createdAt) - new Date(a.createdAt);
       });
     }
+
+    finalCampaigns = finalCampaigns.map((campaign) => {
+      const normalizedCostPerClick = Number(campaign.costPerClick ?? campaign.payoutPerPromotion ?? 80);
+      const remainingBudget = Math.max(
+        Number(campaign.budget ?? 0) -
+        (Number(campaign.spentBudget ?? 0) + Number(campaign.reservedBudget ?? 0)),
+        0
+      );
+
+      const hasPromoterLimit = Number(campaign.maxPromoters ?? 0) > 0;
+      const canAcceptPromoters = (
+        campaign.status === 'active' &&
+        (!hasPromoterLimit || Number(campaign.currentPromoters ?? 0) < Number(campaign.maxPromoters ?? 0)) &&
+        remainingBudget >= normalizedCostPerClick
+      );
+
+      return {
+        ...campaign,
+        costPerClick: Number.isFinite(normalizedCostPerClick) && normalizedCostPerClick > 0
+          ? normalizedCostPerClick
+          : 80,
+        remainingBudget,
+        canAcceptPromoters,
+      };
+    });
 
     // ---- Pagination metadata ----
     const totalPages = Math.ceil(totalCampaignsCount / limitNum);

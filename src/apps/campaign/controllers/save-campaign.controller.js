@@ -8,6 +8,9 @@ import { adminCampaignApprovalTemplate } from "../services/email/adminCampaignAp
 import { buildVideoThumbnailUrl } from "../services/thumbnail-generator.service.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 
+const normalizeCampaignGoal = (campaignGoal) =>
+  campaignGoal === "leads" ? "leads" : "awareness";
+
 export const saveCampaign = async (req, res) => {
   const session = await mongoose.startSession();
 
@@ -30,6 +33,7 @@ export const saveCampaign = async (req, res) => {
         enableTarget = false,
         campaignType = "standard",
         priority = "medium",
+        campaignGoal = "awareness",
         minRating = 0,
         requirements = [],
         targetLocations = [],
@@ -49,6 +53,7 @@ export const saveCampaign = async (req, res) => {
 
       const numericBudget = Number(budget);
       const numericCostPerClick = Number(costPerClick);
+      const normalizedCampaignGoal = normalizeCampaignGoal(campaignGoal);
       if (!Number.isFinite(numericBudget) || numericBudget < 1000) {
         const err = new Error("Minimum campaign budget is ₦1000.");
         err.status = 400;
@@ -154,6 +159,7 @@ export const saveCampaign = async (req, res) => {
         estimatedViews,
         enableTarget,
         ageTarget,
+        campaignGoal: normalizedCampaignGoal,
         targetLocations,
         requirements,
         minRating,

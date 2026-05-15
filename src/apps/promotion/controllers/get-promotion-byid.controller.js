@@ -21,7 +21,7 @@ export const GetPromotionById = async (req, res) => {
     const promotion = await PromotionModel.findById(id)
       .populate({
         path: 'campaign',
-        select: 'title mediaUrl caption link category mediaType budget payoutPerPromotion currency maxPromoters minViewsPerPromotion campaignType priority difficulty tags thumbnailUrl estimatedViews duration targetAudience requirements activityLog createdAt',
+        select: 'title mediaUrl caption link category mediaType budget payoutPerPromotion costPerClick currency maxPromoters minViewsPerPromotion campaignType priority difficulty tags thumbnailUrl estimatedViews duration targetAudience requirements activityLog createdAt endDate status spentBudget reservedBudget remainingBudget',
         populate: {
           path: 'owner',
           select: 'username displayName avatar'

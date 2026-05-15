@@ -55,7 +55,9 @@ export const GetUserPromotions = async (req, res) => {
     // Build query
     const query = { promoter: userId };
     if (status && status !== 'all') {
-      query.status = status;
+      query.status = status === 'active'
+        ? { $in: ['accepted', 'downloaded', 'submitted', 'validated'] }
+        : status;
     }
 
     // Build sort object
@@ -82,9 +84,12 @@ export const GetUserPromotions = async (req, res) => {
       .lean(); // Use lean for better performance
 
     if (!promotions || promotions.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "No promotions found for this user.",
+      return res.status(200).json({
+        success: true,
+        data: [],
+        totalPages: 0,
+        currentPage: safePage,
+        total: 0,
       });
     }
 

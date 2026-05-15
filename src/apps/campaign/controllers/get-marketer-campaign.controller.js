@@ -112,9 +112,9 @@ export const GetAMarketerCampaigns = async (req, res) => {
 
     // Check if any campaigns were found.
     if (!campaigns || campaigns.length === 0) {
-      return res.status(404).json({
+      return res.status(200).json({
         message: "No campaigns found for this user.",
-        success: false,
+        success: true,
         data: [],
         pagination: {
           currentPage: pageNum,
