@@ -3,9 +3,12 @@ import mongoose from "mongoose";
 import { CampaignClickModel, CampaignModel } from "../models/index.js";
 import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
+import {
+  hasValidCampaignCostPerClick,
+  resolveCampaignCostPerClick,
+} from "../services/campaign-pricing.service.js";
 
 const MAX_TX_RETRIES = 5;
-const DEFAULT_COST_PER_CLICK = Number(process.env.DEFAULT_CAMPAIGN_COST_PER_CLICK ?? 80);
 const DEDUPE_WINDOW_MINUTES = Number(process.env.PPC_CLICK_DEDUPE_WINDOW_MINUTES ?? 30);
 const HASH_SALT = process.env.CLICK_TRACKING_HASH_SALT || process.env.JWTTOKENSECRET || "marketspase-click";
 
@@ -80,13 +83,12 @@ const getRemainingBudgetExpression = () => ({
   ],
 });
 
-const getCostPerClick = (promotion, campaign) => {
-  const costPerClick = Number(promotion.costPerClick ?? campaign.costPerClick ?? DEFAULT_COST_PER_CLICK);
-  if (!Number.isFinite(costPerClick) || costPerClick <= 0) {
-    throw { status: 500, message: "Invalid campaign cost-per-click configuration" };
-  }
-  return costPerClick;
-};
+const getCostPerClick = (promotion, campaign) =>
+  resolveCampaignCostPerClick(
+    promotion?.costPerClick,
+    campaign?.costPerClick,
+    campaign?.payoutPerPromotion
+  );
 
 const buildClickKeys = ({ promotionId, ipHash, userAgentHash, clickedAt }) => {
   const windowMs = Math.max(DEDUPE_WINDOW_MINUTES, 1) * 60 * 1000;
@@ -205,7 +207,7 @@ const recordDuplicateAfterUniqueCollision = async ({
   if (!promotion) return null;
 
   const campaign = await CampaignModel.findById(promotion.campaign)
-    .select("_id owner link costPerClick currency");
+    .select("_id owner link costPerClick payoutPerPromotion currency");
 
   if (!campaign) return null;
 
@@ -302,7 +304,7 @@ export const trackCampaignClick = async (req, res) => {
           .session(session)
           .select(`
             _id title owner status link budget spentBudget reservedBudget
-            costPerClick currency
+            costPerClick payoutPerPromotion currency
           `);
 
         if (!campaign) {
@@ -319,6 +321,20 @@ export const trackCampaignClick = async (req, res) => {
 
         const costPerClick = getCostPerClick(promotion, campaign);
         const destinationUrl = getDestinationUrl(promotion, campaign, marketer);
+
+        if (!hasValidCampaignCostPerClick(promotion.costPerClick)) {
+          promotion.costPerClick = costPerClick;
+          promotion.markModified("costPerClick");
+          await promotion.save({ session });
+        }
+
+        if (!hasValidCampaignCostPerClick(campaign.costPerClick)) {
+          campaign.costPerClick = costPerClick;
+          campaign.payoutModel = "pay_per_click";
+          campaign.markModified("costPerClick");
+          await campaign.save({ session });
+        }
+
         const { dedupeKey, billableKey } = buildClickKeys({
           promotionId: promotion._id,
           ipHash,

@@ -48,6 +48,7 @@ export const shapeFeedPost = (post, userId = null) => {
   const commentCount = Array.isArray(post.comments) ? post.comments.length : post.commentCount || 0;
   const shareCount = Array.isArray(post.shares) ? post.shares.length : post.shareCount || 0;
   const saveCount = Array.isArray(post.savedBy) ? post.savedBy.length : post.saveCount || 0;
+  const chatCount = post.socialMetrics?.chatClicks || post.socialMetrics?.externalClicks || post.chatCount || 0;
 
   const currentUserId = userId?.toString?.() || null;
   const isLiked = currentUserId
@@ -62,6 +63,7 @@ export const shapeFeedPost = (post, userId = null) => {
     likeCount,
     commentCount,
     shareCount,
+    chatCount,
     saveCount,
     isLiked,
     isSaved,
@@ -152,8 +154,9 @@ export const scoreFeedPost = (post, signals, mode = 'for_you') => {
   const commentCount = Array.isArray(post.comments) ? post.comments.length : 0;
   const shareCount = Array.isArray(post.shares) ? post.shares.length : 0;
   const saveCount = Array.isArray(post.savedBy) ? post.savedBy.length : 0;
+  const chatCount = post.socialMetrics?.chatClicks || post.socialMetrics?.externalClicks || 0;
   const freshnessBoost = computeFreshnessBoost(post.createdAt);
-  const engagementScore = (likeCount * 2.2) + (commentCount * 3.4) + (shareCount * 3.1) + (saveCount * 1.5) + (post.trendingScore || 0);
+  const engagementScore = (likeCount * 2.2) + (commentCount * 3.4) + (shareCount * 3.1) + (chatCount * 2.6) + (saveCount * 1.5) + (post.trendingScore || 0);
   const followingBoost = signals.followingIds.has(post.author?._id?.toString?.() || post.author?.toString?.()) ? 18 : 0;
   const authorBoost = signals.authorAffinity.get(post.author?._id?.toString?.() || post.author?.toString?.()) || 0;
   const typeBoost = signals.typeAffinity.get(post.type) || 0;
@@ -241,6 +244,7 @@ export const getCreatorSpotlight = async ({ timeframeDays = 7, limit = 5 } = {})
             { $multiply: [{ $size: '$likes' }, 2] },
             { $multiply: [{ $size: '$comments' }, 3] },
             { $multiply: [{ $size: '$shares' }, 2] },
+            { $multiply: [{ $ifNull: ['$socialMetrics.chatClicks', '$socialMetrics.externalClicks'] }, 2] },
             { $cond: ['$challenge.tag', 4, 0] },
             { $cond: ['$product.productId', 3, 0] }
           ]
@@ -311,7 +315,8 @@ export const getTrendingChallenges = async ({ limit = 5 } = {}) => {
             $add: [
               { $size: '$likes' },
               { $size: '$comments' },
-              { $size: '$shares' }
+              { $size: '$shares' },
+              { $ifNull: ['$socialMetrics.chatClicks', '$socialMetrics.externalClicks'] }
             ]
           }
         }
@@ -372,7 +377,8 @@ export const getFeedDiscoveryPayload = async (query = {}) => {
             $add: [
               { $size: '$likes' },
               { $size: '$comments' },
-              { $size: '$shares' }
+              { $size: '$shares' },
+              { $ifNull: ['$socialMetrics.chatClicks', '$socialMetrics.externalClicks'] }
             ]
           }
         }

@@ -9,6 +9,7 @@ import { buildVideoThumbnailUrl } from "../services/thumbnail-generator.service.
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 import { evaluateUserBadges } from "../../badges/service/badge.service.js";
 import { awardGamificationProgress } from "../../gamification/service/gamification.service.js";
+import { resolveCampaignCostPerClick } from "../services/campaign-pricing.service.js";
 
 const normalizeCampaignGoal = (campaignGoal) =>
   campaignGoal === "leads" ? "leads" : "awareness";
@@ -24,7 +25,7 @@ export const createCampaign = async (req, res) => {
         link,
         category,
         budget,
-        costPerClick = 80,
+        costPerClick,
         //payoutTierId,
         //payoutPerPromotion,
         //minViewsPerPromotion,
@@ -57,16 +58,10 @@ export const createCampaign = async (req, res) => {
       }
 
       const numericBudget = Number(budget);
-      const numericCostPerClick = Number(costPerClick);
+      const numericCostPerClick = resolveCampaignCostPerClick(costPerClick, req.body?.payoutPerPromotion);
       const normalizedCampaignGoal = normalizeCampaignGoal(campaignGoal);
       if (!Number.isFinite(numericBudget) || numericBudget < 1000) {
         const err = new Error("Minimum campaign budget is ₦1000.");
-        err.status = 400;
-        throw err;
-      }
-
-      if (!Number.isFinite(numericCostPerClick) || numericCostPerClick <= 0) {
-        const err = new Error("Invalid cost per click.");
         err.status = 400;
         throw err;
       }
