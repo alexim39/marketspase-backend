@@ -1,13 +1,15 @@
-FROM node:20-alpine
+FROM node:20-slim
+
+ENV NODE_ENV=production
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY package.json package-lock.json ./
 
-RUN npm install
+RUN npm ci --omit=dev && npm cache clean --force
 
 COPY . .
 
-EXPOSE 8080/tcp
+EXPOSE 8080
 
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
