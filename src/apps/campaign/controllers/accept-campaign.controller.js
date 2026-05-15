@@ -12,6 +12,7 @@ import { resolveCampaignCostPerClick, hasValidCampaignCostPerClick } from "../se
 const MAX_TX_RETRIES = 5;
 const MAX_ACCEPTS_PER_CAMPAIGN_PER_USER = Number(process.env.MAX_ACCEPTS_PER_CAMPAIGN_PER_USER ?? 3);
 const ACTIVE_PROMOTION_STATUSES = ["accepted", "submitted", "downloaded"];
+const DEFAULT_PROMOTION_TRACKING_PATH = "/api/v1/campaign/track";
 
 const isRetryableTxnError = (err) =>
   err?.errorLabels?.includes("TransientTransactionError") ||
@@ -32,10 +33,40 @@ const getRequestBaseUrl = (req) => {
   return `${protocol}://${req.get("host")}`;
 };
 
+const normalizePromotionTrackingPath = (value) => {
+  const rawValue = String(value || "").trim();
+  if (!rawValue) return DEFAULT_PROMOTION_TRACKING_PATH;
+
+  if (/^https?:\/\//i.test(rawValue)) {
+    const url = new URL(rawValue);
+    const normalizedPath = normalizePromotionTrackingPath(url.pathname);
+    url.pathname = normalizedPath;
+    return url.toString().replace(/\/+$/, "");
+  }
+
+  const normalizedPath = `/${rawValue.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+  if (normalizedPath === "/campaign/track") {
+    return DEFAULT_PROMOTION_TRACKING_PATH;
+  }
+
+  if (normalizedPath.startsWith("/campaign/")) {
+    return `/api/v1${normalizedPath}`;
+  }
+
+  return normalizedPath;
+};
+
 const buildPromotionUrl = (req, upi) => {
   const baseUrl = getRequestBaseUrl(req);
-  const trackingPath = process.env.PROMOTION_TRACKING_PATH || "/campaign/track";
-  return `${baseUrl}${trackingPath.replace(/\/$/, "")}/${upi}`;
+  const trackingPath = normalizePromotionTrackingPath(process.env.PROMOTION_TRACKING_PATH);
+
+  if (/^https?:\/\//i.test(trackingPath)) {
+    return `${trackingPath}/${upi}`;
+  }
+
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  const dedupedBaseUrl = normalizedBaseUrl.replace(/\/api\/v1$/, "");
+  return `${dedupedBaseUrl}${trackingPath}/${upi}`;
 };
 
 const buildWhatsAppDestinationUrl = (user) => {
