@@ -1,10 +1,32 @@
 import { normalizeCurrencyCode, roundCurrencyAmount } from './payment-currency.service.js';
 
+const isMapLike = (value) => Boolean(
+  value
+  && typeof value === 'object'
+  && typeof value.entries === 'function'
+);
+
 const cloneAmountMap = (mapLike = {}) => {
-  if (mapLike instanceof Map) {
-    return Object.fromEntries(mapLike.entries());
+  if (mapLike instanceof Map || isMapLike(mapLike)) {
+    return Object.fromEntries(Array.from(mapLike.entries()));
   }
+
+  if (typeof mapLike?.toObject === 'function') {
+    return { ...(mapLike.toObject() || {}) };
+  }
+
   return { ...(mapLike || {}) };
+};
+
+const setWalletField = (wallet, key, value) => {
+  if (!wallet) return;
+
+  if (typeof wallet.set === 'function') {
+    wallet.set(key, value);
+    return;
+  }
+
+  wallet[key] = value;
 };
 
 const getMapKey = (bucket = 'balance') => bucket === 'reserved'
@@ -17,12 +39,18 @@ export const ensureWalletCurrencyState = (wallet, baseCurrency = 'NGN') => {
   }
 
   const normalizedBase = normalizeCurrencyCode(baseCurrency, 'NGN');
-  wallet.currency = normalizeCurrencyCode(wallet.currency || normalizedBase, normalizedBase);
-  wallet.baseCurrency = normalizeCurrencyCode(wallet.baseCurrency || normalizedBase, normalizedBase);
-  wallet.balancesByCurrency = cloneAmountMap(wallet.balancesByCurrency);
-  wallet.reservedByCurrency = cloneAmountMap(wallet.reservedByCurrency);
-  wallet.balancesByCurrency[wallet.baseCurrency] = roundCurrencyAmount(Number(wallet.balance || 0));
-  wallet.reservedByCurrency[wallet.baseCurrency] = roundCurrencyAmount(Number(wallet.reserved || 0));
+  const normalizedWalletCurrency = normalizeCurrencyCode(wallet.currency || normalizedBase, normalizedBase);
+  const normalizedWalletBase = normalizeCurrencyCode(wallet.baseCurrency || normalizedBase, normalizedBase);
+  const balancesByCurrency = cloneAmountMap(wallet.balancesByCurrency);
+  const reservedByCurrency = cloneAmountMap(wallet.reservedByCurrency);
+
+  balancesByCurrency[normalizedWalletBase] = roundCurrencyAmount(Number(wallet.balance || 0));
+  reservedByCurrency[normalizedWalletBase] = roundCurrencyAmount(Number(wallet.reserved || 0));
+
+  setWalletField(wallet, 'currency', normalizedWalletCurrency);
+  setWalletField(wallet, 'baseCurrency', normalizedWalletBase);
+  setWalletField(wallet, 'balancesByCurrency', balancesByCurrency);
+  setWalletField(wallet, 'reservedByCurrency', reservedByCurrency);
   return wallet;
 };
 
@@ -60,9 +88,9 @@ export const applyWalletCredit = (wallet, {
   amountMap[normalizedCurrency] = roundCurrencyAmount(Number(amountMap[normalizedCurrency] || 0) + nativeAmount);
   amountMap[normalizedBaseCurrency] = roundCurrencyAmount(Number(amountMap[normalizedBaseCurrency] || 0) + convertedBaseAmount);
 
-  state[mapKey] = amountMap;
-  state[scalarKey] = roundCurrencyAmount(Number(state[scalarKey] || 0) + convertedBaseAmount);
-  state.baseCurrency = normalizedBaseCurrency;
+  setWalletField(state, mapKey, amountMap);
+  setWalletField(state, scalarKey, roundCurrencyAmount(Number(state[scalarKey] || 0) + convertedBaseAmount));
+  setWalletField(state, 'baseCurrency', normalizedBaseCurrency);
   return state;
 };
 
@@ -96,9 +124,9 @@ export const applyWalletDebit = (wallet, {
 
   amountMap[normalizedCurrency] = roundCurrencyAmount(Math.max(0, currentNative - nativeAmount));
   amountMap[normalizedBaseCurrency] = roundCurrencyAmount(Math.max(0, currentBase - convertedBaseAmount));
-  state[mapKey] = amountMap;
-  state[scalarKey] = roundCurrencyAmount(Math.max(0, Number(state[scalarKey] || 0) - convertedBaseAmount));
-  state.baseCurrency = normalizedBaseCurrency;
+  setWalletField(state, mapKey, amountMap);
+  setWalletField(state, scalarKey, roundCurrencyAmount(Math.max(0, Number(state[scalarKey] || 0) - convertedBaseAmount)));
+  setWalletField(state, 'baseCurrency', normalizedBaseCurrency);
   return state;
 };
 

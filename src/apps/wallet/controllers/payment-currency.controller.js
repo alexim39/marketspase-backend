@@ -82,6 +82,14 @@ export const getWalletOverview = async (req, res) => {
         symbol: currency.symbol,
       }));
 
+    const supportedWithdrawalCurrencies = config.supportedCurrencies
+      .filter((currency) => currency?.capabilities?.withdrawal)
+      .map((currency) => ({
+        code: currency.code,
+        name: currency.name,
+        symbol: currency.symbol,
+      }));
+
     res.status(200).json({
       success: true,
       data: {
@@ -99,6 +107,7 @@ export const getWalletOverview = async (req, res) => {
         balancesByCurrency: walletState.balancesByCurrency,
         reservedByCurrency: walletState.reservedByCurrency,
         supportedDisplayCurrencies,
+        supportedWithdrawalCurrencies,
         lastRateRefreshAt: config.lastFetchedAt || null,
       },
     });

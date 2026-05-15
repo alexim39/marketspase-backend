@@ -275,14 +275,23 @@ const getWalletExposureSummary = async () => {
     reservedByCurrency: {},
   };
 
-  const mergeCurrencyMap = (target, mapLike = {}) => {
+  const toEntries = (mapLike = {}) => {
     if (!mapLike) {
-      return;
+      return [];
     }
 
-    const entries = mapLike instanceof Map
-      ? Array.from(mapLike.entries())
-      : Object.entries(mapLike);
+    if (mapLike instanceof Map || typeof mapLike?.entries === 'function') {
+      return Array.from(mapLike.entries());
+    }
+
+    return Object.entries(mapLike);
+  };
+
+  const mergeCurrencyMap = (target, mapLike = {}) => {
+    const entries = toEntries(mapLike);
+    if (entries.length === 0) {
+      return;
+    }
 
     for (const [currency, amount] of entries) {
       const normalizedCurrency = currency || DEFAULT_BASE_CURRENCY;
@@ -290,6 +299,20 @@ const getWalletExposureSummary = async () => {
         normalizeNumber(target[normalizedCurrency]) + normalizeNumber(amount),
       );
     }
+  };
+
+  const buildNormalizedWalletMap = (wallet, bucket = 'balance') => {
+    const baseCurrency = wallet?.baseCurrency || wallet?.currency || DEFAULT_BASE_CURRENCY;
+    const scalarAmount = bucket === 'reserved'
+      ? normalizeNumber(wallet?.reserved)
+      : normalizeNumber(wallet?.balance);
+    const rawMap = bucket === 'reserved'
+      ? wallet?.reservedByCurrency
+      : wallet?.balancesByCurrency;
+    const normalizedMap = Object.fromEntries(toEntries(rawMap));
+
+    normalizedMap[baseCurrency] = roundAmount(scalarAmount);
+    return normalizedMap;
   };
 
   for (const user of users) {
@@ -301,10 +324,10 @@ const getWalletExposureSummary = async () => {
     exposure.promoterAvailable += normalizeNumber(promoterWallet.balance);
     exposure.promoterReserved += normalizeNumber(promoterWallet.reserved);
 
-    mergeCurrencyMap(exposure.balancesByCurrency, marketerWallet.balancesByCurrency);
-    mergeCurrencyMap(exposure.balancesByCurrency, promoterWallet.balancesByCurrency);
-    mergeCurrencyMap(exposure.reservedByCurrency, marketerWallet.reservedByCurrency);
-    mergeCurrencyMap(exposure.reservedByCurrency, promoterWallet.reservedByCurrency);
+    mergeCurrencyMap(exposure.balancesByCurrency, buildNormalizedWalletMap(marketerWallet, 'balance'));
+    mergeCurrencyMap(exposure.balancesByCurrency, buildNormalizedWalletMap(promoterWallet, 'balance'));
+    mergeCurrencyMap(exposure.reservedByCurrency, buildNormalizedWalletMap(marketerWallet, 'reserved'));
+    mergeCurrencyMap(exposure.reservedByCurrency, buildNormalizedWalletMap(promoterWallet, 'reserved'));
   }
 
   exposure.totalAvailable = roundAmount(exposure.marketerAvailable + exposure.promoterAvailable);
