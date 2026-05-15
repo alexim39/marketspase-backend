@@ -156,7 +156,7 @@ export const transferNotificationEmailTemplate = (data) => {
 
     <div style="background:#1a202c;color:#a0aec0;padding:25px 20px;text-align:center;font-size:13px;">
       <p style="margin:0 0 12px;">© ${year} MarketSpase. All rights reserved.</p>
-      <p style="font-style:italic;color:#cbd5e0;">"Connecting marketers and promoters through the power of WhatsApp Status"</p>
+      <p style="font-style:italic;color:#cbd5e0;">"Powering multi-channel promotion and social commerce"</p>
       <p style="font-size:12px;margin-top:20px;color:#718096;">
         This is an automated transaction notification. Please do not reply to this email.<br>
         <a href="#" style="color:#a0aec0;text-decoration:none;">Unsubscribe</a> | 

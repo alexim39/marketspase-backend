@@ -68,7 +68,7 @@ export const paymentDeclinedEmailTemplate = (userData) => {
 
     <div style="background:#1a202c;color:#a0aec0;padding:25px 20px;text-align:center;font-size:13px;">
       <p style="margin:0 0 12px;">© ${year} MarketSpase. All rights reserved.</p>
-      <p style="font-style:italic;color:#cbd5e0;">"Where WhatsApp Status Turns into Income"</p>
+      <p style="font-style:italic;color:#cbd5e0;">"Powering multi-channel promotion and social commerce"</p>
       <p style="font-size:12px;margin-top:20px;color:#718096;">
         You're receiving this email because you're a registered user on MarketSpase.<br>
         <a href="#" style="color:#a0aec0;text-decoration:none;">Unsubscribe</a> | 
