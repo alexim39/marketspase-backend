@@ -6,6 +6,7 @@ import {
   MEDIA_TYPE_ARRAY,
   PAYOUT_MODEL_ARRAY,
   AGE_TARGET_ARRAY,
+  CAMPAIGN_GOAL_ARRAY,
   PROMOTION_TYPE_ARRAY,
   PROMOTION_GOAL_ARRAY,
   DIFFICULTY_ARRAY,
@@ -76,6 +77,11 @@ const campaignSchema = new mongoose.Schema(
       type: String,
       enum: AGE_TARGET_ARRAY,
       default: DEFAULTS.AGE_TARGET
+    },
+    campaignGoal: {
+      type: String,
+      enum: CAMPAIGN_GOAL_ARRAY,
+      default: DEFAULTS.CAMPAIGN_GOAL
     },
     targetLocations: [{
       id: { type: String, required: true },
