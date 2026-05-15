@@ -1,4 +1,0 @@
-runtime: nodejs20 # or your Node.js version
-env: standard      # This line is usually present for standard environment
-service: default
-entrypoint: node bootstrap.js # or your main app file
