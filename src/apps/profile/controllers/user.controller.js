@@ -702,6 +702,10 @@ export const getUserPosts = async (req, res) => {
           commentCount: { $size: '$comments' },
           shareCount: { $size: '$shares' },
           saveCount: { $size: '$savedBy' },
+          chatCount: {
+            $ifNull: ['$socialMetrics.chatClicks', { $ifNull: ['$socialMetrics.externalClicks', 0] }]
+          },
+          phone: { $ifNull: ['$authorDetails.personalInfo.phone', ''] },
           isLikedByMe: currentViewerObjectId ? { $in: [currentViewerObjectId, '$likes.user'] } : false,
           isSavedByMe: currentViewerObjectId ? { $in: [currentViewerObjectId, '$savedBy.user'] } : false,
           author: {
@@ -710,7 +714,9 @@ export const getUserPosts = async (req, res) => {
             username: '$authorDetails.username',
             avatar: '$authorDetails.avatar',
             role: '$authorDetails.role',
-            badge: '$authorDetails.badge'
+            badge: '$authorDetails.badge',
+            rating: '$authorDetails.rating',
+            isVerified: '$authorDetails.isVerified'
           }
         }
       },
