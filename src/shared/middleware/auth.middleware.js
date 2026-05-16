@@ -5,6 +5,9 @@ import { UserModel } from '../../apps/user/models/user/index.js';
 import { AdminModel } from '../../apps/auth/models/index.js';
 
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || process.env.GCP_PROJECT_ID;
+const AUTH_CACHE_TTL_MS = Math.max(Number.parseInt(process.env.AUTH_CACHE_TTL_MS || '60000', 10) || 60000, 0);
+const AUTH_CACHE_MAX_ENTRIES = Math.max(Number.parseInt(process.env.AUTH_CACHE_MAX_ENTRIES || '500', 10) || 500, 50);
+const authCache = new Map();
 
 const parseServiceAccount = () => {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT_JSON_B64;
@@ -44,8 +47,58 @@ const getFirebaseAdminAuth = () => {
   return getFirebaseAuth();
 };
 
-const selectSafeUser = (query) => UserModel.findOne(query).select('-password');
-const selectSafeAdmin = (query) => AdminModel.findOne(query).select('-password');
+const selectSafeUser = (query) => UserModel.findOne(query).select('-password').lean();
+const selectSafeAdmin = (query) => AdminModel.findOne(query).select('-password').lean();
+
+const readCachedAuthContext = (token) => {
+  if (!AUTH_CACHE_TTL_MS || !token) {
+    return null;
+  }
+
+  const cached = authCache.get(token);
+  if (!cached) {
+    return null;
+  }
+
+  if (cached.expiresAt <= Date.now()) {
+    authCache.delete(token);
+    return null;
+  }
+
+  return {
+    ...cached.authContext,
+    user: cached.authContext.user ? { ...cached.authContext.user } : null,
+    decoded: cached.authContext.decoded ? { ...cached.authContext.decoded } : null,
+  };
+};
+
+const writeCachedAuthContext = (token, authContext) => {
+  if (!AUTH_CACHE_TTL_MS || !token || !authContext?.user?._id) {
+    return;
+  }
+
+  if (authCache.size >= AUTH_CACHE_MAX_ENTRIES) {
+    const oldestKey = authCache.keys().next().value;
+    if (oldestKey) {
+      authCache.delete(oldestKey);
+    }
+  }
+
+  authCache.set(token, {
+    expiresAt: Date.now() + AUTH_CACHE_TTL_MS,
+    authContext: {
+      ...authContext,
+      user: authContext.user ? { ...authContext.user } : null,
+      decoded: authContext.decoded ? { ...authContext.decoded } : null,
+    },
+  });
+};
+
+const clearCachedAuthContext = (token) => {
+  if (token) {
+    authCache.delete(token);
+  }
+};
 
 export const extractBearerToken = (req) => {
   const authHeader = req.headers.authorization;
@@ -76,8 +129,11 @@ const verifyFirebaseToken = async (token) => {
   if (!user && decoded.email) {
     user = await selectSafeUser({ email: decoded.email.toLowerCase() });
     if (user && user.uid !== decoded.uid) {
+      await UserModel.updateOne(
+        { _id: user._id },
+        { $set: { uid: decoded.uid } }
+      );
       user.uid = decoded.uid;
-      await user.save();
     }
   }
 
@@ -102,7 +158,7 @@ const verifyLegacyToken = async (token) => {
   const decoded = jwt.verify(token, process.env.JWTTOKENSECRET);
   const subjectId = decoded.id || decoded._id;
 
-  let user = await UserModel.findById(subjectId).select('-password');
+  let user = await UserModel.findById(subjectId).select('-password').lean();
   let authType = 'legacy';
 
   if (!user) {
@@ -119,35 +175,83 @@ const verifyLegacyToken = async (token) => {
   return buildAuthContext(authType, token, decoded, user);
 };
 
+const decodeTokenPayload = (token) => {
+  try {
+    const decoded = jwt.decode(token);
+    return decoded && typeof decoded === 'object' ? decoded : null;
+  } catch {
+    return null;
+  }
+};
+
+const inferTokenStrategy = (token) => {
+  const decoded = decodeTokenPayload(token);
+
+  if (!decoded) {
+    return process.env.JWTTOKENSECRET ? 'legacy-first' : 'firebase-first';
+  }
+
+  if (decoded.id || decoded._id) {
+    return 'legacy-first';
+  }
+
+  if (
+    typeof decoded.iss === 'string' &&
+    decoded.iss.startsWith('https://securetoken.google.com/')
+  ) {
+    return 'firebase-first';
+  }
+
+  if (decoded.firebase || decoded.user_id) {
+    return 'firebase-first';
+  }
+
+  return process.env.JWTTOKENSECRET ? 'legacy-first' : 'firebase-first';
+};
+
 export const resolveAccessToken = async (token) => {
-  let firebaseError = null;
-
-  try {
-    return await verifyFirebaseToken(token);
-  } catch (error) {
-    firebaseError = error;
+  const cachedAuthContext = readCachedAuthContext(token);
+  if (cachedAuthContext) {
+    return cachedAuthContext;
   }
 
-  try {
-    return await verifyLegacyToken(token);
-  } catch (legacyError) {
-    if (legacyError.name === 'TokenExpiredError' || firebaseError?.code === 'auth/id-token-expired') {
-      const error = new Error('Token expired');
-      error.status = 401;
-      throw error;
+  const strategy = inferTokenStrategy(token);
+  const verifiers =
+    strategy === 'firebase-first'
+      ? [verifyFirebaseToken, verifyLegacyToken]
+      : [verifyLegacyToken, verifyFirebaseToken];
+
+  let firstError = null;
+
+  for (const verifier of verifiers) {
+    try {
+      const authContext = await verifier(token);
+      writeCachedAuthContext(token, authContext);
+      return authContext;
+    } catch (error) {
+      if (!firstError) {
+        firstError = error;
+      }
+
+      const isExpired =
+        error?.name === 'TokenExpiredError' ||
+        error?.code === 'auth/id-token-expired';
+
+      if (isExpired) {
+        const expiredError = new Error('Token expired');
+        expiredError.status = 401;
+        throw expiredError;
+      }
     }
-
-    const message =
-      firebaseError?.message === 'User not found'
-        ? firebaseError.message
-        : legacyError.message === 'User not found'
-        ? legacyError.message
-        : 'Invalid token';
-
-    const error = new Error(message);
-    error.status = message === 'User not found' ? 401 : 401;
-    throw error;
   }
+
+  clearCachedAuthContext(token);
+
+  const error = new Error(
+    firstError?.message === 'User not found' ? 'User not found' : 'Invalid token'
+  );
+  error.status = 401;
+  throw error;
 };
 
 const attachAuthContext = (req, authContext) => {
@@ -170,7 +274,8 @@ export const resolveRequestAuth = async (req) => {
 
   const cookieToken = getCookieToken(req);
   if (cookieToken) {
-    const authContext = await verifyLegacyToken(cookieToken);
+    const authContext = readCachedAuthContext(cookieToken) || await verifyLegacyToken(cookieToken);
+    writeCachedAuthContext(cookieToken, authContext);
     attachAuthContext(req, authContext);
     return authContext;
   }

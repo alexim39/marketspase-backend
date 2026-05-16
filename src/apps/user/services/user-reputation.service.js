@@ -11,6 +11,11 @@ import { StoreModel } from '../../store/models/store/store.model.js';
 import { ProductModel } from '../../store/models/promotion/product/product.model.js';
 import { OrderModel } from '../../store/models/order/order.model.js';
 
+const REPUTATION_CACHE_TTL_MS = Math.max(
+  Number.parseInt(process.env.REPUTATION_CACHE_TTL_MS || `${15 * 60 * 1000}`, 10) || (15 * 60 * 1000),
+  0
+);
+
 const toObjectId = (value) => (
   mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : null
 );
@@ -132,7 +137,7 @@ export const buildUserReputationSnapshot = async (userLike) => {
   const baseUser = userLike?._id
     ? userLike
     : await UserModel.findById(userId)
-        .select('role loginStreak gamificationProfile')
+        .select('role loginStreak gamificationProfile rating ratingCount ratingUpdatedAt')
         .lean();
 
   if (!baseUser) {
@@ -416,6 +421,25 @@ export const refreshUserReputation = async (userLike) => {
     };
   }
 
+  const currentRating = Number(userLike?.rating);
+  const currentRatingCount = Number(userLike?.ratingCount);
+  const ratingUpdatedAt = userLike?.ratingUpdatedAt ? new Date(userLike.ratingUpdatedAt) : null;
+  const hasFreshCachedRating =
+    REPUTATION_CACHE_TTL_MS > 0 &&
+    ratingUpdatedAt instanceof Date &&
+    !Number.isNaN(ratingUpdatedAt.getTime()) &&
+    (Date.now() - ratingUpdatedAt.getTime()) < REPUTATION_CACHE_TTL_MS &&
+    Number.isFinite(currentRating) &&
+    Number.isFinite(currentRatingCount);
+
+  if (hasFreshCachedRating) {
+    return {
+      rating: currentRating,
+      ratingCount: currentRatingCount,
+      recalculatedAt: ratingUpdatedAt,
+    };
+  }
+
   const snapshot = await buildUserReputationSnapshot(userLike);
 
   await UserModel.updateOne(
@@ -424,6 +448,7 @@ export const refreshUserReputation = async (userLike) => {
       $set: {
         rating: snapshot.rating,
         ratingCount: snapshot.ratingCount,
+        ratingUpdatedAt: snapshot.recalculatedAt,
       }
     }
   );

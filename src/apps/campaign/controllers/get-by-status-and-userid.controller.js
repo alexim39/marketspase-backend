@@ -41,7 +41,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     const allowNonTargeted = includeNonTargeted !== "false";
 
     const user = await UserModel.findById(userId)
-      .select("preferences personalInfo rating tags role loginStreak gamificationProfile")
+      .select("preferences personalInfo rating ratingCount ratingUpdatedAt tags role loginStreak gamificationProfile")
       .lean();
 
     if (!user) {

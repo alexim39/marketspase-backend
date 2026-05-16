@@ -75,6 +75,7 @@ const userSchema = new mongoose.Schema(
     // Engagement & trust
     rating: { type: Number, default: DEFAULTS.RATING },
     ratingCount: { type: Number, default: DEFAULTS.RATING_COUNT },
+    ratingUpdatedAt: { type: Date, default: null },
     testimonials: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Testimonial' }],
 
     // System flags
