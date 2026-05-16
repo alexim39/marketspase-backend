@@ -19,6 +19,8 @@ export const setupCampaignIndexes = (schema) => {
   schema.index({ category: 1, enableTarget: 1, status: 1 });
   
   // Owner indexes
+  schema.index({ owner: 1, createdAt: -1 });
+  schema.index({ owner: 1, updatedAt: -1 });
   schema.index({ owner: 1, status: 1, createdAt: -1 });
   schema.index({ owner: 1, isDeleted: 1 });
   
