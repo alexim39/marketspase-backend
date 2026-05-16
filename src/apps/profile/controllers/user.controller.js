@@ -39,6 +39,8 @@ const compactSocialProfiles = (profiles = {}) => {
   );
 };
 
+const isSummaryProfileView = (value) => ['summary', 'dashboard', 'compact'].includes(String(value || '').trim().toLowerCase());
+
 const sumStoreValues = (stores, selector) => stores.reduce((total, store) => total + Number(selector(store) || 0), 0);
 
 const buildMarketerProfile = async (userObjectId, user, sinceDate) => {
@@ -450,6 +452,7 @@ export const getProfile = async (req, res) => {
   try {
     const { userId } = req.params;
     const requestedCurrentUserId = req.query.currentUserId;
+    const summaryView = isSummaryProfileView(req.query.view);
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({ message: 'Invalid user ID' });
@@ -460,7 +463,10 @@ export const getProfile = async (req, res) => {
     );
 
     const user = await UserModel.findById(userId)
-      .select('uid username displayName avatar personalInfo professionalInfo createdAt role rating ratingCount isVerified badgeProfile gamificationProfile')
+      .select(summaryView
+        ? 'uid username displayName avatar personalInfo professionalInfo createdAt role rating ratingCount ratingUpdatedAt isVerified badgeProfile gamificationProfile'
+        : 'uid username displayName avatar personalInfo professionalInfo createdAt role rating ratingCount ratingUpdatedAt isVerified badgeProfile gamificationProfile loginStreak'
+      )
       .lean();
 
     if (!user) {
@@ -468,22 +474,9 @@ export const getProfile = async (req, res) => {
     }
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
-    const reputationSnapshot = await refreshUserReputation({
-      _id: userObjectId,
-      role: user.role,
-      loginStreak: user.loginStreak,
-      gamificationProfile: user.gamificationProfile,
-    });
     const sinceDate = new Date(Date.now() - PROFILE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
-    const [
-      feedStatsResult,
-      followersCount,
-      followingCount,
-      newFollowersCount,
-      threadStatsResult,
-      commentStatsResult,
-    ] = await Promise.all([
+    const [feedStatsResult, followersCount, followingCount] = await Promise.all([
       FeedPostModel.aggregate([
         { $match: { author: userObjectId, status: 'published' } },
         {
@@ -513,6 +506,68 @@ export const getProfile = async (req, res) => {
       ]),
       FollowModel.countDocuments({ following: userId }),
       FollowModel.countDocuments({ follower: userId }),
+    ]);
+
+    const feedStats = feedStatsResult[0] || {};
+    const postsCount = feedStats.postsCount || 0;
+    const totalLikes = feedStats.totalLikes || 0;
+    const totalEngagements = totalLikes + (feedStats.totalComments || 0) + (feedStats.totalShares || 0);
+
+    let isFollowing = false;
+    if (currentUserId && currentUserId.toString() !== userId) {
+      const follow = await FollowModel.findOne({
+        follower: currentUserId,
+        following: userId,
+      }).lean();
+      isFollowing = !!follow;
+    }
+
+    if (summaryView) {
+      return res.json({
+        ...user,
+        professionalInfo: {
+          ...(user.professionalInfo || {}),
+          socialProfiles: compactSocialProfiles(user.professionalInfo?.socialProfiles),
+        },
+        postsCount,
+        followersCount,
+        followingCount,
+        totalLikes,
+        totalEngagements,
+        socialMetrics: {
+          totalEngagements,
+          feedPosts: postsCount,
+          feedComments: feedStats.totalComments || 0,
+          feedShares: feedStats.totalShares || 0,
+          feedSaves: feedStats.totalSaves || 0,
+          forumThreads: 0,
+          forumReplies: 0,
+          forumLikes: 0,
+          newFollowers30Days: 0,
+          profileFollowers: followersCount,
+          storeFollowers: 0,
+          recentPosts30Days: feedStats.recentPosts || 0,
+          recentThreads30Days: 0,
+          recentReplies30Days: 0,
+        },
+        marketerProfile: null,
+        promoterProfile: null,
+        isFollowing,
+        isOwnProfile: currentUserId?.toString() === userId,
+      });
+    }
+
+    const reputationSnapshot = await refreshUserReputation({
+      _id: userObjectId,
+      role: user.role,
+      loginStreak: user.loginStreak,
+      gamificationProfile: user.gamificationProfile,
+      rating: user.rating,
+      ratingCount: user.ratingCount,
+      ratingUpdatedAt: user.ratingUpdatedAt,
+    });
+
+    const [newFollowersCount, threadStatsResult, commentStatsResult] = await Promise.all([
       FollowModel.countDocuments({ following: userId, createdAt: { $gte: sinceDate } }),
       ThreadModel.aggregate([
         {
@@ -558,28 +613,14 @@ export const getProfile = async (req, res) => {
       ]),
     ]);
 
-    const feedStats = feedStatsResult[0] || {};
     const threadStats = threadStatsResult[0] || {};
     const commentStats = commentStatsResult[0] || {};
-    const postsCount = feedStats.postsCount || 0;
-    const totalLikes = feedStats.totalLikes || 0;
-    const totalEngagements =
-      totalLikes +
-      (feedStats.totalComments || 0) +
-      (feedStats.totalShares || 0) +
+    const detailedTotalEngagements =
+      totalEngagements +
       (threadStats.totalThreadLikes || 0) +
       (threadStats.totalThreadComments || 0) +
       (threadStats.totalThreadShares || 0) +
       (commentStats.totalCommentLikes || 0);
-
-    let isFollowing = false;
-    if (currentUserId && currentUserId.toString() !== userId) {
-      const follow = await FollowModel.findOne({
-        follower: currentUserId,
-        following: userId,
-      }).lean();
-      isFollowing = !!follow;
-    }
 
     const roleProfile = user.role === 'marketer'
       ? await buildMarketerProfile(userObjectId, user, sinceDate)
@@ -601,9 +642,9 @@ export const getProfile = async (req, res) => {
       followersCount,
       followingCount,
       totalLikes,
-      totalEngagements,
+      totalEngagements: detailedTotalEngagements,
       socialMetrics: {
-        totalEngagements,
+        totalEngagements: detailedTotalEngagements,
         feedPosts: postsCount,
         feedComments: feedStats.totalComments || 0,
         feedShares: feedStats.totalShares || 0,

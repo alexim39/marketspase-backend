@@ -234,6 +234,15 @@ const DEFAULT_BADGE_DEFINITIONS = [
   },
 ];
 
+const BADGE_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
+const BADGE_DEFINITION_CACHE_TTL_MS = 10 * 60 * 1000;
+const BADGE_FEED_CACHE_TTL_MS = 90 * 1000;
+
+let badgeConfigCache = { value: null, expiresAt: 0, promise: null };
+let badgeDefinitionSeedCache = { expiresAt: 0, promise: null };
+let activeBadgeDefinitionsCache = { value: null, expiresAt: 0, promise: null };
+const badgeFeedCache = new Map();
+
 const BADGE_METRIC_CATALOG = [
   { value: 'login_streak_current', label: 'Current login streak', unit: 'days', category: 'streak' },
   { value: 'login_streak_longest', label: 'Longest login streak', unit: 'days', category: 'streak' },
@@ -301,6 +310,30 @@ const normalizeLevelThresholds = (thresholds = []) => {
     title: threshold.title,
     minExperiencePoints: index === 0 ? 0 : Math.max(threshold.minExperiencePoints, deduped[index - 1].minExperiencePoints + 1),
   }));
+};
+
+const clearBadgeFeedCache = (userId = null) => {
+  if (!userId) {
+    badgeFeedCache.clear();
+    return;
+  }
+
+  for (const key of badgeFeedCache.keys()) {
+    if (key.startsWith(`${userId}:`)) {
+      badgeFeedCache.delete(key);
+    }
+  }
+};
+
+const invalidateBadgeConfigCache = () => {
+  badgeConfigCache = { value: null, expiresAt: 0, promise: null };
+  clearBadgeFeedCache();
+};
+
+const invalidateBadgeDefinitionCache = () => {
+  badgeDefinitionSeedCache = { expiresAt: 0, promise: null };
+  activeBadgeDefinitionsCache = { value: null, expiresAt: 0, promise: null };
+  clearBadgeFeedCache();
 };
 
 const findCurrentLevel = (experiencePoints, thresholds) => {
@@ -467,54 +500,121 @@ const normalizeDefinitionPayload = (payload = {}) => {
 };
 
 const ensureBadgeConfig = async () => {
-  const existing = await BadgeConfigModel.findOne({ key: 'default' });
-  if (existing) {
-    const normalizedThresholds = normalizeLevelThresholds(existing.levelThresholds || []);
-    const thresholdsChanged = JSON.stringify(normalizedThresholds) !== JSON.stringify(existing.levelThresholds || []);
-    let shouldSave = thresholdsChanged;
-
-    if (thresholdsChanged) {
-      existing.levelThresholds = normalizedThresholds;
-    }
-
-    if (!Number.isFinite(Number(existing.feedRefreshMinutes))) {
-      existing.feedRefreshMinutes = DEFAULT_CONFIG.feedRefreshMinutes;
-      shouldSave = true;
-    }
-
-    if (!Number.isFinite(Number(existing.evaluationCooldownMinutes))) {
-      existing.evaluationCooldownMinutes = DEFAULT_CONFIG.evaluationCooldownMinutes;
-      shouldSave = true;
-    }
-
-    if (!Number.isFinite(Number(existing.celebrationWindowHours))) {
-      existing.celebrationWindowHours = DEFAULT_CONFIG.celebrationWindowHours;
-      shouldSave = true;
-    }
-
-    if (shouldSave) {
-      await existing.save();
-    }
-
-    return existing;
+  if (badgeConfigCache.value && badgeConfigCache.expiresAt > Date.now()) {
+    return badgeConfigCache.value;
   }
 
-  return BadgeConfigModel.create({
-    key: 'default',
-    ...DEFAULT_CONFIG,
-  });
+  if (badgeConfigCache.promise) {
+    return badgeConfigCache.promise;
+  }
+
+  badgeConfigCache.promise = (async () => {
+    const existing = await BadgeConfigModel.findOne({ key: 'default' });
+    if (existing) {
+      const normalizedThresholds = normalizeLevelThresholds(existing.levelThresholds || []);
+      const thresholdsChanged = JSON.stringify(normalizedThresholds) !== JSON.stringify(existing.levelThresholds || []);
+      let shouldSave = thresholdsChanged;
+
+      if (thresholdsChanged) {
+        existing.levelThresholds = normalizedThresholds;
+      }
+
+      if (!Number.isFinite(Number(existing.feedRefreshMinutes))) {
+        existing.feedRefreshMinutes = DEFAULT_CONFIG.feedRefreshMinutes;
+        shouldSave = true;
+      }
+
+      if (!Number.isFinite(Number(existing.evaluationCooldownMinutes))) {
+        existing.evaluationCooldownMinutes = DEFAULT_CONFIG.evaluationCooldownMinutes;
+        shouldSave = true;
+      }
+
+      if (!Number.isFinite(Number(existing.celebrationWindowHours))) {
+        existing.celebrationWindowHours = DEFAULT_CONFIG.celebrationWindowHours;
+        shouldSave = true;
+      }
+
+      if (shouldSave) {
+        await existing.save();
+      }
+
+      badgeConfigCache.value = existing;
+      badgeConfigCache.expiresAt = Date.now() + BADGE_CONFIG_CACHE_TTL_MS;
+      return existing;
+    }
+
+    const created = await BadgeConfigModel.create({
+      key: 'default',
+      ...DEFAULT_CONFIG,
+    });
+
+    badgeConfigCache.value = created;
+    badgeConfigCache.expiresAt = Date.now() + BADGE_CONFIG_CACHE_TTL_MS;
+    return created;
+  })();
+
+  try {
+    return await badgeConfigCache.promise;
+  } finally {
+    badgeConfigCache.promise = null;
+  }
 };
 
 const ensureDefaultBadgeDefinitions = async () => {
-  const existingDefinitions = await BadgeDefinitionModel.find({
-    key: { $in: DEFAULT_BADGE_DEFINITIONS.map((badge) => badge.key) },
-  }).select('key').lean();
+  if (badgeDefinitionSeedCache.expiresAt > Date.now()) {
+    return;
+  }
 
-  const existingKeys = new Set(existingDefinitions.map((badge) => badge.key));
-  const missingDefinitions = DEFAULT_BADGE_DEFINITIONS.filter((badge) => !existingKeys.has(badge.key));
+  if (badgeDefinitionSeedCache.promise) {
+    return badgeDefinitionSeedCache.promise;
+  }
 
-  if (missingDefinitions.length) {
-    await BadgeDefinitionModel.insertMany(missingDefinitions, { ordered: false });
+  badgeDefinitionSeedCache.promise = (async () => {
+    const existingDefinitions = await BadgeDefinitionModel.find({
+      key: { $in: DEFAULT_BADGE_DEFINITIONS.map((badge) => badge.key) },
+    }).select('key').lean();
+
+    const existingKeys = new Set(existingDefinitions.map((badge) => badge.key));
+    const missingDefinitions = DEFAULT_BADGE_DEFINITIONS.filter((badge) => !existingKeys.has(badge.key));
+
+    if (missingDefinitions.length) {
+      await BadgeDefinitionModel.insertMany(missingDefinitions, { ordered: false });
+    }
+
+    badgeDefinitionSeedCache.expiresAt = Date.now() + BADGE_DEFINITION_CACHE_TTL_MS;
+  })();
+
+  try {
+    await badgeDefinitionSeedCache.promise;
+  } finally {
+    badgeDefinitionSeedCache.promise = null;
+  }
+};
+
+const getActiveBadgeDefinitions = async () => {
+  await ensureDefaultBadgeDefinitions();
+
+  if (activeBadgeDefinitionsCache.value && activeBadgeDefinitionsCache.expiresAt > Date.now()) {
+    return activeBadgeDefinitionsCache.value;
+  }
+
+  if (activeBadgeDefinitionsCache.promise) {
+    return activeBadgeDefinitionsCache.promise;
+  }
+
+  activeBadgeDefinitionsCache.promise = BadgeDefinitionModel.find({ isActive: true })
+    .sort({ sortOrder: 1, createdAt: 1 })
+    .lean()
+    .then((definitions) => {
+      activeBadgeDefinitionsCache.value = definitions;
+      activeBadgeDefinitionsCache.expiresAt = Date.now() + BADGE_DEFINITION_CACHE_TTL_MS;
+      return definitions;
+    });
+
+  try {
+    return await activeBadgeDefinitionsCache.promise;
+  } finally {
+    activeBadgeDefinitionsCache.promise = null;
   }
 };
 
@@ -627,7 +727,7 @@ const computeNextBadges = (definitions, earnedBadgeKeys, metrics, role, limit = 
   return candidates.slice(0, limit);
 };
 
-const buildBadgeProfileSnapshot = async (userId, config, lastEvaluatedAt = new Date()) => {
+const buildBadgeProfileSnapshot = async (userId, config, lastEvaluatedAt = new Date(), metrics = null) => {
   const objectId = toObjectId(userId);
   const [summary] = await UserBadgeModel.aggregate([
     { $match: { user: objectId } },
@@ -658,6 +758,7 @@ const buildBadgeProfileSnapshot = async (userId, config, lastEvaluatedAt = new D
     lastBadgeUnlockedAt: summary?.lastBadgeUnlockedAt || null,
     lastBadgeKey: latestBadge?.badgeKey || null,
     lastEvaluatedAt,
+    metricsSnapshot: metrics ? { ...metrics } : undefined,
   };
 
   await UserModel.updateOne(
@@ -704,29 +805,66 @@ export const evaluateUserBadges = async (userId, options = {}) => {
   const config = await ensureBadgeConfig();
   await ensureDefaultBadgeDefinitions();
 
-  const { user, metrics } = await getMetricsForUser(userId);
-  if (!config.enabled || !user) {
+  const user = await UserModel.findById(userId)
+    .select('displayName avatar role loginStreak badgeProfile')
+    .lean();
+
+  if (!user) {
+    const error = new Error('User not found');
+    error.status = 404;
+    throw error;
+  }
+
+  if (!config.enabled) {
     return {
       success: true,
       data: {
         enabled: Boolean(config.enabled),
         userId,
-        metrics,
+        metrics: user.badgeProfile?.metricsSnapshot || {},
         newlyUnlocked: [],
-        badgeProfile: user?.badgeProfile || buildLevelSummary(0, config.levelThresholds || []),
+        badgeProfile: {
+          ...buildLevelSummary(user.badgeProfile?.experiencePoints || 0, config.levelThresholds || []),
+          badgesEarned: toNumber(user.badgeProfile?.badgesEarned),
+          lastBadgeUnlockedAt: user.badgeProfile?.lastBadgeUnlockedAt || null,
+          lastBadgeKey: user.badgeProfile?.lastBadgeKey || null,
+          lastEvaluatedAt: user.badgeProfile?.lastEvaluatedAt || null,
+        },
       },
     };
   }
 
   const cooldownMs = Math.max(1, toNumber(config.evaluationCooldownMinutes || DEFAULT_CONFIG.evaluationCooldownMinutes)) * 60000;
   const lastEvaluatedAt = user.badgeProfile?.lastEvaluatedAt ? new Date(user.badgeProfile.lastEvaluatedAt) : null;
+  const snapshotMetrics = user.badgeProfile?.metricsSnapshot && typeof user.badgeProfile.metricsSnapshot === 'object'
+    ? user.badgeProfile.metricsSnapshot
+    : null;
   const shouldAward = force || !lastEvaluatedAt || (Date.now() - lastEvaluatedAt.getTime()) >= cooldownMs;
+
+  if (!shouldAward && snapshotMetrics) {
+    return {
+      success: true,
+      data: {
+        enabled: true,
+        userId,
+        metrics: snapshotMetrics,
+        newlyUnlocked: [],
+        badgeProfile: {
+          ...buildLevelSummary(user.badgeProfile?.experiencePoints || 0, config.levelThresholds || []),
+          badgesEarned: toNumber(user.badgeProfile?.badgesEarned),
+          lastBadgeUnlockedAt: user.badgeProfile?.lastBadgeUnlockedAt || null,
+          lastBadgeKey: user.badgeProfile?.lastBadgeKey || null,
+          lastEvaluatedAt: user.badgeProfile?.lastEvaluatedAt || null,
+        },
+      },
+    };
+  }
+
+  const { metrics } = await getMetricsForUser(userId, user);
 
   let newlyUnlocked = [];
   if (shouldAward) {
-    const definitions = await BadgeDefinitionModel.find({ isActive: true })
-      .sort({ sortOrder: 1, createdAt: 1 })
-      .lean();
+    const definitions = await getActiveBadgeDefinitions();
 
     const earnedBadges = await UserBadgeModel.find({ user: user._id })
       .select('badgeKey badge')
@@ -778,7 +916,8 @@ export const evaluateUserBadges = async (userId, options = {}) => {
     }
   }
 
-  const badgeProfile = await buildBadgeProfileSnapshot(user._id, config, new Date());
+  const badgeProfile = await buildBadgeProfileSnapshot(user._id, config, new Date(), metrics);
+  clearBadgeFeedCache(userId);
 
   if (newlyUnlocked.length) {
     await awardGamificationForBadges(user._id, newlyUnlocked);
@@ -805,22 +944,30 @@ export const evaluateUserBadges = async (userId, options = {}) => {
 
 export const getUserBadgeOverview = async (viewerUserId, targetUserId) => {
   const config = await ensureBadgeConfig();
-  await ensureDefaultBadgeDefinitions();
 
   const evaluation = await evaluateUserBadges(targetUserId, {
     force: false,
     trigger: 'badge_overview',
   });
 
-  const [{ user, metrics }, badgeDefinitions, earnedBadges, gamificationProfile] = await Promise.all([
-    getMetricsForUser(targetUserId),
-    BadgeDefinitionModel.find({ isActive: true }).sort({ sortOrder: 1, createdAt: 1 }).lean(),
+  const [user, badgeDefinitions, earnedBadges, gamificationProfile] = await Promise.all([
+    UserModel.findById(targetUserId)
+      .select('displayName avatar role badgeProfile')
+      .lean(),
+    getActiveBadgeDefinitions(),
     UserBadgeModel.find({ user: targetUserId }).sort({ unlockedAt: -1, createdAt: -1 }).lean(),
     getGamificationSummarySnapshot(targetUserId),
   ]);
 
+  if (!user) {
+    const error = new Error('User not found');
+    error.status = 404;
+    throw error;
+  }
+
   const earnedBadgeKeys = new Set(earnedBadges.map((badge) => badge.badgeKey));
   const isOwner = viewerUserId?.toString?.() === targetUserId?.toString?.();
+  const metrics = evaluation.data?.metrics || user.badgeProfile?.metricsSnapshot || {};
   const badgeProfile = {
     ...buildLevelSummary(user.badgeProfile?.experiencePoints || 0, config.levelThresholds || []),
     badgesEarned: toNumber(user.badgeProfile?.badgesEarned),
@@ -857,21 +1004,75 @@ export const getUserBadgeOverview = async (viewerUserId, targetUserId) => {
 export const getMyBadgeFeed = async (userId, query = {}) => {
   const config = await ensureBadgeConfig();
   const limit = Math.max(3, Math.min(12, Number(query.limit || 6)));
-  const overview = await getUserBadgeOverview(userId, userId);
+  const cacheKey = `${userId}:${limit}`;
+  const cachedFeed = badgeFeedCache.get(cacheKey);
+  if (cachedFeed?.value && cachedFeed.expiresAt > Date.now()) {
+    return cachedFeed.value;
+  }
 
-  return {
-    success: true,
-    data: {
-      enabled: Boolean(config.enabled),
-      feedRefreshMinutes: toNumber(config.feedRefreshMinutes || DEFAULT_CONFIG.feedRefreshMinutes),
-      celebrationWindowHours: toNumber(config.celebrationWindowHours || DEFAULT_CONFIG.celebrationWindowHours),
-      badgeProfile: overview.data.badgeProfile,
-      gamificationProfile: overview.data.gamificationProfile,
-      recentUnlocks: overview.data.recentUnlocks.slice(0, limit),
-      nextBadges: overview.data.nextBadges.slice(0, 3),
-      recentlyUnlocked: overview.data.recentlyUnlocked || [],
-    },
-  };
+  if (cachedFeed?.promise) {
+    return cachedFeed.promise;
+  }
+
+  const promise = (async () => {
+    const evaluation = await evaluateUserBadges(userId, {
+      force: false,
+      trigger: 'badge_feed',
+    });
+
+    const [user, earnedBadges, badgeDefinitions] = await Promise.all([
+      UserModel.findById(userId)
+        .select('role badgeProfile gamificationProfile')
+        .lean(),
+      UserBadgeModel.find({ user: userId }).sort({ unlockedAt: -1, createdAt: -1 }).lean(),
+      getActiveBadgeDefinitions(),
+    ]);
+
+    if (!user) {
+      const error = new Error('User not found');
+      error.status = 404;
+      throw error;
+    }
+
+    const metrics = evaluation.data?.metrics || user.badgeProfile?.metricsSnapshot || {};
+    const earnedBadgeKeys = new Set(earnedBadges.map((badge) => badge.badgeKey));
+    const response = {
+      success: true,
+      data: {
+        enabled: Boolean(config.enabled),
+        feedRefreshMinutes: toNumber(config.feedRefreshMinutes || DEFAULT_CONFIG.feedRefreshMinutes),
+        celebrationWindowHours: toNumber(config.celebrationWindowHours || DEFAULT_CONFIG.celebrationWindowHours),
+        badgeProfile: evaluation.data?.badgeProfile || {
+          ...buildLevelSummary(user.badgeProfile?.experiencePoints || 0, config.levelThresholds || []),
+          badgesEarned: toNumber(user.badgeProfile?.badgesEarned),
+          lastBadgeUnlockedAt: user.badgeProfile?.lastBadgeUnlockedAt || null,
+          lastBadgeKey: user.badgeProfile?.lastBadgeKey || null,
+          lastEvaluatedAt: user.badgeProfile?.lastEvaluatedAt || null,
+        },
+        gamificationProfile: user.gamificationProfile || null,
+        recentUnlocks: earnedBadges.slice(0, limit).map(formatUserBadge),
+        nextBadges: computeNextBadges(badgeDefinitions, earnedBadgeKeys, metrics, user.role, 3),
+        recentlyUnlocked: evaluation.data?.newlyUnlocked || [],
+      },
+    };
+
+    badgeFeedCache.set(cacheKey, {
+      value: response,
+      expiresAt: Date.now() + BADGE_FEED_CACHE_TTL_MS,
+      promise: null,
+    });
+
+    return response;
+  })();
+
+  badgeFeedCache.set(cacheKey, { value: null, expiresAt: 0, promise });
+
+  try {
+    return await promise;
+  } catch (error) {
+    badgeFeedCache.delete(cacheKey);
+    throw error;
+  }
 };
 
 export const getAdminBadgeConfig = async () => {
@@ -927,6 +1128,7 @@ export const updateAdminBadgeConfig = async (adminId, payload = {}) => {
 
   config.updatedBy = adminId || null;
   await config.save();
+  invalidateBadgeConfigCache();
 
   return getAdminBadgeConfig();
 };
@@ -953,6 +1155,7 @@ export const createBadgeDefinition = async (adminId, payload = {}) => {
     createdBy: adminId || null,
     updatedBy: adminId || null,
   });
+  invalidateBadgeDefinitionCache();
 
   return {
     success: true,
@@ -981,6 +1184,7 @@ export const updateBadgeDefinition = async (adminId, badgeId, payload = {}) => {
 
   Object.assign(definition, normalizedPayload, { updatedBy: adminId || null });
   await definition.save();
+  invalidateBadgeDefinitionCache();
 
   return {
     success: true,
@@ -1002,6 +1206,7 @@ export const deleteBadgeDefinition = async (adminId, badgeId) => {
     definition.isActive = false;
     definition.updatedBy = adminId || null;
     await definition.save();
+    invalidateBadgeDefinitionCache();
 
     return {
       success: true,
@@ -1011,6 +1216,7 @@ export const deleteBadgeDefinition = async (adminId, badgeId) => {
   }
 
   await definition.deleteOne();
+  invalidateBadgeDefinitionCache();
   return {
     success: true,
     message: 'Badge deleted successfully.',

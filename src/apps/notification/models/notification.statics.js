@@ -36,11 +36,13 @@ export const setupNotificationStatics = (schema) => {
     }
     
     return this.find(query)
+      .select('type title message data status priority createdAt readAt expiresAt')
       .sort({ createdAt: -1, priority: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('data.campaignId', 'title status')
-      .populate('data.promotionId', 'upi status');
+      .populate({ path: 'data.campaignId', select: 'title status', options: { lean: true } })
+      .populate({ path: 'data.promotionId', select: 'upi status', options: { lean: true } })
+      .lean();
   };
 
   // Get unread count for user
