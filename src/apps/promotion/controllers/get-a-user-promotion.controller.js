@@ -2,6 +2,7 @@
 import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { isPromotionExpired, calculateTimeRemaining, calculateProgressPercentage } from './../services/utils.js';
+import { normalizePromotionTrackingFields } from "../utils/promotion-url.js";
 
 const MAX_PAGE_SIZE = 100;
 const DEFAULT_PAGE_SIZE = 10;
@@ -168,7 +169,7 @@ export const GetUserPromotions = async (req, res) => {
 
     // Calculate additional data for each promotion
     const enhancedPromotions = promotions.map(promotion => ({
-      ...promotion,
+      ...normalizePromotionTrackingFields(promotion),
       isExpired: isPromotionExpired(promotion),
       timeRemaining: calculateTimeRemaining(promotion),
       progressPercentage: calculateProgressPercentage(promotion)

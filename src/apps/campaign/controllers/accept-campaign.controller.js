@@ -5,6 +5,10 @@ import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { logUserActivity } from "../../user/services/activity.service.js";
 import { generateUniqueUpi } from "../../promotion/utils/generateUniqueUpi.js";
+import {
+  buildPromotionTrackingUrl,
+  DEFAULT_PROMOTION_TRACKING_PATH,
+} from "../../promotion/utils/promotion-url.js";
 import { evaluateUserBadges } from "../../badges/service/badge.service.js";
 import { awardGamificationProgress } from "../../gamification/service/gamification.service.js";
 import { resolveCampaignCostPerClick, hasValidCampaignCostPerClick } from "../services/campaign-pricing.service.js";
@@ -12,8 +16,6 @@ import { resolveCampaignCostPerClick, hasValidCampaignCostPerClick } from "../se
 const MAX_TX_RETRIES = 5;
 const MAX_ACCEPTS_PER_CAMPAIGN_PER_USER = Number(process.env.MAX_ACCEPTS_PER_CAMPAIGN_PER_USER ?? 3);
 const ACTIVE_PROMOTION_STATUSES = ["accepted", "submitted", "downloaded"];
-const DEFAULT_PROMOTION_TRACKING_PATH = "/api/v1/campaign/track";
-
 const isRetryableTxnError = (err) =>
   err?.errorLabels?.includes("TransientTransactionError") ||
   err?.errorLabels?.includes("UnknownTransactionCommitResult") ||
@@ -58,15 +60,11 @@ const normalizePromotionTrackingPath = (value) => {
 
 const buildPromotionUrl = (req, upi) => {
   const baseUrl = getRequestBaseUrl(req);
-  const trackingPath = normalizePromotionTrackingPath(process.env.PROMOTION_TRACKING_PATH);
-
-  if (/^https?:\/\//i.test(trackingPath)) {
-    return `${trackingPath}/${upi}`;
-  }
-
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
-  const dedupedBaseUrl = normalizedBaseUrl.replace(/\/api\/v1$/, "");
-  return `${dedupedBaseUrl}${trackingPath}/${upi}`;
+  return buildPromotionTrackingUrl({
+    baseUrl,
+    upi,
+    trackingPath: normalizePromotionTrackingPath(process.env.PROMOTION_TRACKING_PATH),
+  });
 };
 
 const buildWhatsAppDestinationUrl = (user) => {

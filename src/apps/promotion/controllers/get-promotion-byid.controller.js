@@ -2,6 +2,7 @@
 import { PromotionModel } from "../models/index.js";
 import mongoose from "mongoose";
 import { isPromotionExpired, calculateTimeRemaining, calculateViewsNeeded, calculateProgressPercentage } from '../services/utils.js'
+import { normalizePromotionTrackingFields } from "../utils/promotion-url.js";
 
 // Get promotion by ID with populated data
 export const GetPromotionById = async (req, res) => {
@@ -56,7 +57,7 @@ export const GetPromotionById = async (req, res) => {
     }
 
     // Calculate additional data for the frontend
-    const promotionData = promotion.toObject();
+    const promotionData = normalizePromotionTrackingFields(promotion.toObject());
     
     // Add calculated fields
     promotionData.isExpired = isPromotionExpired(promotion);

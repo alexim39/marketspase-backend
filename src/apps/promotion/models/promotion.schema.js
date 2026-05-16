@@ -6,6 +6,7 @@ import {
   VALIDATION
 } from "./promotion.constants.js";
 import { isValidProofViews } from "./promotion.utils.js";
+import { normalizePromotionUrl } from "../utils/promotion-url.js";
 import { spread } from "axios";
 
 const promotionSchema = new mongoose.Schema(
@@ -102,6 +103,7 @@ const promotionSchema = new mongoose.Schema(
     promotionUrl: {
       type: String,
       trim: true,
+      set: (value) => normalizePromotionUrl(value),
     },
     destinationUrl: {
       type: String,
