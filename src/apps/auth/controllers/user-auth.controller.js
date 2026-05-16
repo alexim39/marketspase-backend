@@ -383,6 +383,9 @@ export const GetUser = async (req, res) => {
           isActive: 1,
           isVerified: 1,
           isMarketingRep: 1,
+          rating: 1,
+          ratingCount: 1,
+          ratingUpdatedAt: 1,
           // Profile info
           personalInfo: 1,
           professionalInfo: 1,

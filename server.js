@@ -51,6 +51,20 @@ import { setupSocketHandlers } from './src/apps/ai-assistant/socket.handler.js';
 const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
 const app = express();
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const ENABLE_AUTO_INDEX =
+    process.env.MONGOOSE_AUTO_INDEX === 'true' ||
+    (!IS_PRODUCTION && process.env.MONGOOSE_AUTO_INDEX !== 'false');
+const MONGODB_URI = `mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@cluster0.fblwb.mongodb.net/${process.env.MONGODB_DATABASE}?retryWrites=true&w=majority&appName=Cluster0`;
+const MONGODB_OPTIONS = {
+    autoIndex: ENABLE_AUTO_INDEX,
+    maxPoolSize: Math.max(Number.parseInt(process.env.MONGODB_MAX_POOL_SIZE || '20', 10) || 20, 5),
+    minPoolSize: Math.max(Number.parseInt(process.env.MONGODB_MIN_POOL_SIZE || '2', 10) || 2, 0),
+    serverSelectionTimeoutMS: Math.max(Number.parseInt(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS || '10000', 10) || 10000, 3000),
+    socketTimeoutMS: Math.max(Number.parseInt(process.env.MONGODB_SOCKET_TIMEOUT_MS || '45000', 10) || 45000, 10000),
+};
+
+mongoose.set('autoIndex', ENABLE_AUTO_INDEX);
 
 const explicitAllowedOrigins = new Set([
     'http://localhost:4200',
@@ -171,8 +185,9 @@ app.use('/api/v1/ai-assistant', aiAssistantRoutes);
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
 
 /* DB connection */
-mongoose.connect(`mongodb+srv://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@cluster0.fblwb.mongodb.net/${process.env.MONGODB_DATABASE}?retryWrites=true&w=majority&appName=Cluster0`)
+mongoose.connect(MONGODB_URI, MONGODB_OPTIONS)
 .then(() => {
+    console.log(`MongoDB connected (autoIndex=${ENABLE_AUTO_INDEX ? 'on' : 'off'}, maxPoolSize=${MONGODB_OPTIONS.maxPoolSize})`);
 
     // Start cron jobs
     PromotionExpirationCheckerCronJobs();

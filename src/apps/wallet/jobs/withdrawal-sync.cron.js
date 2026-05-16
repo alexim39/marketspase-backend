@@ -15,6 +15,9 @@ const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_API = 'https://api.paystack.co';
 const BATCH_SIZE = 100; // Process 100 users at a time
 const SYNC_INTERVAL = '*/30 * * * *'; // Every 30 minutes
+const RUN_WITHDRAWAL_SYNC_ON_STARTUP = process.env.RUN_WITHDRAWAL_SYNC_ON_STARTUP === 'true';
+
+let isSyncRunning = false;
 
 /**
  * Clean invalid ObjectIds in embedded transactions
@@ -474,26 +477,49 @@ async function syncWithdrawalStatuses() {
   }
 }
 
+async function runWithdrawalSyncJob(triggerLabel = 'cron') {
+  if (isSyncRunning) {
+    console.log(`Skipping withdrawal sync (${triggerLabel}) because a sync is already in progress.`);
+    return null;
+  }
+
+  isSyncRunning = true;
+
+  try {
+    return await syncWithdrawalStatuses();
+  } finally {
+    isSyncRunning = false;
+  }
+}
+
 /**
  * Initialize the cron job
  */
 export function initWithdrawalSyncCron() {
-  console.log('⏰ Initializing withdrawal sync cron job (runs every 10 minutes)');
+  if (!PAYSTACK_SECRET_KEY) {
+    console.warn('Skipping withdrawal sync cron initialization because PAYSTACK_SECRET_KEY is not configured.');
+    return null;
+  }
+
+  console.log('⏰ Initializing withdrawal sync cron job (runs every 30 minutes)');
   
   // Schedule the job
   const task = cron.schedule(SYNC_INTERVAL, async () => {
     try {
-      await syncWithdrawalStatuses();
+      await runWithdrawalSyncJob('scheduled');
     } catch (error) {
       console.error('❌ Withdrawal sync cron job failed:', error);
     }
   });
   
-  // Run immediately on startup (with a small delay)
-  setTimeout(() => {
-    console.log('🚀 Running initial withdrawal sync...');
-    syncWithdrawalStatuses().catch(console.error);
-  }, 5000);
+  if (RUN_WITHDRAWAL_SYNC_ON_STARTUP) {
+    setTimeout(() => {
+      console.log('🚀 Running initial withdrawal sync...');
+      runWithdrawalSyncJob('startup').catch(console.error);
+    }, 5000);
+  } else {
+    console.log('Skipping immediate withdrawal sync on startup.');
+  }
   
   return task;
 }
