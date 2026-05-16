@@ -15,6 +15,8 @@ export const setupPromotionIndexes = (schema) => {
   schema.index({ status: 1 });
   schema.index({ promoter: 1, status: 1 });
   schema.index({ campaign: 1, status: 1 });
+  schema.index({ promoter: 1, createdAt: -1 }, { name: "ix_promoter_createdAt_desc" });
+  schema.index({ promoter: 1, status: 1, createdAt: -1 }, { name: "ix_promoter_status_createdAt_desc" });
   
   // UPI index
   schema.index({ upi: 1 }, { unique: true });

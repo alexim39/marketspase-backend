@@ -3,6 +3,64 @@ import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { isPromotionExpired, calculateTimeRemaining, calculateProgressPercentage } from './../services/utils.js';
 
+const MAX_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 10;
+const PROMOTION_LIST_SELECT = [
+  "_id",
+  "status",
+  "acceptedAt",
+  "downloadedAt",
+  "submittedAt",
+  "validatedAt",
+  "rejectedAt",
+  "paidAt",
+  "payoutAmount",
+  "payoutModel",
+  "costPerClick",
+  "payoutSnapshot",
+  "proofViews",
+  "viewsAchieved",
+  "rejectionReason",
+  "notes",
+  "isDownloaded",
+  "upi",
+  "promotionUrl",
+  "destinationUrl",
+  "isActive",
+  "clickStats",
+  "createdAt",
+  "updatedAt",
+  "campaign"
+].join(" ");
+
+const CAMPAIGN_LIST_SELECT = [
+  "_id",
+  "title",
+  "caption",
+  "currency",
+  "costPerClick",
+  "payoutPerPromotion",
+  "mediaUrl",
+  "thumbnailUrl",
+  "mediaType",
+  "category",
+  "budget",
+  "spentBudget",
+  "reservedBudget",
+  "remainingBudget",
+  "endDate"
+].join(" ");
+
+const ALLOWED_SORT_FIELDS = new Set([
+  "createdAt",
+  "updatedAt",
+  "acceptedAt",
+  "submittedAt",
+  "validatedAt",
+  "paidAt",
+]);
+
+const ACTIVE_PROMOTION_STATUSES = ["accepted", "downloaded", "submitted", "validated"];
 
 
 // Get all promotions for a user with filtering and pagination
@@ -28,27 +86,45 @@ export const GetUserPromotions = async (req, res) => {
     }
 
     // Validate and limit maximum records per page
-    const safeLimit = Math.min(parseInt(limit), 100);
+    const parsedLimit = Number.parseInt(limit, 10);
+    const safeLimit = Math.min(
+      Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : DEFAULT_PAGE_SIZE,
+      MAX_PAGE_SIZE
+    );
     const safePage = Math.max(parseInt(page), 1);
 
-    // Find user with only necessary fields
-    const user = await UserModel.findById(userId).select('role');
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "Promoter not found.",
-      });
-    }
+    const isSelfRequest = req.userId === userId;
+    const isAdminRequest = req.user.role === "admin";
 
-    await UserModel.updateOne(
-      { _id: user._id },
-      { $set: { lastSeenAt: new Date() } }
-    );
-
-    if (user.role !== "promoter") {
+    if (isSelfRequest && req.user.role !== "promoter") {
       return res.status(400).json({
         success: false,
         message: "Your current user role is not promoter. Please switch roles to continue.",
+      });
+    }
+
+    if (!isSelfRequest) {
+      const user = await UserModel.findById(userId).select("role").lean();
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "Promoter not found.",
+        });
+      }
+
+      if (user.role !== "promoter") {
+        return res.status(400).json({
+          success: false,
+          message: "The selected user is not a promoter.",
+        });
+      }
+    } else if (!isAdminRequest) {
+      // Avoid blocking the response path on a low-priority profile freshness write.
+      UserModel.updateOne(
+        { _id: userId },
+        { $set: { lastSeenAt: new Date() } }
+      ).catch((error) => {
+        console.warn("Unable to update promoter lastSeenAt while loading promotions:", error.message);
       });
     }
 
@@ -56,32 +132,29 @@ export const GetUserPromotions = async (req, res) => {
     const query = { promoter: userId };
     if (status && status !== 'all') {
       query.status = status === 'active'
-        ? { $in: ['accepted', 'downloaded', 'submitted', 'validated'] }
+        ? { $in: ACTIVE_PROMOTION_STATUSES }
         : status;
     }
 
     // Build sort object
+    const safeSortBy = ALLOWED_SORT_FIELDS.has(sortBy) ? sortBy : "createdAt";
     const sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+    sort[safeSortBy] = sortOrder === 'desc' ? -1 : 1;
 
-    // Execute query with pagination and lean for performance
-    const promotions = await PromotionModel.find(query)
-      .populate({
-        path: 'campaign',
-        //select: 'title category mediaUrl mediaType payoutPerPromotion minViewsPerPromotion'
-        populate: {
-          path: 'owner',
-          select: 'displayName email personalInfo' // or select specific fields you need
-        }
-      })
-      .populate({
-        path: "promoter",
-        select: "-password",
-      })
-      .sort(sort)
-      .limit(safeLimit)
-      .skip((safePage - 1) * safeLimit)
-      .lean(); // Use lean for better performance
+    const [promotions, total] = await Promise.all([
+      PromotionModel.find(query)
+        .select(PROMOTION_LIST_SELECT)
+        .populate({
+          path: "campaign",
+          select: CAMPAIGN_LIST_SELECT,
+          options: { lean: true },
+        })
+        .sort(sort)
+        .limit(safeLimit)
+        .skip((safePage - 1) * safeLimit)
+        .lean(),
+      PromotionModel.countDocuments(query),
+    ]);
 
     if (!promotions || promotions.length === 0) {
       return res.status(200).json({
@@ -92,9 +165,6 @@ export const GetUserPromotions = async (req, res) => {
         total: 0,
       });
     }
-
-    // Get total count for pagination
-    const total = await PromotionModel.countDocuments(query);
 
     // Calculate additional data for each promotion
     const enhancedPromotions = promotions.map(promotion => ({
