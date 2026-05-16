@@ -89,6 +89,107 @@ const getUploadedFiles = (req) => ([
   ...(req.files?.mediaItems || []),
 ].slice(0, 6));
 
+const createThreadDocument = async (threadPayload, authorId, session = null) => {
+  const createOptions = session ? { session } : undefined;
+  const updateOptions = session ? { session } : undefined;
+
+  const [thread] = await ThreadModel.create([threadPayload], createOptions);
+
+  await UserModel.updateOne(
+    { _id: authorId },
+    {
+      $addToSet: {
+        'forumActivity.threads': thread._id,
+        'forumActivity.followedThreads': thread._id,
+      },
+    },
+    updateOptions,
+  );
+
+  return thread;
+};
+
+const isTransactionSupportError = (error) => {
+  const messageParts = [
+    error?.message,
+    error?.errorResponse?.errmsg,
+    error?.cause?.message,
+  ].filter(Boolean);
+
+  const message = messageParts.join(' ').toLowerCase();
+
+  return [
+    'transaction numbers are only allowed on a replica set member or mongos',
+    'replica set',
+    'transactions are not supported',
+    'transaction is not supported',
+    'this mongodb deployment does not support retryable writes',
+  ].some((fragment) => message.includes(fragment));
+};
+
+const createThreadWithFallback = async (threadPayload, authorId) => {
+  let session = null;
+
+  try {
+    session = await mongoose.startSession();
+    session.startTransaction();
+
+    const thread = await createThreadDocument(threadPayload, authorId, session);
+    await session.commitTransaction();
+
+    return thread;
+  } catch (error) {
+    if (session?.inTransaction()) {
+      try {
+        await session.abortTransaction();
+      } catch (abortError) {
+        console.warn('Failed to abort forum thread transaction:', abortError.message);
+      }
+    }
+
+    if (!isTransactionSupportError(error)) {
+      throw error;
+    }
+
+    console.warn('Forum thread creation falling back to non-transactional write:', error.message);
+    return createThreadDocument(threadPayload, authorId);
+  } finally {
+    if (session) {
+      await session.endSession();
+    }
+  }
+};
+
+const classifyThreadCreationError = (error) => {
+  if (error?.code === 11000) {
+    const duplicatedField = Object.keys(error.keyPattern || error.keyValue || {})[0];
+    if (duplicatedField === 'slug') {
+      return {
+        status: 409,
+        message: 'A discussion with a very similar title already exists. Please tweak the title and try again.',
+      };
+    }
+
+    return {
+      status: 409,
+      message: 'A discussion with the same details already exists.',
+    };
+  }
+
+  if (error?.name === 'ValidationError') {
+    const firstValidationMessage = Object.values(error.errors || {})[0]?.message;
+    return {
+      status: 400,
+      message: firstValidationMessage || 'The discussion details are invalid.',
+    };
+  }
+
+  return {
+    status: 500,
+    message: 'Failed to create thread',
+  };
+};
+
 export const createThread = async (req, res) => {
   let uploadedAssets = [];
 
@@ -164,25 +265,8 @@ export const createThread = async (req, res) => {
       },
     };
 
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
-      const [thread] = await ThreadModel.create([threadPayload], { session });
-
-      await UserModel.updateOne(
-        { _id: authorId },
-        {
-          $addToSet: {
-            'forumActivity.threads': thread._id,
-            'forumActivity.followedThreads': thread._id,
-          },
-        },
-        { session },
-      );
-
-      await session.commitTransaction();
-      session.endSession();
+      const thread = await createThreadWithFallback(threadPayload, authorId);
 
       const populatedThread = await ThreadModel.findById(thread._id)
         .populate('author', 'displayName username avatar role badgeProfile gamificationProfile')
@@ -225,14 +309,12 @@ export const createThread = async (req, res) => {
         message: 'Thread created successfully',
       });
     } catch (dbError) {
-      await session.abortTransaction();
-      session.endSession();
-
       await Promise.allSettled(uploadedAssets.map(cleanupCloudinaryAsset));
+      const classifiedError = classifyThreadCreationError(dbError);
 
-      return res.status(500).json({
+      return res.status(classifiedError.status).json({
         success: false,
-        message: 'Failed to create thread',
+        message: classifiedError.message,
         error: process.env.NODE_ENV === 'development' ? dbError.message : undefined,
       });
     }

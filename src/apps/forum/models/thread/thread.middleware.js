@@ -1,4 +1,8 @@
-import { generateSlug, extractMentions, extractHashtags } from "./thread.utils.js";
+import {
+  generateUniqueSlug,
+  extractMentions,
+  extractHashtags,
+} from "./thread.utils.js";
 import mongoose from "mongoose";
 
 const getThreadMediaItems = (thread) => {
@@ -34,7 +38,7 @@ export const setupThreadMiddleware = (schema) => {
   schema.pre('save', async function(next) {
     // Generate slug if title is modified
     if (this.isModified('title') && this.title) {
-      this.slug = generateSlug(this.title);
+      this.slug = await generateUniqueSlug(this.constructor, this.title, { excludeId: this._id });
     }
 
     // Ensure commentCount never drops below 0
@@ -119,7 +123,7 @@ export const setupThreadMiddleware = (schema) => {
   });
 
   // Pre-findOneAndUpdate middleware
-  schema.pre('findOneAndUpdate', function(next) {
+  schema.pre('findOneAndUpdate', async function(next) {
     const update = this.getUpdate();
 
     // Update lastActivityAt
@@ -127,7 +131,9 @@ export const setupThreadMiddleware = (schema) => {
 
     // Handle slug generation if title is updated
     if (update.title) {
-      update.slug = generateSlug(update.title);
+      const query = this.getQuery() || {};
+      const excludeId = query._id || query.id || null;
+      update.slug = await generateUniqueSlug(this.model, update.title, { excludeId });
     }
 
     // Ensure commentCount is valid
