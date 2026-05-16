@@ -8,6 +8,7 @@ const badgeProfileSchema = new mongoose.Schema({
   lastBadgeUnlockedAt: { type: Date, default: null },
   lastBadgeKey: { type: String, default: null, trim: true },
   lastEvaluatedAt: { type: Date, default: null },
+  metricsSnapshot: { type: mongoose.Schema.Types.Mixed, default: undefined },
 }, { _id: false });
 
 export default badgeProfileSchema;

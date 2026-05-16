@@ -4,6 +4,8 @@ import { UserModel } from "../../user/models/user/index.js";
 import { refreshUserReputation } from "../../user/services/user-reputation.service.js";
 
 const DEFAULT_COST_PER_CLICK = 80;
+const CAMPAIGN_DISCOVERY_CACHE_TTL_MS = 60 * 1000;
+const campaignDiscoveryCache = new Map();
 
 /**
  * Promoter-facing campaign discovery with:
@@ -39,6 +41,20 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     const normalizedSortOrder = String(sortOrder).toLowerCase() === "asc" ? 1 : -1;
     const shouldEnforceTarget = enforceTarget !== "false";
     const allowNonTargeted = includeNonTargeted !== "false";
+    const cacheKey = JSON.stringify({
+      userId,
+      status: normalizedStatus,
+      page: pageNum,
+      limit: limitNum,
+      sortBy: String(sortBy || "createdAt"),
+      sortOrder: normalizedSortOrder,
+      shouldEnforceTarget,
+      allowNonTargeted,
+    });
+    const cachedResponse = campaignDiscoveryCache.get(cacheKey);
+    if (cachedResponse && cachedResponse.expiresAt > Date.now()) {
+      return res.status(200).json(cachedResponse.payload);
+    }
 
     const user = await UserModel.findById(userId)
       .select("preferences personalInfo rating ratingCount ratingUpdatedAt tags role loginStreak gamificationProfile")
@@ -340,7 +356,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     });
 
     if (finalCampaigns.length === 0) {
-      return res.status(200).json({
+      const payload = {
         success: true,
         data: [],
         message: "No campaigns matched the current relevance and targeting rules.",
@@ -364,14 +380,21 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
             userAddressAvailable: hasUserAddress,
           },
         },
+      };
+
+      campaignDiscoveryCache.set(cacheKey, {
+        payload,
+        expiresAt: Date.now() + CAMPAIGN_DISCOVERY_CACHE_TTL_MS,
       });
+
+      return res.status(200).json(payload);
     }
 
     const totalPages = Math.ceil(totalCampaignsCount / limitNum);
     const hasNextPage = pageNum < totalPages;
     const hasPrevPage = pageNum > 1;
 
-    return res.status(200).json({
+    const payload = {
       success: true,
       data: finalCampaigns,
       message: "Campaigns fetched successfully based on promoter relevance.",
@@ -395,7 +418,14 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
           userAddressAvailable: hasUserAddress,
         },
       },
+    };
+
+    campaignDiscoveryCache.set(cacheKey, {
+      payload,
+      expiresAt: Date.now() + CAMPAIGN_DISCOVERY_CACHE_TTL_MS,
     });
+
+    return res.status(200).json(payload);
   } catch (error) {
     console.error("Error fetching campaigns by status (promoter relevance):", error);
     return res.status(500).json({

@@ -7,8 +7,41 @@ import { computeFreshnessBoost, getPrimaryMediaType } from '../models/feed/feed.
 
 const AUTHOR_POPULATION = {
   path: 'author',
-  select: 'username displayName avatar role rating badge personalInfo isVerified'
+  select: 'username displayName avatar role rating badge personalInfo.phone isVerified'
 };
+
+const FEED_CANDIDATE_FIELDS = [
+  'author',
+  'content',
+  'source',
+  'type',
+  'earnings',
+  'campaign',
+  'product',
+  'challenge',
+  'tip',
+  'media',
+  'likes',
+  'comments',
+  'shares',
+  'savedBy',
+  'socialMetrics',
+  'hashtags',
+  'createdAt',
+  'updatedAt',
+  'isFeatured',
+  'badge',
+  'mentions',
+  'featuredUntil',
+  'status',
+  'settings',
+  'recommendation',
+  'trendingScore',
+  'spotlightScore'
+].join(' ');
+
+const DISCOVERY_CACHE_TTL_MS = 2 * 60 * 1000;
+const discoveryCache = new Map();
 
 const DEFAULT_DISCOVERY = {
   stats: {
@@ -79,18 +112,32 @@ export const shapeFeedPost = (post, userId = null) => {
 export const trackFeedImpressions = async (posts, userId = null) => {
   if (!Array.isArray(posts) || posts.length === 0) return;
 
-  await Promise.all(posts.map(async (post) => {
-    const update = {
-      $inc: { 'reach.impressions': 1 },
-      $set: { 'reach.lastImpressionAt': new Date() }
-    };
+  const now = new Date();
+  const operations = posts
+    .filter((post) => post?._id)
+    .map((post) => {
+      const update = {
+        $inc: { 'reach.impressions': 1 },
+        $set: { 'reach.lastImpressionAt': now }
+      };
 
-    if (userId) {
-      update.$addToSet = { 'reach.uniqueViews': userId };
-    }
+      if (userId) {
+        update.$addToSet = { 'reach.uniqueViews': userId };
+      }
 
-    await FeedPostModel.findByIdAndUpdate(post._id, update).catch(() => null);
-  }));
+      return {
+        updateOne: {
+          filter: { _id: post._id },
+          update
+        }
+      };
+    });
+
+  if (!operations.length) {
+    return;
+  }
+
+  await FeedPostModel.bulkWrite(operations, { ordered: false }).catch(() => null);
 };
 
 export const buildAudienceSignals = async (userId) => {
@@ -210,6 +257,7 @@ export const fetchFeedCandidates = async ({
   const candidateLimit = Math.min(180, Math.max(limit * Math.max(page, 1) * 4, 60));
 
   const candidates = await FeedPostModel.find(query)
+    .select(FEED_CANDIDATE_FIELDS)
     .populate(AUTHOR_POPULATION)
     .sort({ isFeatured: -1, createdAt: -1 })
     .limit(candidateLimit)
@@ -350,6 +398,17 @@ export const getTrendingHashtagsSummary = async ({ query = { status: 'published'
   ]);
 
 export const getFeedDiscoveryPayload = async (query = {}) => {
+  const cacheKey = JSON.stringify(query || {});
+  const cached = discoveryCache.get(cacheKey);
+  if (cached?.value && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
+  if (cached?.promise) {
+    return cached.promise;
+  }
+
+  const promise = (async () => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -395,21 +454,37 @@ export const getFeedDiscoveryPayload = async (query = {}) => {
     getForumContributorSpotlight({ limit: 4, timeframeDays: 10 }),
   ]);
 
-  return {
-    ...DEFAULT_DISCOVERY,
-    stats: {
-      postsToday,
-      activeUsers,
-      totalEngagement: engagementTotals[0]?.totalEngagement || 0,
-      topHashtag: trendingHashtags[0]?.tag || ''
-    },
-    trendingHashtags,
-    trendingChallenges,
-    creatorSpotlight,
-    forumHighlights,
-    hotTopics,
-    forumSpotlight,
-  };
+    return {
+      ...DEFAULT_DISCOVERY,
+      stats: {
+        postsToday,
+        activeUsers,
+        totalEngagement: engagementTotals[0]?.totalEngagement || 0,
+        topHashtag: trendingHashtags[0]?.tag || ''
+      },
+      trendingHashtags,
+      trendingChallenges,
+      creatorSpotlight,
+      forumHighlights,
+      hotTopics,
+      forumSpotlight,
+    };
+  })();
+
+  discoveryCache.set(cacheKey, { value: null, expiresAt: 0, promise });
+
+  try {
+    const value = await promise;
+    discoveryCache.set(cacheKey, {
+      value,
+      expiresAt: Date.now() + DISCOVERY_CACHE_TTL_MS,
+      promise: null
+    });
+    return value;
+  } catch (error) {
+    discoveryCache.delete(cacheKey);
+    throw error;
+  }
 };
 
 export const getAuthorPopulation = () => AUTHOR_POPULATION;
