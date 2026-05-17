@@ -40,4 +40,7 @@ export const setupUserIndexes = (schema) => {
   schema.index({ role: 1, 'personalInfo.address.state': 1, isDeleted: 1 });
   schema.index({ role: 1, 'personalInfo.gender': 1, isDeleted: 1 });
   schema.index({ 'personalInfo.dob': 1 });
+  schema.index({ 'fraudProfile.suspendedUntil': 1, isActive: 1 });
+  schema.index({ 'fraudProfile.riskLevel': 1, role: 1, isDeleted: 1 });
+  schema.index({ 'securityProfile.lastAuthIpHash': 1, role: 1, isDeleted: 1 });
 };

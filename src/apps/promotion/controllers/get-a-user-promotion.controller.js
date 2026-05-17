@@ -1,4 +1,5 @@
 // promotion.controller.js
+import mongoose from "mongoose";
 import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { isPromotionExpired, calculateTimeRemaining, calculateProgressPercentage } from './../services/utils.js';
@@ -29,6 +30,7 @@ const PROMOTION_LIST_SELECT = [
   "destinationUrl",
   "isActive",
   "clickStats",
+  "fraudStatus",
   "createdAt",
   "updatedAt",
   "campaign"
@@ -79,6 +81,13 @@ export const GetUserPromotions = async (req, res) => {
       });
     }
 
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format.",
+      });
+    }
+
     if (req.user.role !== 'admin' && req.userId !== userId) {
       return res.status(403).json({
         success: false,
@@ -95,31 +104,16 @@ export const GetUserPromotions = async (req, res) => {
     const safePage = Math.max(parseInt(page), 1);
 
     const isSelfRequest = req.userId === userId;
-    const isAdminRequest = req.user.role === "admin";
-
-    if (isSelfRequest && req.user.role !== "promoter") {
-      return res.status(400).json({
-        success: false,
-        message: "Your current user role is not promoter. Please switch roles to continue.",
-      });
-    }
 
     if (!isSelfRequest) {
-      const user = await UserModel.findById(userId).select("role").lean();
+      const user = await UserModel.findById(userId).select("_id").lean();
       if (!user) {
         return res.status(404).json({
           success: false,
-          message: "Promoter not found.",
+          message: "User not found.",
         });
       }
-
-      if (user.role !== "promoter") {
-        return res.status(400).json({
-          success: false,
-          message: "The selected user is not a promoter.",
-        });
-      }
-    } else if (!isAdminRequest) {
+    } else if (req.user.role !== "admin") {
       // Avoid blocking the response path on a low-priority profile freshness write.
       UserModel.updateOne(
         { _id: userId },
@@ -132,9 +126,12 @@ export const GetUserPromotions = async (req, res) => {
     // Build query
     const query = { promoter: userId };
     if (status && status !== 'all') {
-      query.status = status === 'active'
-        ? { $in: ACTIVE_PROMOTION_STATUSES }
-        : status;
+      if (status === 'active') {
+        query.status = { $in: ACTIVE_PROMOTION_STATUSES };
+        query.isActive = true;
+      } else {
+        query.status = status;
+      }
     }
 
     // Build sort object

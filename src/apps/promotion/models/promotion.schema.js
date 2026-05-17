@@ -122,6 +122,37 @@ const promotionSchema = new mongoose.Schema(
       earnedAmount: { type: Number, default: 0, min: 0 },
       lastClickAt: Date,
     },
+    fraudStatus: {
+      isFlagged: { type: Boolean, default: false },
+      reviewStatus: {
+        type: String,
+        enum: ["clear", "warning", "final_warning", "blocked", "resolved"],
+        default: "clear",
+      },
+      riskLevel: {
+        type: String,
+        enum: ["low", "medium", "high", "critical"],
+        default: "low",
+      },
+      reasonSummary: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      reasons: {
+        type: [String],
+        default: [],
+      },
+      warningCount: { type: Number, min: 0, default: 0 },
+      firstFlaggedAt: Date,
+      lastFlaggedAt: Date,
+      blockedAt: Date,
+      lastCaseId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "PromotionFraudCase",
+        default: null,
+      },
+    },
 
     validatedBy: {
       type: mongoose.Schema.Types.ObjectId,

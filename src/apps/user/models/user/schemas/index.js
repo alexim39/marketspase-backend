@@ -12,3 +12,5 @@ export { default as qualificationMilestonesSchema } from './qualificationMilesto
 export { default as loginStreakSchema } from './loginStreak.schema.js';
 export { default as badgeProfileSchema } from './badgeProfile.schema.js';
 export { default as gamificationProfileSchema } from './gamificationProfile.schema.js';
+export { default as securityProfileSchema } from './securityProfile.schema.js';
+export { default as fraudProfileSchema } from './fraudProfile.schema.js';

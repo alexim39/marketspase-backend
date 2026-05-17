@@ -23,6 +23,8 @@ export const setupPromotionIndexes = (schema) => {
   schema.index({ campaign: 1, isActive: 1, 'clickStats.billableClicks': -1 });
   schema.index({ promoter: 1, isActive: 1, 'clickStats.earnedAmount': -1 });
   schema.index({ payoutModel: 1, status: 1 });
+  schema.index({ 'fraudStatus.isFlagged': 1, 'fraudStatus.reviewStatus': 1, updatedAt: -1 });
+  schema.index({ promoter: 1, 'fraudStatus.reviewStatus': 1, createdAt: -1 });
   
   // Date indexes
   schema.index({ submittedAt: 1 });

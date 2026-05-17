@@ -11,6 +11,7 @@ import { getUsersOnlineCount } from './../controllers/online-count.controller.js
 import { getLiveActivityFeed } from '../controllers/live-activity.controller.js';
 import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 import { requireAdmin } from '../../../shared/middleware/authorization.middleware.js';
+import { getFraudDashboardPulse } from '../../promotion/services/fraud/promotion-fraud.service.js';
 
 const StatsRouter = express.Router();
 
@@ -151,6 +152,14 @@ StatsRouter.get('/engagement', catchAsync(async (req, res) => {
 
 StatsRouter.get('/admin-overview', authenticate, requireAdmin, catchAsync(async (_req, res) => {
   const data = await getAdminOverviewStats();
+  return res.status(200).json({
+    success: true,
+    data,
+  });
+}));
+
+StatsRouter.get('/fraud-pulse', authenticate, requireAdmin, catchAsync(async (_req, res) => {
+  const data = await getFraudDashboardPulse();
   return res.status(200).json({
     success: true,
     data,
