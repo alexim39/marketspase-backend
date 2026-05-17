@@ -89,6 +89,59 @@ export class NotificationService {
     });
   }
 
+  static async createCollaborationMessageNotification(recipientId, conversation, sender, messageText) {
+    const excerpt = String(messageText || '').trim().slice(0, 120);
+
+    return this.createNotification({
+      recipient: recipientId,
+      type: 'collaboration_message',
+      title: conversation?.type === 'campaign_room' ? 'New campaign room message' : 'New message',
+      message: `${sender?.displayName || sender?.username || 'Someone'}: ${excerpt || 'Sent a new message.'}`,
+      data: {
+        conversationId: conversation?._id,
+        conversationTitle: conversation?.title || '',
+        actionUrl: '/dashboard/campaigns/collaboration',
+      },
+      priority: 'medium',
+    });
+  }
+
+  static async createReviewReceivedNotification(recipientId, review) {
+    return this.createNotification({
+      recipient: recipientId,
+      type: 'review_received',
+      title: 'You received a new review',
+      message: `${review?.reviewer?.displayName || review?.reviewer?.username || 'A collaborator'} left a ${review?.rating || 0}-star review on your work.`,
+      data: {
+        reviewId: review?._id,
+        campaignId: review?.campaign?._id,
+        promotionId: review?.promotion?._id,
+        actionUrl: '/dashboard/profile',
+      },
+      priority: 'medium',
+    });
+  }
+
+  static async createReviewFlaggedAdminNotification(recipientId, review, flagReason) {
+    return this.createNotification({
+      recipient: recipientId,
+      type: 'review_flagged',
+      title: 'A collaboration review needs moderation',
+      message: `${review?.reviewer?.displayName || review?.reviewer?.username || 'A user'}'s review was flagged for "${flagReason}".`,
+      data: {
+        reviewId: review?._id,
+        actionUrl: '/dashboard/users/reviews',
+        metadata: {
+          revieweeId: review?.reviewee?._id || null,
+          campaignId: review?.campaign?._id || null,
+          promotionId: review?.promotion?._id || null,
+        },
+      },
+      priority: 'high',
+      urgency: 'moderation',
+    });
+  }
+
   // WHERE TO USE: In campaign monitoring service - when campaign budget is fully utilized
   static async createBudgetExhaustedNotification(marketerId, campaign) {
     return this.createNotification({

@@ -1,6 +1,7 @@
 import express from 'express';
 import { GetPromotionById } from '../controllers/get-promotion-byid.controller.js'
 import { GetUserPromotions } from '../controllers/get-a-user-promotion.controller.js'
+import { getPromoterAnalytics } from '../controllers/get-promoter-analytics.controller.js';
 import { GetAdminPromotions } from '../controllers/admin/get-promotions.controller.js'
 import { getPromotionFraudSummaryController } from '../controllers/admin/get-promotion-fraud-summary.controller.js';
 import { getPromotionFraudCasesController } from '../controllers/admin/get-promotion-fraud-cases.controller.js';
@@ -19,6 +20,7 @@ PromoterRouter.get('/admin/fraud/cases', requireAdmin, getPromotionFraudCasesCon
 PromoterRouter.post('/admin/fraud/cases/:caseId/action', requireAdmin, applyPromotionFraudActionController);
 
 // Get a user promotions with filtering and pagination
+PromoterRouter.get('/analytics/promoter/:userId', getPromoterAnalytics);
 PromoterRouter.get('/user/:userId', GetUserPromotions);
 
 // get promotion

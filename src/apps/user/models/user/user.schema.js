@@ -78,6 +78,9 @@ const userSchema = new mongoose.Schema(
     rating: { type: Number, default: DEFAULTS.RATING },
     ratingCount: { type: Number, default: DEFAULTS.RATING_COUNT },
     ratingUpdatedAt: { type: Date, default: null },
+    collaborationRating: { type: Number, default: 0 },
+    collaborationRatingCount: { type: Number, default: 0 },
+    collaborationReviewCount: { type: Number, default: 0 },
     testimonials: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Testimonial' }],
 
     // System flags
