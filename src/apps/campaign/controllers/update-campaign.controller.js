@@ -1,248 +1,287 @@
 import mongoose from "mongoose";
 import { CampaignModel } from "../models/campaign.model.js";
 import { UserModel } from "../../user/models/user/index.js";
-
 import { sendEmail } from "../../../core/email.service.js";
 import { campaignApprovedTemplate } from "../services/email/campaignApprovedTemplate.js";
 import { campaignRejectedTemplate } from "../services/email/campaignRejectedTemplate.js";
 import { NotificationService } from "../../notification/services/notification.service.js";
+import {
+  deactivateCampaignPromotions,
+  getCampaignCostPerClickValue,
+  getCampaignRemainingBudgetValue,
+  reactivateCampaignPromotions,
+} from "../services/campaign-runtime.service.js";
 
-/**
- * Admin / Owner controller to update campaign status
- * Aligned with performance-based budget consumption
- */
+const ADMIN_ROLES = new Set(["admin", "super-admin"]);
+const VALID_STATUSES = new Set([
+  "pending",
+  "active",
+  "paused",
+  "rejected",
+  "completed",
+  "expired",
+  "exhausted",
+  "draft",
+]);
+
+const canSelfTransitionTo = (currentStatus, nextStatus) => {
+  if (nextStatus === "pending") {
+    return ["draft", "rejected"].includes(currentStatus);
+  }
+
+  if (nextStatus === "paused") {
+    return currentStatus === "active";
+  }
+
+  if (nextStatus === "active") {
+    return currentStatus === "paused";
+  }
+
+  return false;
+};
+
+const canAdminTransitionTo = (currentStatus, nextStatus) => {
+  switch (nextStatus) {
+    case "pending":
+      return ["draft", "rejected"].includes(currentStatus);
+    case "active":
+      return ["pending", "paused", "exhausted"].includes(currentStatus);
+    case "paused":
+      return currentStatus === "active";
+    case "rejected":
+      return ["draft", "pending", "paused", "active"].includes(currentStatus);
+    case "completed":
+    case "expired":
+    case "exhausted":
+      return currentStatus === "active";
+    default:
+      return false;
+  }
+};
+
+const buildActivationWalletRequirement = (campaign) => {
+  const remainingBudget = getCampaignRemainingBudgetValue(campaign);
+  const costPerClick = getCampaignCostPerClickValue(campaign);
+  return Math.max(remainingBudget, costPerClick);
+};
+
+const shouldSendApprovalNotification = (previousStatus, nextStatus) =>
+  nextStatus === "active" && previousStatus !== "active";
+
+const shouldSendRejectionNotification = (nextStatus) => nextStatus === "rejected";
+
 export const UpdateCampaignStatus = async (req, res) => {
   const session = await mongoose.startSession();
-  session.startTransaction();
 
   try {
     const { id } = req.params;
     const { status, details = "", performedBy } = req.body;
 
-    // Normalize/sanitize performer id (avoid passing empty string)
-    const performerId = (performedBy && mongoose.Types.ObjectId.isValid(performedBy))
-      ? performedBy
-      : undefined;
-
-    console.log(`UpdateCampaignStatus called by ${performedBy} for campaign ${id} to status ${status}`);
-
     if (!id || !status) {
-      await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: "Campaign ID and status are required"
+        message: "Campaign ID and status are required",
       });
     }
 
-    const validStatuses = [
-      "pending",
-      "active",
-      "paused",
-      "rejected",
-      "completed",
-      "expired",
-      "exhausted",
-      "draft",
-      "validated"
-    ];
-
-    if (!validStatuses.includes(status)) {
-      await session.abortTransaction();
+    if (!VALID_STATUSES.has(status)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid campaign status"
-      });
-    }
-    
-
-    const campaign = await CampaignModel.findById(id).session(session);
-
-    if (!campaign) {
-      await session.abortTransaction();
-      return res.status(404).json({
-        success: false,
-        message: "Campaign not found"
+        message: "Invalid campaign status",
       });
     }
 
-    //console.log('campaign ',campaign);
-
-    // 2️⃣ LOAD MARKETER + WALLET CHECK
-    const marketer = await UserModel.findById(campaign.owner)
-      .session(session)
-      .select("email wallets.marketer.balance");
-
-    if (!marketer) {
-      return res.status(404).json({
-        success: false,
-        message: "Campaign owner not found"
-      });
-    }
-
-    const numericBudget = Number(campaign.budget);
-    if (!Number.isFinite(numericBudget) || numericBudget < 1000) {
-       return res.status(400).json({
-        success: false,
-        message: "Minimum campaign budget is ₦1000."
-      });
-    }
-
-    if (marketer.wallets.marketer.balance < numericBudget) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
-        message: "Insufficient wallet balance to activate this campaign."
+        message: "Invalid campaign ID format",
       });
     }
 
-    /**
-     * ✅ IDEMPOTENCY GUARD
-     * Prevents double-activation, double-rejection, etc.
-     */
-    if (campaign.status === status) {
-      await session.abortTransaction();
-      return res.status(409).json({
+    const actorId = req.userId || performedBy;
+    const isAdmin = ADMIN_ROLES.has(String(req.user?.role || "").toLowerCase());
+
+    if (!actorId) {
+      return res.status(401).json({
         success: false,
-        message: `Campaign already in '${status}' state`
+        message: "Authentication is required to update campaign status",
       });
     }
 
-    /**
-     * 🔒 ACTIVATION RULES
-     * When campaign becomes ACTIVE, we freeze its payout model
-     */
-    if (status === "active") {
-      // Allow activation from `pending` or `paused` states
-      if (!["pending", "paused"].includes(campaign.status)) {
-        await session.abortTransaction();
-        return res.status(400).json({
-          success: false,
-          message: "Campaign can only be activated from pending or paused states"
-        });
+    let responsePayload = null;
+    let notificationPayload = null;
+
+    await session.withTransaction(async () => {
+      const campaign = await CampaignModel.findById(id).session(session);
+
+      if (!campaign) {
+        throw { status: 404, message: "Campaign not found" };
       }
 
-      if (!campaign.budget || campaign.budget < 1000) {
-        await session.abortTransaction();
-        return res.status(400).json({
-          success: false,
-          message: "Campaign budget is invalid"
-        });
+      const isOwner = String(campaign.owner) === String(actorId);
+      if (!isAdmin && !isOwner) {
+        throw { status: 403, message: "You are not authorized to update this campaign" };
       }
 
-      /**
-       * ✅ SNAPSHOT PAYOUT RULES
-       * This protects historical correctness if tiers change later
-       */
-      // Only snapshot payout rules on the first activation (protect historical data)
-      if (!campaign.payoutRulesSnapshot) {
-        campaign.payoutRulesSnapshot = {
-          model: "performance_based_views",
-          tiers: [
-            { min: 35, max: 65, payout: 100 },
-            { min: 66, max: 101, payout: 200 },
-            { min: 102, max: 150, payout: 300 },
-            { min: 151, max: 310, payout: 400 },
-            { min: 311, max: null, payout: 500 }
-          ],
-          lockedAt: new Date()
+      const previousStatus = String(campaign.status || "");
+      if (previousStatus === status) {
+        throw { status: 409, message: `Campaign already in '${status}' state` };
+      }
+
+      const transitionAllowed = isAdmin
+        ? canAdminTransitionTo(previousStatus, status)
+        : canSelfTransitionTo(previousStatus, status);
+
+      if (!transitionAllowed) {
+        throw {
+          status: 400,
+          message: `Campaign cannot move from '${previousStatus}' to '${status}'`,
         };
       }
 
-      if (!campaign.activatedAt) {
-        campaign.activatedAt = new Date();
+      const marketer = await UserModel.findById(campaign.owner)
+        .session(session)
+        .select("displayName email wallets.marketer.balance");
+
+      if (!marketer) {
+        throw { status: 404, message: "Campaign owner not found" };
       }
-    }
 
-    /**
-     * ❌ NO WALLET RESERVATION
-     * Budget is spent dynamically as views are validated
-     */
+      if (status === "active") {
+        const activationRequirement = buildActivationWalletRequirement(campaign);
+        const walletBalance = Number(marketer.wallets?.marketer?.balance ?? 0);
+        const costPerClick = getCampaignCostPerClickValue(campaign);
 
-    campaign.updateStatus(status, performerId, details);
-    await campaign.save({ session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    /**
-     * 📣 POST-COMMIT NOTIFICATIONS
-     */
-    try {
-      const marketer = await UserModel.findById(campaign.owner);
-
-      if (marketer?.email) {
-        if (status === "active") {
-          const emailContent = campaignApprovedTemplate({
-            userName: marketer.displayName,
-            campaignTitle: campaign.title,
-            campaignId: campaign._id,
-            budget: campaign.budget
-          });
-
-          await sendEmail(
-            marketer.email,
-            "Your Campaign Is Live 🚀 - MarketSpase",
-            emailContent
-          );
-
-          await NotificationService.createCampaignApprovedNotification(
-            campaign.owner,
-            campaign
-          );
+        if (!Number.isFinite(Number(campaign.budget)) || Number(campaign.budget) < 1000) {
+          throw { status: 400, message: "Campaign budget is invalid" };
         }
 
-        if (status === "rejected") {
-          const emailContent = campaignRejectedTemplate({
-            userName: marketer.displayName,
-            campaignTitle: campaign.title,
-            budget: campaign.budget,
-            refundAmount: campaign.budget - campaign.spentBudget,
-            rejectionReason:
-              details || "Your campaign did not meet our guidelines."
-          });
-
-          await sendEmail(
-            marketer.email,
-            "Campaign Not Approved - MarketSpase",
-            emailContent
-          );
-
-          await NotificationService.createCampaignRejectedNotification(
-            campaign.owner,
-            campaign,
-            details
-          );
+        if (getCampaignRemainingBudgetValue(campaign) < costPerClick) {
+          throw {
+            status: 400,
+            message: "Campaign does not have enough remaining budget to resume",
+          };
         }
-      }
-    } catch (notifyError) {
-      console.error("Notification failure:", notifyError);
-      // Intentionally non-blocking
-    }
 
-    return res.status(200).json({
-      success: true,
-      message: `Campaign status updated to '${status}'`,
-      data: {
+        if (walletBalance < activationRequirement) {
+          throw {
+            status: 400,
+            message: "Insufficient marketer wallet balance to activate this campaign",
+          };
+        }
+
+        campaign.exhaustedAt = undefined;
+      }
+
+      campaign.payoutModel = "pay_per_click";
+      campaign.reservedBudget = 0;
+      campaign.updateStatus(status, performedBy || actorId, details);
+      await campaign.save({ session });
+
+      if (status === "active") {
+        await reactivateCampaignPromotions({ campaignId: campaign._id, session });
+      } else if (["paused", "rejected", "completed", "expired", "exhausted"].includes(status)) {
+        await deactivateCampaignPromotions({ campaignId: campaign._id, session });
+      }
+
+      responsePayload = {
         id: campaign._id,
         title: campaign.title,
         status: campaign.status,
         budget: campaign.budget,
         spentBudget: campaign.spentBudget,
-        remainingBudget: campaign.remainingBudget
+        remainingBudget: getCampaignRemainingBudgetValue(campaign),
+      };
+
+      notificationPayload = {
+        campaignId: String(campaign._id),
+        campaignTitle: campaign.title,
+        campaignBudget: campaign.budget,
+        campaignSpentBudget: campaign.spentBudget,
+        campaignOwnerId: String(campaign.owner),
+        marketerEmail: marketer.email,
+        marketerDisplayName: marketer.displayName || "Valued Marketer",
+        previousStatus,
+        nextStatus: status,
+        details,
+      };
+    });
+
+    if (notificationPayload?.marketerEmail) {
+      try {
+        if (shouldSendApprovalNotification(notificationPayload.previousStatus, notificationPayload.nextStatus)) {
+          const emailContent = campaignApprovedTemplate({
+            userName: notificationPayload.marketerDisplayName,
+            campaignTitle: notificationPayload.campaignTitle,
+            campaignId: notificationPayload.campaignId,
+            budget: notificationPayload.campaignBudget,
+          });
+
+          await sendEmail(
+            notificationPayload.marketerEmail,
+            "Your Campaign Is Live - MarketSpase",
+            emailContent
+          );
+
+          await NotificationService.createCampaignApprovedNotification(
+            notificationPayload.campaignOwnerId,
+            {
+              _id: notificationPayload.campaignId,
+              title: notificationPayload.campaignTitle,
+              budget: notificationPayload.campaignBudget,
+            }
+          );
+        }
+
+        if (shouldSendRejectionNotification(notificationPayload.nextStatus)) {
+          const emailContent = campaignRejectedTemplate({
+            userName: notificationPayload.marketerDisplayName,
+            campaignTitle: notificationPayload.campaignTitle,
+            budget: notificationPayload.campaignBudget,
+            refundAmount: Math.max(
+              Number(notificationPayload.campaignBudget || 0) -
+                Number(notificationPayload.campaignSpentBudget || 0),
+              0
+            ),
+            rejectionReason:
+              notificationPayload.details || "Your campaign did not meet our guidelines.",
+          });
+
+          await sendEmail(
+            notificationPayload.marketerEmail,
+            "Campaign Not Approved - MarketSpase",
+            emailContent
+          );
+
+          await NotificationService.createCampaignRejectedNotification(
+            notificationPayload.campaignOwnerId,
+            {
+              _id: notificationPayload.campaignId,
+              title: notificationPayload.campaignTitle,
+              budget: notificationPayload.campaignBudget,
+            },
+            notificationPayload.details
+          );
+        }
+      } catch (notificationError) {
+        console.error("Campaign status notification failure:", notificationError);
       }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Campaign status updated to '${status}'`,
+      data: responsePayload,
     });
   } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-
     console.error("UpdateCampaignStatus error:", error);
 
-    return res.status(500).json({
+    return res.status(error?.status ?? 500).json({
       success: false,
-      message: "Failed to update campaign status",
-      error:
-        process.env.NODE_ENV === "development"
-          ? error.message
-          : undefined
+      message: error?.message || "Failed to update campaign status",
+      error: process.env.NODE_ENV === "development" ? error?.stack : undefined,
     });
+  } finally {
+    session.endSession();
   }
 };

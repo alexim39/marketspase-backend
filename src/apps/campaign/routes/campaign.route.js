@@ -6,11 +6,13 @@ import { trackCampaignClick } from '../controllers/track-campaign-click.controll
 import { createCampaign } from '../controllers/create-campaign.controller.js'
 import { saveCampaign } from '../controllers/save-campaign.controller.js'
 import { EditCampaign, UpdateCampaignPartial  } from '../controllers/edit-campaign.controller.js'
-import { getProofDetails, } from '../controllers/get-proof-details.controller.js'
 import { getCampaignsByStatusAndUserId } from '../controllers/get-by-status-and-userid.controller.js'
 import { GetAMarketerCampaigns } from '../controllers/get-marketer-campaign.controller.js'
+import { getMarketerAnalytics } from '../controllers/get-marketer-analytics.controller.js';
 
 import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
+import { UpdateCampaignStatus } from '../controllers/update-campaign.controller.js';
+import { topUpCampaign } from '../controllers/top-up-campaign.controller.js';
 
 import { UpdateCampaignTargeting, GetCampaignTargeting } from '../controllers/targeting.controller.js';
 import { authenticate } from '../../../shared/middleware/auth.middleware.js';
@@ -26,7 +28,7 @@ router.use(authenticate);
 
 // GET routes in order of specificity - FIXED ORDER
 router.get('/user/:userId', GetAMarketerCampaigns);
-router.get('/promotions/proof/:promotionId', getProofDetails);
+router.get('/analytics/marketer/:userId', getMarketerAnalytics);
 router.get('/', getCampaignsByStatusAndUserId);
 
 // MOST SPECIFIC DYNAMIC ROUTES LAST - FIXED: This should be BEFORE other dynamic routes
@@ -47,5 +49,7 @@ router.put('/targeting/:campaignId/:performedBy', UpdateCampaignTargeting);
 router.get('/targeting/:campaignId', GetCampaignTargeting);
 
 router.post('/:campaignId/accept', acceptCampaign);
+router.patch('/:id/status', UpdateCampaignStatus);
+router.post('/:campaignId/top-up', topUpCampaign);
 
 export default router;

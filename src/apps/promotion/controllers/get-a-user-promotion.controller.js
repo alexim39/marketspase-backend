@@ -4,6 +4,7 @@ import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { isPromotionExpired, calculateTimeRemaining, calculateProgressPercentage } from './../services/utils.js';
 import { normalizePromotionTrackingFields } from "../utils/promotion-url.js";
+import { normalizeLegacyPpcPromotionStatus } from "../../campaign/services/campaign-runtime.service.js";
 
 const MAX_PAGE_SIZE = 100;
 const DEFAULT_PAGE_SIZE = 10;
@@ -11,16 +12,12 @@ const PROMOTION_LIST_SELECT = [
   "_id",
   "status",
   "acceptedAt",
-  "downloadedAt",
-  "submittedAt",
-  "validatedAt",
   "rejectedAt",
   "paidAt",
   "payoutAmount",
   "payoutModel",
   "costPerClick",
   "payoutSnapshot",
-  "proofViews",
   "viewsAchieved",
   "rejectionReason",
   "notes",
@@ -58,12 +55,10 @@ const ALLOWED_SORT_FIELDS = new Set([
   "createdAt",
   "updatedAt",
   "acceptedAt",
-  "submittedAt",
-  "validatedAt",
   "paidAt",
 ]);
 
-const ACTIVE_PROMOTION_STATUSES = ["accepted", "downloaded", "submitted", "validated"];
+const ACTIVE_PROMOTION_STATUSES = ["accepted"];
 
 
 // Get all promotions for a user with filtering and pagination
@@ -167,6 +162,7 @@ export const GetUserPromotions = async (req, res) => {
     // Calculate additional data for each promotion
     const enhancedPromotions = promotions.map(promotion => ({
       ...normalizePromotionTrackingFields(promotion),
+      status: normalizeLegacyPpcPromotionStatus(promotion.status, promotion.isActive),
       isExpired: isPromotionExpired(promotion),
       timeRemaining: calculateTimeRemaining(promotion),
       progressPercentage: calculateProgressPercentage(promotion)

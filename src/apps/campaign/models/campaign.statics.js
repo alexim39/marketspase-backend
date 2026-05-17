@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { THRESHOLDS } from "./campaign.constants.js";
 
 export const setupCampaignStatics = (schema) => {
@@ -14,20 +15,6 @@ export const setupCampaignStatics = (schema) => {
     }).populate('owner');
   };
 
-  // Find active campaigns with pending submissions
-  schema.statics.findCampaignsWithPendingSubmissions = async function() {
-    const lastReminderCutoff = new Date(Date.now() - THRESHOLDS.SUBMISSION_REMINDER_FREQUENCY_HOURS * 60 * 60 * 1000);
-    
-    return this.find({
-      status: 'active',
-      $or: [
-        { 'submissionReminders.lastSent': { $lt: lastReminderCutoff } },
-        { 'submissionReminders.lastSent': { $exists: false } }
-      ],
-      totalPromotions: { $gt: 0 }
-    });
-  };
-
   // Find campaigns approaching deadline
   schema.statics.findCampaignsApproachingDeadline = async function(daysThreshold = THRESHOLDS.DEADLINE_APPROACHING_DAYS) {
     const thresholdDate = new Date(Date.now() + daysThreshold * 24 * 60 * 60 * 1000);
@@ -42,6 +29,7 @@ export const setupCampaignStatics = (schema) => {
   // Mark campaigns as expired
   schema.statics.markExpiredCampaigns = async function() {
     const now = new Date();
+    const Promotion = mongoose.model("Promotion");
 
     const campaigns = await this.find({
       hasEndDate: true,
@@ -69,6 +57,11 @@ export const setupCampaignStatics = (schema) => {
       }
     );
 
+    await Promotion.updateMany(
+      { campaign: { $in: ids }, isActive: true },
+      { $set: { isActive: false } }
+    );
+
     return {
       matched: result.matchedCount ?? result.n,
       modified: result.modifiedCount ?? result.nModified
@@ -77,11 +70,12 @@ export const setupCampaignStatics = (schema) => {
 
   // Mark campaigns as exhausted
   schema.statics.markExhaustedCampaigns = async function() {
+    const Promotion = mongoose.model("Promotion");
     const campaigns = await this.find({
       status: 'active',
       $expr: {
         $lt: [
-          { $subtract: ['$budget', { $add: ['$spentBudget', '$reservedBudget'] }] },
+          { $subtract: ['$budget', { $ifNull: ['$spentBudget', 0] }] },
           { $ifNull: ['$costPerClick', '$payoutPerPromotion'] }
         ]
       }
@@ -107,6 +101,11 @@ export const setupCampaignStatics = (schema) => {
       }
     );
 
+    await Promotion.updateMany(
+      { campaign: { $in: ids }, isActive: true },
+      { $set: { isActive: false } }
+    );
+
     return {
       matched: result.matchedCount ?? result.n,
       modified: result.modifiedCount ?? result.nModified
@@ -118,11 +117,10 @@ export const setupCampaignStatics = (schema) => {
     const query = {
       status: 'active',
       isDeleted: false,
-      currentPromoters: { $lt: '$maxPromoters' },
       $expr: {
         $gt: [
-          { $subtract: ['$budget', { $add: ['$spentBudget', '$reservedBudget'] }] },
-          '$payoutPerPromotion'
+          { $subtract: ['$budget', { $ifNull: ['$spentBudget', 0] }] },
+          { $ifNull: ['$costPerClick', '$payoutPerPromotion'] }
         ]
       }
     };
@@ -146,9 +144,8 @@ export const setupCampaignStatics = (schema) => {
         count: { $sum: 1 },
         totalBudget: { $sum: '$budget' },
         totalSpent: { $sum: '$spentBudget' },
-        totalPromoters: { $sum: '$currentPromoters' },
-        maxPromoters: { $sum: '$maxPromoters' },
-        avgPayoutPerPromotion: { $avg: '$payoutPerPromotion' }
+        totalPromotions: { $sum: '$totalPromotions' },
+        avgCostPerClick: { $avg: { $ifNull: ['$costPerClick', '$payoutPerPromotion'] } }
       }}
     ]);
 

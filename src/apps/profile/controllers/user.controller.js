@@ -469,8 +469,8 @@ export const getProfile = async (req, res) => {
 
     const user = await UserModel.findById(userId)
       .select(summaryView
-        ? 'uid username displayName avatar personalInfo professionalInfo createdAt role rating ratingCount ratingUpdatedAt isVerified badgeProfile gamificationProfile'
-        : 'uid username displayName avatar personalInfo professionalInfo createdAt role rating ratingCount ratingUpdatedAt isVerified badgeProfile gamificationProfile loginStreak'
+        ? 'uid username displayName avatar personalInfo professionalInfo createdAt role rating ratingCount ratingUpdatedAt collaborationRating collaborationRatingCount collaborationReviewCount isVerified badgeProfile gamificationProfile'
+        : 'uid username displayName avatar personalInfo professionalInfo createdAt role rating ratingCount ratingUpdatedAt collaborationRating collaborationRatingCount collaborationReviewCount isVerified badgeProfile gamificationProfile loginStreak'
       )
       .lean();
 

@@ -8,8 +8,7 @@ import {
   createActivityEntry, 
   createNotificationEntry,
   wasNotificationRecentlySent,
-  shouldSendBudgetAlert,
-  shouldSendSubmissionReminder
+  shouldSendBudgetAlert
 } from "./campaign.utils.js";
 
 export const setupCampaignMethods = (schema) => {
@@ -17,36 +16,22 @@ export const setupCampaignMethods = (schema) => {
   schema.methods.assignPromoter = function() {
     if (this.status !== "active") return false;
 
-    if (this.currentPromoters >= this.maxPromoters) return false;
-
-    const available = this.budget - (this.spentBudget + this.reservedBudget);
-    if (available < this.payoutPerPromotion) {
+    const unitCost = Number(this.costPerClick ?? this.payoutPerPromotion ?? 0);
+    const available = this.budget - this.spentBudget;
+    if (available < unitCost) {
       this.status = "exhausted";
       this._justExhausted = true;
       return false;
     }
 
-    this.currentPromoters += 1;
     this.totalPromotions += 1;
 
     this.activityLog.push(createActivityEntry(
-      "Promoter Accepted",
-      `Promoter accepted. Slots used: ${this.currentPromoters}/${this.maxPromoters}`
+      "Promotion Link Accepted",
+      "A promoter accepted this campaign and a tracked promotion link was created."
     ));
 
     return true;
-  };
-
-  // Method to validate a promotion
-  schema.methods.validatePromotion = function() {
-    this.validatedPromotions += 1;
-    
-    this.activityLog.push(createActivityEntry(
-      "Promotion Validated",
-      `Promotion validated. Total validated: ${this.validatedPromotions}`
-    ));
-
-    return this;
   };
 
   // Method to update campaign status
@@ -103,35 +88,15 @@ export const setupCampaignMethods = (schema) => {
     return this;
   };
 
-  schema.methods.shouldSendSubmissionReminder = function() {
-    return shouldSendSubmissionReminder(
-      this.status,
-      this.totalPromotions,
-      this.submissionReminders.lastSent,
-      THRESHOLDS.SUBMISSION_REMINDER_FREQUENCY_HOURS
-    );
-  };
-
-  schema.methods.recordSubmissionReminder = function() {
-    this.submissionReminders.lastSent = new Date();
-    this.submissionReminders.sentCount += 1;
-    return this;
-  };
-
   schema.methods.getPerformanceSummary = function() {
     return {
       totalPromotions: this.totalPromotions,
-      validatedPromotions: this.validatedPromotions,
-      paidPromotions: this.paidPromotions,
-      rejectedPromotions: this.rejectedPromotions,
       spentBudget: this.spentBudget,
       remainingBudget: this.remainingBudget,
-      reservedBudget: this.reservedBudget,
       progress: this.progress,
       budgetUtilization: this.budgetUtilization,
       estimatedViews: this.estimatedViews,
       conversionRate: this.conversionRate,
-      averagePayoutPerPromotion: this.averagePayoutPerPromotion,
       budgetEfficiency: this.budgetEfficiency
     };
   };

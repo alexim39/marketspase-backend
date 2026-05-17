@@ -104,12 +104,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
         {
           $subtract: [
             { $toDouble: { $ifNull: ["$budget", 0] } },
-            {
-              $add: [
-                { $toDouble: { $ifNull: ["$spentBudget", 0] } },
-                { $toDouble: { $ifNull: ["$reservedBudget", 0] } },
-              ],
-            },
+            { $toDouble: { $ifNull: ["$spentBudget", 0] } },
           ],
         },
         0,
@@ -129,18 +124,6 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
           $cond: [{ $gt: ["$$costValue", 0] }, "$$costValue", DEFAULT_COST_PER_CLICK],
         },
       },
-    };
-
-    const maxPromotersExpr = { $toDouble: { $ifNull: ["$maxPromoters", 0] } };
-    const currentPromotersExpr = {
-      $toDouble: {
-        $ifNull: ["$currentPromoters", { $ifNull: ["$totalPromotions", 0] }],
-      },
-    };
-
-    const hasPromoterLimitExpr = { $gt: [maxPromotersExpr, 0] };
-    const promoterSlotsOpenExpr = {
-      $cond: [hasPromoterLimitExpr, { $lt: [currentPromotersExpr, maxPromotersExpr] }, true],
     };
 
     const notExpiredExpr = {
@@ -186,7 +169,6 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     const availabilityEligibleExpr = {
       $and: [
         { $gte: [remainingBudgetExpr, normalizedCostPerClickExpr] },
-        promoterSlotsOpenExpr,
         notExpiredExpr,
       ],
     };
@@ -291,7 +273,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
                 costPerClick: "$normalizedCostPerClick",
                 currency: 1,
                 maxPromoters: 1,
-                currentPromoters: 1,
+                currentPromoters: { $ifNull: ["$totalPromotions", 0] },
                 minViewsPerPromotion: 1,
                 totalPromotions: 1,
                 validatedPromotions: 1,

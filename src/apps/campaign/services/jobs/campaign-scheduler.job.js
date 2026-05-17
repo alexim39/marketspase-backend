@@ -4,6 +4,12 @@ import mongoose from 'mongoose';
 import { sendEmail } from '../../../../core/email.service.js';
 import { campaignApprovedTemplate } from '../../services/email/campaignApprovedTemplate.js';
 import { NotificationService } from '../../../notification/services/notification.service.js';
+import { UserModel } from '../../../user/models/user/index.js';
+import {
+  getCampaignCostPerClickValue,
+  getCampaignRemainingBudgetValue,
+  reactivateCampaignPromotions,
+} from '../campaign-runtime.service.js';
 
 // Optional: light telemetry hook
 function logResult(prefix, res) {
@@ -98,7 +104,7 @@ export const CampaignSchedulerService = {
         // Find all pending campaigns that are eligible for activation
         const pendingCampaigns = await CampaignModel.find({
           status: 'pending',
-          budget: { $gte: 500 }, // Minimum budget check
+          budget: { $gte: 1000 },
           startDate: { $lte: new Date() }, // Start date has arrived or is in the past
           isDeleted: false
         }).session(session);
@@ -122,44 +128,41 @@ export const CampaignSchedulerService = {
               continue;
             }
 
-            // Apply activation rules (similar to UpdateCampaignStatus controller)
-            
-            // Check if can be activated from pending state
             if (campaign.status !== 'pending') {
               failedCampaigns.push({ id: campaign._id, reason: 'Invalid status for activation' });
               continue;
             }
 
-            // Validate budget again
-            if (!campaign.budget || campaign.budget < 500) {
+            if (!campaign.budget || campaign.budget < 1000) {
               failedCampaigns.push({ id: campaign._id, reason: 'Insufficient budget' });
               continue;
             }
 
-            // Snapshot payout rules if not already set
-            if (!campaign.payoutRulesSnapshot) {
-              campaign.payoutRulesSnapshot = {
-                model: "performance_based_views",
-                tiers: [
-                  { min: 35, max: 65, payout: 100 },
-                  { min: 66, max: 101, payout: 200 },
-                  { min: 102, max: 150, payout: 300 },
-                  { min: 151, max: 310, payout: 400 },
-                  { min: 311, max: null, payout: 500 }
-                ],
-                lockedAt: new Date()
-              };
+            const owner = await UserModel.findById(campaign.owner)
+              .session(session)
+              .select("wallets.marketer.balance");
+
+            if (!owner) {
+              failedCampaigns.push({ id: campaign._id, reason: 'Campaign owner not found' });
+              continue;
             }
 
-            // Set activation timestamp if not set
-            if (!campaign.activatedAt) {
-              campaign.activatedAt = new Date();
+            const requiredBalance = Math.max(
+              getCampaignRemainingBudgetValue(campaign),
+              getCampaignCostPerClickValue(campaign)
+            );
+
+            if (Number(owner.wallets?.marketer?.balance ?? 0) < requiredBalance) {
+              failedCampaigns.push({ id: campaign._id, reason: 'Insufficient wallet balance' });
+              continue;
             }
 
-            // Update campaign status using the model method
+            campaign.payoutModel = "pay_per_click";
+            campaign.reservedBudget = 0;
             campaign.updateStatus('active', campaign.owner, 'Auto-activated by scheduler');
             
             await campaign.save({ session });
+            await reactivateCampaignPromotions({ campaignId: campaign._id, session });
             activatedCampaigns.push(campaign._id);
 
           } catch (campaignError) {

@@ -8,7 +8,7 @@ export const setupCampaignVirtuals = (schema) => {
 
   // Virtual for remaining budget
   schema.virtual('remainingBudget').get(function() {
-    return this.budget - (this.spentBudget + (this.reservedBudget || 0));
+    return this.budget - (this.spentBudget || 0);
   });
 
   // Virtual for budget utilization percentage
@@ -19,8 +19,8 @@ export const setupCampaignVirtuals = (schema) => {
 
   // Virtual for progress percentage
   schema.virtual('progress').get(function() {
-    if (this.maxPromoters === 0) return 0;
-    return (this.currentPromoters / this.maxPromoters) * 100;
+    if (this.budget === 0) return 0;
+    return (this.spentBudget / this.budget) * 100;
   });
 
   // Virtual for remaining days
@@ -48,14 +48,14 @@ export const setupCampaignVirtuals = (schema) => {
 
   // Virtual for conversion rate (validated/paid ratio)
   schema.virtual('conversionRate').get(function() {
-    if (this.totalPromotions === 0) return 0;
-    return (this.validatedPromotions / this.totalPromotions) * 100;
+    if (this.totalClicks === 0) return 0;
+    return (this.billableClicks / this.totalClicks) * 100;
   });
 
   // Virtual for budget efficiency
   schema.virtual('budgetEfficiency').get(function() {
     if (this.spentBudget === 0) return 0;
-    return this.validatedPromotions / (this.spentBudget / 1000); // Per 1000 NGN
+    return this.billableClicks / (this.spentBudget / 1000); // billable clicks per 1000 NGN
   });
 
   // Virtual for isActive (convenience)
@@ -66,10 +66,8 @@ export const setupCampaignVirtuals = (schema) => {
   // Virtual for canAcceptPromoters
   schema.virtual('canAcceptPromoters').get(function() {
     const unitCost = Number(this.costPerClick ?? this.payoutPerPromotion ?? 0);
-    const hasPromoterSlot = !this.maxPromoters || this.currentPromoters < this.maxPromoters;
 
-    return this.status === 'active' && 
-           hasPromoterSlot &&
+    return this.status === 'active' &&
            this.remainingBudget >= unitCost;
   });
 };

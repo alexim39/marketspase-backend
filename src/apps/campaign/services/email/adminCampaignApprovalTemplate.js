@@ -45,8 +45,8 @@ export const adminCampaignApprovalTemplate = (campaignData) => {
             <td style="padding:8px 0;color:#2d3748;text-align:right;">${campaignData.category}</td>
           </tr>
           <tr>
-            <td style="padding:8px 0;color:#4a5568;"><strong>Max Promoters:</strong></td>
-            <td style="padding:8px 0;color:#2d3748;text-align:right;">${campaignData.maxPromoters}</td>
+            <td style="padding:8px 0;color:#4a5568;"><strong>Cost Per Click:</strong></td>
+            <td style="padding:8px 0;color:#2d3748;text-align:right;">N${campaignData.costPerClick ?? 'Calculated on approval'}</td>
           </tr>
           <tr>
             <td style="padding:8px 0;color:#4a5568;"><strong>Media Type:</strong></td>
@@ -97,7 +97,7 @@ export const adminCampaignApprovalTemplate = (campaignData) => {
         <ul style="margin:0;padding-left:20px;font-size:14px;line-height:1.5;color:#744210;">
           <li>Verify media quality, CTA clarity, and policy compliance</li>
           <li>Check the destination link or fallback contact path</li>
-          <li>Confirm budget logic, payout structure, and promoter cap</li>
+          <li>Confirm budget logic, click pricing, and destination safety</li>
           <li>Review targeting settings, categories, and campaign requirements</li>
           <li>Ensure the user journey after the click is clear and legitimate</li>
         </ul>

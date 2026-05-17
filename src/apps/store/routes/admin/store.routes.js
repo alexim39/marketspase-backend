@@ -4,6 +4,11 @@ import { StoreReviewAdminController } from '../../controllers/admin/review.contr
 import { StoreModel } from '../../models/store/index.js';
 import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 import { requireAdmin } from '../../../../shared/middleware/authorization.middleware.js';
+import {
+  getAdminBuyerDetail,
+  getAdminBuyers,
+  updateAdminBuyerMeta,
+} from '../../controllers/storefront/storefront-customer.controller.js';
 
 const router = express.Router();
 
@@ -19,6 +24,9 @@ router.get('/stores',  StoreController.getStores);
 router.get('/statistics',  StoreController.getStoreStatistics);
 router.get('/categories',  StoreController.getStoreCategories);
 router.get('/owners',  StoreController.getStoreOwners);
+router.get('/buyers', getAdminBuyers);
+router.get('/buyers/detail', getAdminBuyerDetail);
+router.patch('/buyers/meta', updateAdminBuyerMeta);
 router.post('/export/:format',  StoreController.exportStores);
 router.post('/bulk-update',  StoreController.bulkUpdateStores);
 router.get('/reviews', StoreReviewAdminController.getReviews);

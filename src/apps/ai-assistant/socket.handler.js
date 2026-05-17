@@ -46,6 +46,10 @@ export const setupSocketHandlers = (io) => {
       socket.join(`conversation:${conversationId}`);
     });
 
+    socket.on('join_collaboration_conversation', (conversationId) => {
+      socket.join(`collaboration:${conversationId}`);
+    });
+
     socket.on('disconnect', () => {
       // cleanup if needed
     });
@@ -59,4 +63,21 @@ export const notifyNewMessage = (io, userId, conversationId, message) => {
 
 export const notifyConversationUpdate = (io, userId, conversation) => {
   io.to(`user:${userId}`).emit('conversation_updated', conversation);
+};
+
+export const notifyCollaborationMessage = (io, conversationId, participantIds = [], message) => {
+  for (const participantId of participantIds) {
+    io.to(`user:${participantId}`).emit('collaboration_message', {
+      conversationId,
+      ...message,
+    });
+  }
+
+  io.to(`collaboration:${conversationId}`).emit('collaboration_message', message);
+};
+
+export const notifyCollaborationConversationUpdate = (io, participantIds = [], payload) => {
+  for (const participantId of participantIds) {
+    io.to(`user:${participantId}`).emit('collaboration_conversation_updated', payload);
+  }
 };

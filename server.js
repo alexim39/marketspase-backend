@@ -32,6 +32,7 @@ import { GamificationRouter } from './src/apps/gamification/index.js';
 
 import { metricsRoutes } from './src/apps/metrics/index.js';
 import { aiAssistantRoutes } from './src/apps/ai-assistant/index.js';
+import CollaborationRouter from './src/apps/collaboration/index.js';
 
 // paystack transaction webhook imports
 import handlePaystackWithdrawalWebhook from './src/apps/wallet/services/paystack-webhook-wthdrawal-approval.service.js';
@@ -180,6 +181,7 @@ app.use('/api/v1/badges', BadgeRouter);
 app.use('/api/v1/gamification', GamificationRouter);
 app.use('/api/v1/metrics', metricsRoutes);
 app.use('/api/v1/ai-assistant', aiAssistantRoutes);
+app.use('/api/v1/collaboration', CollaborationRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));

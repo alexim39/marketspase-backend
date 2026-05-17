@@ -1,6 +1,10 @@
 import { CampaignModel } from "../models/campaign.model.js";
 import { PromotionModel } from "../../promotion/models/promotion.model.js";
 import { ensureSelfOrAdmin, getAuthenticatedUserId } from "../../../shared/utils/request-auth.util.js";
+import {
+  getCampaignRemainingBudgetValue,
+  normalizeLegacyPpcPromotionStatus,
+} from "../services/campaign-runtime.service.js";
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 10;
@@ -76,12 +80,7 @@ const CAMPAIGN_LIST_FIELDS = [
   "updatedAt",
 ].join(" ");
 
-const ACTIVE_PROMOTION_STATUSES = new Set([
-  "accepted",
-  "downloaded",
-  "submitted",
-  "validated",
-]);
+const ACTIVE_PROMOTION_STATUSES = new Set(["accepted"]);
 
 const escapeRegExp = (value = "") => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -139,18 +138,17 @@ const buildPromotionSummary = (promotions) => {
 const buildCampaignResponse = (campaign, promotions) => {
   const budget = Number(campaign.budget || 0);
   const spentBudget = Number(campaign.spentBudget || 0);
-  const reservedBudget = Number(campaign.reservedBudget || 0);
-  const maxPromoters = Number(campaign.maxPromoters || 0);
-  const currentPromoters = Number(campaign.currentPromoters || 0);
-  const remainingBudget = Math.max(budget - spentBudget - reservedBudget, 0);
-  const progress = maxPromoters > 0 ? (currentPromoters / maxPromoters) * 100 : 0;
+  const remainingBudget = getCampaignRemainingBudgetValue(campaign);
+  const progress = budget > 0 ? (spentBudget / budget) * 100 : 0;
+  const promotionSummary = buildPromotionSummary(promotions);
 
   return {
     ...campaign,
     remainingBudget,
     progress,
     promotions,
-    promotionSummary: buildPromotionSummary(promotions),
+    currentPromoters: promotionSummary.uniquePromoters,
+    promotionSummary,
   };
 };
 
@@ -281,7 +279,7 @@ export const GetAMarketerCampaigns = async (req, res) => {
     const promotions = await PromotionModel.find({
       campaign: { $in: campaignIds },
     })
-      .select("_id campaign promoter status clickStats")
+      .select("_id campaign promoter status isActive clickStats")
       .lean();
 
     const promotionsByCampaignId = new Map();
@@ -292,7 +290,7 @@ export const GetAMarketerCampaigns = async (req, res) => {
       campaignPromotions.push({
         _id: String(promotion._id),
         promoter: promotion.promoter ? String(promotion.promoter) : null,
-        status: promotion.status,
+        status: normalizeLegacyPpcPromotionStatus(promotion.status, promotion.isActive),
         clickStats: promotion.clickStats || {
           totalClicks: 0,
           billableClicks: 0,

@@ -16,9 +16,8 @@ const getCampaignRemainingBudget = (promotion) => {
 
   const budget = Number(campaign.budget ?? 0);
   const spentBudget = Number(campaign.spentBudget ?? 0);
-  const reservedBudget = Number(campaign.reservedBudget ?? 0);
 
-  return Math.max(budget - spentBudget - reservedBudget, 0);
+  return Math.max(budget - spentBudget, 0);
 };
 
 const formatDuration = (milliseconds) => {

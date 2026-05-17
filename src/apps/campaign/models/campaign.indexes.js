@@ -40,8 +40,9 @@ export const setupCampaignIndexes = (schema) => {
     status: 1, 
     enableTarget: 1, 
     minRating: 1, 
-    currentPromoters: 1, 
-    maxPromoters: 1 
+    budget: 1,
+    spentBudget: 1,
+    costPerClick: 1
   });
   
   // Text index for searching

@@ -37,6 +37,11 @@ import {
   getStorefrontOrder,
   reviewStorefrontDeliveryRelease
 } from '../../controllers/storefront/storefront-order.controller.js'
+import {
+  getMarketerCustomerDetail,
+  getMarketerCustomers,
+  updateMarketerCustomerMeta,
+} from '../../controllers/storefront/storefront-customer.controller.js';
 
 const router = express.Router();
 
@@ -61,6 +66,9 @@ router.get('/orders/release-requests', authenticate, requireAdmin, getStorefront
 router.get('/orders/store/:storeId', authenticate, getStoreOrders);
 router.get('/orders/marketer/:marketerId', authenticate, getMarketerOrders);
 router.get('/orders/promoter/:promoterId', authenticate, getPromoterOrders);
+router.get('/customers/marketer/:marketerId', authenticate, getMarketerCustomers);
+router.get('/customers/marketer/:marketerId/detail', authenticate, getMarketerCustomerDetail);
+router.patch('/customers/marketer/:marketerId/meta', authenticate, updateMarketerCustomerMeta);
 router.get('/orders/:orderId', getStorefrontOrder);
 router.post('/orders/:orderId/confirm-payment', confirmStorefrontPayment);
 router.post('/orders/:orderId/confirm-delivery', authenticate, confirmStorefrontDelivery);

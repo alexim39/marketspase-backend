@@ -41,6 +41,12 @@ const storeCustomerSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  lifecycleStage: {
+    type: String,
+    enum: ["new", "active", "repeat", "vip", "at_risk", "suppressed"],
+    default: "new",
+    index: true
+  },
   source: {
     type: String,
     trim: true,
@@ -85,6 +91,24 @@ const storeCustomerSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  notes: {
+    type: String,
+    trim: true,
+    maxlength: 2000
+  },
+  preferredChannels: [{
+    type: String,
+    enum: ["email", "sms"]
+  }],
+  lastContactedAt: Date,
+  lastContactChannel: {
+    type: String,
+    enum: ["email", "sms", "manual"]
+  },
+  lastCampaignName: {
+    type: String,
+    trim: true
+  },
   tags: [{
     type: String,
     trim: true
@@ -96,5 +120,7 @@ const storeCustomerSchema = new mongoose.Schema({
 storeCustomerSchema.index({ store: 1, email: 1 }, { unique: true });
 storeCustomerSchema.index({ store: 1, lastOrderAt: -1 });
 storeCustomerSchema.index({ marketer: 1, lastOrderAt: -1 });
+storeCustomerSchema.index({ marketer: 1, email: 1 });
+storeCustomerSchema.index({ marketer: 1, lifecycleStage: 1, lastOrderAt: -1 });
 
 export default storeCustomerSchema;
