@@ -12,6 +12,51 @@ import { ensureUidSelfOrAdmin } from '../../../shared/utils/request-auth.util.js
 import { verifyFirebaseIdentityToken } from '../../../shared/middleware/auth.middleware.js';
 const referralService = new ReferralService();
 
+const AUTH_RESPONSE_PROJECTION = {
+  _id: 1,
+  uid: 1,
+  username: 1,
+  displayName: 1,
+  email: 1,
+  avatar: 1,
+  role: 1,
+  type: 1,
+  isActive: 1,
+  isVerified: 1,
+  authenticationMethod: 1,
+  rating: 1,
+  ratingCount: 1,
+  ratingUpdatedAt: 1,
+  createdAt: 1,
+  updatedAt: 1,
+  lastSeenAt: 1,
+};
+
+const buildAuthResponseUser = (userLike, reputationSnapshot = {}) => {
+  if (!userLike) {
+    return null;
+  }
+
+  return {
+    _id: userLike._id,
+    uid: userLike.uid,
+    username: userLike.username,
+    displayName: userLike.displayName,
+    email: userLike.email || null,
+    avatar: userLike.avatar || null,
+    role: userLike.role || 'marketer',
+    type: userLike.type || 'user',
+    isActive: userLike.isActive !== false,
+    isVerified: Boolean(userLike.isVerified),
+    authenticationMethod: userLike.authenticationMethod || 'google.com',
+    rating: Number(reputationSnapshot.rating ?? userLike.rating ?? 0),
+    ratingCount: Number(reputationSnapshot.ratingCount ?? userLike.ratingCount ?? 0),
+    createdAt: userLike.createdAt || null,
+    updatedAt: userLike.updatedAt || null,
+    lastSeenAt: userLike.lastSeenAt || null,
+  };
+};
+
 
 const logActivitySafe = async (userId, activity) => {
   try {
@@ -82,7 +127,8 @@ export const Authenticate = async (req, res) => {
         new: true, 
         runValidators: true, 
         setDefaultsOnInsert: true,
-        includeResultMetadata: true 
+        includeResultMetadata: true,
+        projection: AUTH_RESPONSE_PROJECTION,
       }
     );
 
@@ -140,16 +186,14 @@ export const Authenticate = async (req, res) => {
     }
 
     // 4. Final Response
-    const reputationSnapshot = await refreshUserReputation(user);
-    const userObject = user.toObject();
-    userObject.rating = reputationSnapshot.rating;
-    userObject.ratingCount = reputationSnapshot.ratingCount;
-    delete userObject.password;
+    const reputationSnapshot = await refreshUserReputation(user._id);
+    const responseUser = buildAuthResponseUser(user, reputationSnapshot);
 
+    res.set('Cache-Control', 'no-store');
     return res.status(200).json({
       success: true,
       message: isNewUser ? "Account created" : "Signed in successfully",
-      user: userObject // Re-enable if you need the data on frontend
+      user: responseUser,
     });
 
   } catch (error) {
