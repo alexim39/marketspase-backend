@@ -53,13 +53,19 @@ export const archiveCampaign = async (req, res) => {
       });
     }
 
+    const activePromotionCount = await PromotionModel.countDocuments({
+      campaign: campaign._id,
+      isActive: true,
+      status: 'accepted',
+    }).session(session);
+
     // Check if campaign can be archived
-    if (campaign.status === 'active' && campaign.currentPromoters > 0) {
+    if (campaign.status === 'active' && activePromotionCount > 0) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: "Cannot archive active campaign with promoters. Pause or cancel it first.",
+        message: "Cannot archive an active campaign with live promotion links. Pause it first.",
       });
     }
 
@@ -181,12 +187,12 @@ export const deleteCampaign = async (req, res) => {
     }
 
     // Safety checks - prevent deletion of campaigns with activity
-    if (campaign.currentPromoters > 0 || campaign.spentBudget > 0) {
+    if ((campaign.promotions?.length || 0) > 0 || campaign.spentBudget > 0) {
       await session.abortTransaction();
       session.endSession();
       return res.status(400).json({
         success: false,
-        message: "Cannot delete campaign with active promoters or financial activity.",
+        message: "Cannot delete a campaign that has promotion history or financial activity.",
       });
     }
 

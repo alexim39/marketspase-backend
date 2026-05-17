@@ -1,12 +1,11 @@
 import mongoose from "mongoose"; // ADD THIS IMPORT
 import { CampaignModel } from "../models/campaign.model.js";
+import {
+  getCampaignRemainingBudgetValue,
+  normalizeLegacyPpcPromotionStatus,
+} from "../services/campaign-runtime.service.js";
 
-const ACTIVE_PROMOTION_STATUSES = new Set([
-  "accepted",
-  "downloaded",
-  "submitted",
-  "validated",
-]);
+const ACTIVE_PROMOTION_STATUSES = new Set(["accepted"]);
 
 const toFiniteNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -18,6 +17,7 @@ const normalizePromotion = (promotion) => {
 
   return {
     ...rawPromotion,
+    status: normalizeLegacyPpcPromotionStatus(rawPromotion.status, rawPromotion.isActive),
     acceptedAt: rawPromotion.acceptedAt || rawPromotion.createdAt || null,
     downloadedAt: rawPromotion.downloadedAt || null,
     submittedAt: rawPromotion.submittedAt || null,
@@ -85,30 +85,22 @@ const buildCampaignResponse = (campaign) => {
   const promotionSummary = buildPromotionSummary(promotions);
   const budget = toFiniteNumber(rawCampaign.budget);
   const spentBudget = toFiniteNumber(rawCampaign.spentBudget);
-  const reservedBudget = toFiniteNumber(rawCampaign.reservedBudget);
-  const remainingBudget = Math.max(budget - spentBudget - reservedBudget, 0);
+  const remainingBudget = getCampaignRemainingBudgetValue(rawCampaign);
   const totalClicks = toFiniteNumber(rawCampaign.totalClicks, promotionSummary.clickStats.totalClicks);
   const billableClicks = toFiniteNumber(rawCampaign.billableClicks, promotionSummary.clickStats.billableClicks);
   const invalidClicks = toFiniteNumber(rawCampaign.invalidClicks, promotionSummary.clickStats.invalidClicks);
   const duplicateClicks = toFiniteNumber(rawCampaign.duplicateClicks, promotionSummary.clickStats.duplicateClicks);
-  const currentPromoters = Math.max(
-    toFiniteNumber(rawCampaign.currentPromoters),
-    promotionSummary.uniquePromoters,
-  );
-  const maxPromoters = toFiniteNumber(rawCampaign.maxPromoters);
-  const slotProgress = maxPromoters > 0 ? (currentPromoters / maxPromoters) * 100 : 0;
-
   return {
     ...rawCampaign,
     promotions,
-    currentPromoters,
+    currentPromoters: promotionSummary.uniquePromoters,
     totalClicks,
     billableClicks,
     invalidClicks,
     duplicateClicks,
     remainingBudget,
     promotionSummary,
-    progress: Math.min(slotProgress, 100),
+    progress: budget > 0 ? Math.min((spentBudget / budget) * 100, 100) : 0,
   };
 };
 

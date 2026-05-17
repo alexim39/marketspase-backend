@@ -1,8 +1,9 @@
 // promotion.controller.js
 import { PromotionModel } from "../models/index.js";
 import mongoose from "mongoose";
-import { isPromotionExpired, calculateTimeRemaining, calculateViewsNeeded, calculateProgressPercentage } from '../services/utils.js'
+import { isPromotionExpired, calculateTimeRemaining, calculateProgressPercentage } from '../services/utils.js'
 import { normalizePromotionTrackingFields } from "../utils/promotion-url.js";
+import { normalizeLegacyPpcPromotionStatus } from "../../campaign/services/campaign-runtime.service.js";
 
 // Get promotion by ID with populated data
 export const GetPromotionById = async (req, res) => {
@@ -22,7 +23,7 @@ export const GetPromotionById = async (req, res) => {
     const promotion = await PromotionModel.findById(id)
       .populate({
         path: 'campaign',
-        select: 'title mediaUrl caption link category mediaType budget payoutPerPromotion costPerClick currency maxPromoters minViewsPerPromotion campaignType priority difficulty tags thumbnailUrl estimatedViews duration targetAudience requirements activityLog createdAt endDate status spentBudget reservedBudget remainingBudget',
+        select: 'title mediaUrl caption link category mediaType budget payoutPerPromotion costPerClick currency campaignType priority difficulty tags thumbnailUrl estimatedViews duration targetAudience requirements activityLog createdAt endDate status spentBudget remainingBudget',
         populate: {
           path: 'owner',
           select: 'username displayName avatar'
@@ -58,12 +59,12 @@ export const GetPromotionById = async (req, res) => {
 
     // Calculate additional data for the frontend
     const promotionData = normalizePromotionTrackingFields(promotion.toObject());
+    promotionData.status = normalizeLegacyPpcPromotionStatus(promotionData.status, promotionData.isActive);
     
     // Add calculated fields
     promotionData.isExpired = isPromotionExpired(promotion);
     promotionData.timeRemaining = calculateTimeRemaining(promotion);
     promotionData.progressPercentage = calculateProgressPercentage(promotion);
-    promotionData.viewsNeeded = calculateViewsNeeded(promotion);
 
     res.status(200).json({
       success: true,

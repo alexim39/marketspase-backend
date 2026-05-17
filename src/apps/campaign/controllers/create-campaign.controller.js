@@ -189,9 +189,16 @@ export const createCampaign = async (req, res) => {
       subject: "New Campaign Pending Approval",
       html: adminCampaignApprovalTemplate({
         title: campaign.title,
+        campaignId: campaign._id?.toString?.() || '',
+        marketerName: campaign.owner?.toString?.() || '',
         budget: campaign.budget,
         owner: campaign.owner,
-        category: campaign.category
+        category: campaign.category,
+        costPerClick: campaign.costPerClick,
+        mediaType: campaign.mediaType,
+        caption: campaign.caption,
+        requirements: campaign.requirements,
+        targetLocations: campaign.targetLocations,
       })
     }).catch(err => console.error("Email send failed:", err));
 

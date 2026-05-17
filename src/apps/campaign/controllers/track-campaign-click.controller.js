@@ -11,6 +11,10 @@ import {
   hasValidCampaignCostPerClick,
   resolveCampaignCostPerClick,
 } from "../services/campaign-pricing.service.js";
+import {
+  buildCampaignUnavailableUrl,
+  deactivateCampaignPromotions,
+} from "../services/campaign-runtime.service.js";
 
 const MAX_TX_RETRIES = 5;
 const DEDUPE_WINDOW_MINUTES = Number(process.env.PPC_CLICK_DEDUPE_WINDOW_MINUTES ?? 30);
@@ -46,15 +50,12 @@ const getDeviceType = (userAgent = "") => {
 };
 
 const normalizeDestinationUrl = (url) => {
-  const fallback = process.env.CAMPAIGN_UNAVAILABLE_REDIRECT_URL || process.env.FRONTEND_URL || "https://marketspase.com";
+  const fallback = process.env.FRONTEND_URL || "https://marketspase.com";
   if (!url || typeof url !== "string") return fallback;
   if (/^https?:\/\//i.test(url)) return url;
   if (url.startsWith("/")) return `${fallback.replace(/\/$/, "")}${url}`;
   return `https://${url}`;
 };
-
-const getUnavailableRedirectUrl = () =>
-  process.env.CAMPAIGN_UNAVAILABLE_REDIRECT_URL || process.env.FRONTEND_URL || "https://marketspase.com";
 
 const buildWhatsAppDestinationUrl = (user) => {
   const phone =
@@ -79,15 +80,7 @@ const getDestinationUrl = (promotion, campaign, marketer) => {
 };
 
 const getRemainingBudgetExpression = () => ({
-  $subtract: [
-    "$budget",
-    {
-      $add: [
-        { $ifNull: ["$spentBudget", 0] },
-        { $ifNull: ["$reservedBudget", 0] },
-      ],
-    },
-  ],
+  $subtract: ["$budget", { $ifNull: ["$spentBudget", 0] }],
 });
 
 const getCostPerClick = (promotion, campaign) =>
@@ -170,11 +163,7 @@ const maybeExhaustCampaign = async ({ session, campaignId, costPerClick, now }) 
   );
 
   if (exhausted.modifiedCount) {
-    await PromotionModel.updateMany(
-      { campaign: campaignId, isActive: true },
-      { $set: { isActive: false } },
-      { session }
-    );
+    await deactivateCampaignPromotions({ campaignId, session });
   }
 
   return Boolean(exhausted.modifiedCount);
@@ -306,7 +295,14 @@ export const trackCampaignClick = async (req, res) => {
           `);
 
         if (!promotion) {
-          throw { status: 404, message: "Invalid promotion link" };
+          txResult = {
+            success: false,
+            httpStatus: 410,
+            message: "Campaign is no longer available",
+            redirectUrl: buildCampaignUnavailableUrl({ reason: "invalid_link" }),
+            data: { status: "invalid" },
+          };
+          return;
         }
 
         const campaign = await CampaignModel.findById(promotion.campaign)
@@ -317,15 +313,32 @@ export const trackCampaignClick = async (req, res) => {
           `);
 
         if (!campaign) {
-          throw { status: 404, message: "Campaign not found" };
+          txResult = {
+            success: false,
+            httpStatus: 410,
+            message: "Campaign is no longer available",
+            redirectUrl: buildCampaignUnavailableUrl({ reason: "campaign_removed" }),
+            data: { status: "invalid" },
+          };
+          return;
         }
 
         const marketer = await UserModel.findById(campaign.owner)
           .session(session)
-          .select("personalInfo.phone personalInfo.phoneDetails");
+          .select("displayName personalInfo.phone personalInfo.phoneDetails");
 
         if (!marketer) {
-          throw { status: 404, message: "Campaign owner not found" };
+          txResult = {
+            success: false,
+            httpStatus: 410,
+            message: "Campaign is no longer available",
+            redirectUrl: buildCampaignUnavailableUrl({
+              campaign,
+              reason: "campaign_removed",
+            }),
+            data: { status: "invalid" },
+          };
+          return;
         }
 
         const costPerClick = getCostPerClick(promotion, campaign);
@@ -426,7 +439,11 @@ export const trackCampaignClick = async (req, res) => {
             success: false,
             httpStatus: 410,
             message: "Campaign is no longer active",
-            redirectUrl: getUnavailableRedirectUrl(),
+            redirectUrl: buildCampaignUnavailableUrl({
+              campaign,
+              marketer,
+              reason: campaign.status === "exhausted" ? "exhausted" : String(campaign.status || "inactive"),
+            }),
             data: { clickId: click._id, status: click.status },
           };
           return;
@@ -464,7 +481,11 @@ export const trackCampaignClick = async (req, res) => {
             success: false,
             httpStatus: 403,
             message: "Promotion link is temporarily unavailable",
-            redirectUrl: getUnavailableRedirectUrl(),
+            redirectUrl: buildCampaignUnavailableUrl({
+              campaign,
+              marketer,
+              reason: "under_review",
+            }),
             data: {
               clickId: click._id,
               status: "invalid",
@@ -564,11 +585,32 @@ export const trackCampaignClick = async (req, res) => {
             now,
           });
 
+          await CampaignModel.updateOne(
+            { _id: campaign._id, status: "active" },
+            {
+              $set: { status: "paused" },
+              $push: {
+                activityLog: {
+                  action: "Campaign Paused",
+                  details: "Campaign was paused automatically because the marketer wallet balance could not fund the next click.",
+                  timestamp: now,
+                },
+              },
+            },
+            { session }
+          );
+
+          await deactivateCampaignPromotions({ campaignId: campaign._id, session });
+
           txResult = {
             success: false,
             httpStatus: 402,
             message: "Campaign owner has insufficient wallet balance",
-            redirectUrl: getUnavailableRedirectUrl(),
+            redirectUrl: buildCampaignUnavailableUrl({
+              campaign,
+              marketer,
+              reason: "paused",
+            }),
             data: { clickId: click._id, status: "invalid", charged: false },
           };
           return;
@@ -599,10 +641,35 @@ export const trackCampaignClick = async (req, res) => {
         );
 
         if (!campaignCharge.modifiedCount) {
-          throw {
-            status: 409,
-            message: "Campaign budget was exhausted before this click could be charged",
+          await CampaignModel.updateOne(
+            { _id: campaign._id, status: "active" },
+            {
+              $set: { status: "exhausted", exhaustedAt: now },
+              $push: {
+                activityLog: {
+                  action: "Campaign Exhausted",
+                  details: "Campaign budget was exhausted before this click could be charged.",
+                  timestamp: now,
+                },
+              },
+            },
+            { session }
+          );
+
+          await deactivateCampaignPromotions({ campaignId: campaign._id, session });
+
+          txResult = {
+            success: false,
+            httpStatus: 410,
+            message: "Campaign budget was exhausted",
+            redirectUrl: buildCampaignUnavailableUrl({
+              campaign,
+              marketer,
+              reason: "exhausted",
+            }),
+            data: { status: "exhausted", charged: false },
           };
+          return;
         }
 
         const click = await createClickAudit({

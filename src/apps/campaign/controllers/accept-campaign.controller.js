@@ -14,10 +14,15 @@ import { awardGamificationProgress } from "../../gamification/service/gamificati
 import { resolveCampaignCostPerClick, hasValidCampaignCostPerClick } from "../services/campaign-pricing.service.js";
 import { refreshUserReputation } from "../../user/services/user-reputation.service.js";
 import { evaluateCampaignTargetEligibility } from "../services/campaign-targeting-eligibility.service.js";
+import {
+  deactivateCampaignPromotions,
+  getCampaignRemainingBudgetValue,
+  normalizeLegacyPpcPromotionStatus,
+} from "../services/campaign-runtime.service.js";
 
 const MAX_TX_RETRIES = 5;
 const MAX_ACCEPTS_PER_CAMPAIGN_PER_USER = Number(process.env.MAX_ACCEPTS_PER_CAMPAIGN_PER_USER ?? 3);
-const ACTIVE_PROMOTION_STATUSES = ["accepted", "submitted", "downloaded"];
+const ACTIVE_PROMOTION_STATUSES = ["accepted"];
 const isRetryableTxnError = (err) =>
   err?.errorLabels?.includes("TransientTransactionError") ||
   err?.errorLabels?.includes("UnknownTransactionCommitResult") ||
@@ -90,10 +95,6 @@ const getDestinationUrl = (campaign, marketer) => {
   return buildWhatsAppDestinationUrl(marketer);
 };
 
-const getCampaignRemainingBudget = (campaign) =>
-  Number(campaign.budget ?? 0) -
-  (Number(campaign.spentBudget ?? 0) + Number(campaign.reservedBudget ?? 0));
-
 const getCampaignCostPerClick = (campaign) =>
   resolveCampaignCostPerClick(campaign?.costPerClick, campaign?.payoutPerPromotion);
 
@@ -118,6 +119,7 @@ const ensurePromotionLink = async ({ promotion, campaign, marketer, req, session
   promotion.payoutModel = "pay_per_click";
   promotion.costPerClick = costPerClick;
   promotion.payoutAmount = Number(promotion.payoutAmount ?? 0);
+  promotion.status = "accepted";
   promotion.isActive = true;
   promotion.hasReservedFromMarketer = false;
   promotion.hasReservedForPromoter = false;
@@ -164,7 +166,7 @@ export const acceptCampaign = async (req, res) => {
             _id title owner status link
             budget spentBudget reservedBudget currency
             costPerClick payoutPerPromotion payoutModel
-            maxPromoters currentPromoters totalPromotions
+            totalPromotions
             enableTarget ageTarget targetLocations requirements minRating
           `);
 
@@ -183,7 +185,7 @@ export const acceptCampaign = async (req, res) => {
 
         const costPerClick = getCampaignCostPerClick(campaign);
         const destinationUrl = getDestinationUrl(campaign, marketer);
-        const remainingBudget = getCampaignRemainingBudget(campaign);
+        const remainingBudget = getCampaignRemainingBudgetValue(campaign);
         if (remainingBudget < costPerClick) {
           await CampaignModel.updateOne(
             { _id: campaign._id, status: "active" },
@@ -199,12 +201,8 @@ export const acceptCampaign = async (req, res) => {
             },
             { session }
           );
+          await deactivateCampaignPromotions({ campaignId: campaign._id, session });
           throw { status: 400, message: "Campaign budget exhausted" };
-        }
-
-        const hasPromoterLimit = Number.isFinite(Number(campaign.maxPromoters)) && Number(campaign.maxPromoters) > 0;
-        if (hasPromoterLimit && Number(campaign.currentPromoters ?? 0) >= Number(campaign.maxPromoters)) {
-          throw { status: 400, message: "Campaign has reached promoter limit" };
         }
 
         const promoter = await UserModel.findById(userId)
@@ -247,6 +245,10 @@ export const acceptCampaign = async (req, res) => {
         }).session(session);
 
         if (existingPromotion) {
+          existingPromotion.status = normalizeLegacyPpcPromotionStatus(
+            existingPromotion.status,
+            existingPromotion.isActive
+          );
           const promotion = await ensurePromotionLink({
             promotion: existingPromotion,
             campaign,
@@ -308,7 +310,7 @@ export const acceptCampaign = async (req, res) => {
         await CampaignModel.updateOne(
           { _id: campaign._id },
           {
-            $inc: { currentPromoters: 1, totalPromotions: 1 },
+            $inc: { totalPromotions: 1 },
             $set: { payoutModel: "pay_per_click", costPerClick },
           },
           { session }

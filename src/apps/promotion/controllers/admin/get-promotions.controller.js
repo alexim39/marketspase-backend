@@ -2,6 +2,18 @@ import { CampaignModel } from '../../../campaign/models/campaign.model.js';
 import { PromotionModel } from "../../../promotion/models/promotion.model.js";
 import { UserModel } from "../../../user/models/user/index.js";
 import { normalizePromotionTrackingFields } from "../../utils/promotion-url.js";
+import { normalizeLegacyPpcPromotionStatus } from "../../../campaign/services/campaign-runtime.service.js";
+
+const ACTIVE_PROMOTION_STATUSES = ["accepted", "downloaded", "submitted", "validated"];
+
+const getEffectivePromotionStatus = (promotion) => {
+  const normalizedStatus = normalizeLegacyPpcPromotionStatus(promotion.status, promotion.isActive);
+  if (normalizedStatus === "accepted" && promotion.isActive === false) {
+    return "inactive";
+  }
+
+  return normalizedStatus;
+};
 
 
 /**
@@ -29,7 +41,16 @@ export const GetAdminPromotions = async (req, res) => {
     // Status filter
     if (status) {
       const statusArray = Array.isArray(status) ? status : [status];
-      filter.status = { $in: statusArray };
+
+      if (statusArray.includes("active") || statusArray.includes("accepted")) {
+        filter.status = { $in: ACTIVE_PROMOTION_STATUSES };
+        filter.isActive = true;
+      } else if (statusArray.includes("inactive")) {
+        filter.status = { $in: ACTIVE_PROMOTION_STATUSES };
+        filter.isActive = false;
+      } else {
+        filter.status = { $in: statusArray };
+      }
     }
 
     // Campaign filter
@@ -41,20 +62,20 @@ export const GetAdminPromotions = async (req, res) => {
     // Date range filter
     if (startDate || endDate) {
       filter.$or = [
-        { submittedAt: {} },
+        { acceptedAt: {} },
         { createdAt: {} }
       ];
       
       if (startDate) {
         const start = new Date(startDate);
-        filter.$or[0].submittedAt.$gte = start;
+        filter.$or[0].acceptedAt.$gte = start;
         filter.$or[1].createdAt.$gte = start;
       }
       
       if (endDate) {
         const end = new Date(endDate);
         end.setHours(23, 59, 59, 999);
-        filter.$or[0].submittedAt.$lte = end;
+        filter.$or[0].acceptedAt.$lte = end;
         filter.$or[1].createdAt.$lte = end;
       }
     }
@@ -100,7 +121,7 @@ export const GetAdminPromotions = async (req, res) => {
 
     // Get promotions with population
     const promotions = await PromotionModel.find(filter)
-      .populate('campaign', 'title category payoutPerPromotion owner')
+      .populate('campaign', 'title category costPerClick payoutPerPromotion currency status owner')
       .populate('promoter', 'displayName email username avatar personalInfo.phoneDetails')
       .populate('validatedBy', 'displayName')
       .populate('paidBy', 'displayName')
@@ -113,33 +134,27 @@ export const GetAdminPromotions = async (req, res) => {
     const total = await PromotionModel.countDocuments(filter);
 
     // Calculate stats
-    const stats = await PromotionModel.aggregate([
-      { $match: filter },
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
+    const normalizedPromotions = promotions.map((promotion) => ({
+      ...normalizePromotionTrackingFields(promotion),
+      status: getEffectivePromotionStatus(promotion),
+    }));
 
-    const statsObject = {
+    const statsObject = normalizedPromotions.reduce((accumulator, promotion) => {
+      const key = promotion.status || "unknown";
+      accumulator.total += 1;
+      accumulator[key] = (accumulator[key] || 0) + 1;
+      return accumulator;
+    }, {
       total: 0,
-      pending: 0,
-      submitted: 0,
-      validated: 0,
+      accepted: 0,
+      inactive: 0,
       paid: 0,
-      rejected: 0
-    };
-
-    stats.forEach(stat => {
-      statsObject[stat._id] = stat.count;
-      statsObject.total += stat.count;
+      rejected: 0,
     });
 
     res.status(200).json({
       success: true,
-      data: promotions.map((promotion) => normalizePromotionTrackingFields(promotion)),
+      data: normalizedPromotions,
       pagination: {
         page: pageNum,
         limit: limitNum,
