@@ -8,6 +8,7 @@ import { StoreModel } from '../../store/models/store/store.model.js';
 import { OrderModel } from '../../store/models/order/order.model.js';
 import { PromotionTrackingModel } from '../../store/models/promotion/promotion/promotionTracking.model.js';
 import { PromotionModel } from '../../promotion/models/promotion.model.js';
+import { normalizePromotionTrackingFields } from '../../promotion/utils/promotion-url.js';
 import { ThreadModel } from '../../forum/models/thread/thread.model.js';
 import { CommentModel } from '../../forum/models/comment/comment.model.js';
 import { refreshUserReputation } from '../../user/services/user-reputation.service.js';
@@ -411,21 +412,25 @@ const buildPromoterProfile = async (userObjectId, sinceDate) => {
       recentAttributedSales: recentCommissionAnalytics.recentAttributedSales || 0,
       recentCommissionEarned: recentCommissionAnalytics.recentCommissionEarned || 0,
     },
-    topCampaigns: topCampaigns.map((promotion) => ({
-      _id: promotion._id,
-      campaignId: promotion.campaign?._id || null,
-      title: promotion.campaign?.title || 'Campaign',
-      category: promotion.campaign?.category || '',
-      status: promotion.status,
-      mediaUrl: promotion.campaign?.mediaUrl || null,
-      thumbnailUrl: promotion.campaign?.thumbnailUrl || null,
-      promotionUrl: promotion.promotionUrl || null,
-      upi: promotion.upi || null,
-      totalClicks: promotion.clickStats?.totalClicks || 0,
-      billableClicks: promotion.clickStats?.billableClicks || 0,
-      earnedAmount: promotion.clickStats?.earnedAmount || 0,
-      acceptedAt: promotion.acceptedAt || promotion.createdAt,
-    })),
+    topCampaigns: topCampaigns.map((promotion) => {
+      const normalizedPromotion = normalizePromotionTrackingFields(promotion);
+
+      return {
+        _id: promotion._id,
+        campaignId: promotion.campaign?._id || null,
+        title: promotion.campaign?.title || 'Campaign',
+        category: promotion.campaign?.category || '',
+        status: promotion.status,
+        mediaUrl: promotion.campaign?.mediaUrl || null,
+        thumbnailUrl: promotion.campaign?.thumbnailUrl || null,
+        promotionUrl: normalizedPromotion.promotionUrl,
+        upi: promotion.upi || null,
+        totalClicks: promotion.clickStats?.totalClicks || 0,
+        billableClicks: promotion.clickStats?.billableClicks || 0,
+        earnedAmount: promotion.clickStats?.earnedAmount || 0,
+        acceptedAt: promotion.acceptedAt || promotion.createdAt,
+      };
+    }),
     topProductPromotions: topProductPromotions.map((promotion) => ({
       _id: promotion._id,
       uniqueCode: promotion.uniqueCode,
@@ -702,6 +707,10 @@ export const getUserPosts = async (req, res) => {
           commentCount: { $size: '$comments' },
           shareCount: { $size: '$shares' },
           saveCount: { $size: '$savedBy' },
+          chatCount: {
+            $ifNull: ['$socialMetrics.chatClicks', { $ifNull: ['$socialMetrics.externalClicks', 0] }]
+          },
+          phone: { $ifNull: ['$authorDetails.personalInfo.phone', ''] },
           isLikedByMe: currentViewerObjectId ? { $in: [currentViewerObjectId, '$likes.user'] } : false,
           isSavedByMe: currentViewerObjectId ? { $in: [currentViewerObjectId, '$savedBy.user'] } : false,
           author: {
@@ -710,7 +719,9 @@ export const getUserPosts = async (req, res) => {
             username: '$authorDetails.username',
             avatar: '$authorDetails.avatar',
             role: '$authorDetails.role',
-            badge: '$authorDetails.badge'
+            badge: '$authorDetails.badge',
+            rating: '$authorDetails.rating',
+            isVerified: '$authorDetails.isVerified'
           }
         }
       },

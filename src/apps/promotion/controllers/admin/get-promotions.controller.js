@@ -1,6 +1,7 @@
 import { CampaignModel } from '../../../campaign/models/campaign.model.js';
 import { PromotionModel } from "../../../promotion/models/promotion.model.js";
 import { UserModel } from "../../../user/models/user/index.js";
+import { normalizePromotionTrackingFields } from "../../utils/promotion-url.js";
 
 
 /**
@@ -138,7 +139,7 @@ export const GetAdminPromotions = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: promotions,
+      data: promotions.map((promotion) => normalizePromotionTrackingFields(promotion)),
       pagination: {
         page: pageNum,
         limit: limitNum,

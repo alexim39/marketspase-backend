@@ -227,7 +227,32 @@ export const generateSlug = (title) => {
     .replace(/[^\w\s]/gi, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
     .substring(0, 100);
+};
+
+export const generateUniqueSlug = async (model, title, { excludeId = null, maxAttempts = 50 } = {}) => {
+  const baseSlug = generateSlug(title) || `thread-${Date.now()}`;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const suffix = attempt === 0
+      ? ''
+      : `-${attempt + 1}`;
+    const slug = suffix
+      ? `${baseSlug.slice(0, Math.max(1, 100 - suffix.length))}${suffix}`
+      : baseSlug.slice(0, 100);
+
+    const existing = await model.exists({
+      slug,
+      ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+    });
+
+    if (!existing) {
+      return slug;
+    }
+  }
+
+  return `${baseSlug.slice(0, 85)}-${Date.now().toString(36)}`.slice(0, 100);
 };
 
 /**

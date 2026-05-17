@@ -22,6 +22,17 @@ export const getProofDetails = async (req, res) => {
       });
     }
 
+    const isAdmin = ["admin", "super-admin"].includes(req.user?.role);
+    const isPromotionOwner = String(promotion.promoter?._id || promotion.promoter) === String(req.userId);
+    const isCampaignOwner = String(promotion.campaign?.owner || "") === String(req.userId);
+
+    if (!isAdmin && !isPromotionOwner && !isCampaignOwner) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to view this proof.",
+      });
+    }
+
     res.status(200).json({
       success: true,
       data: promotion,

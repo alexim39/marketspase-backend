@@ -17,7 +17,7 @@ const videoSchema = new mongoose.Schema({
   order: { type: Number, default: 0 },
   isActive: { type: Boolean, default: true },
   isFeatured: { type: Boolean, default: false },
-  isNew: { type: Boolean, default: false }
+  isRecentlyAdded: { type: Boolean, default: false }
 });
 
 const tutorialSchema = new mongoose.Schema({

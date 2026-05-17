@@ -5,15 +5,19 @@ import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { logUserActivity } from "../../user/services/activity.service.js";
 import { generateUniqueUpi } from "../../promotion/utils/generateUniqueUpi.js";
+import {
+  buildPromotionTrackingUrl,
+  DEFAULT_PROMOTION_TRACKING_PATH,
+} from "../../promotion/utils/promotion-url.js";
 import { evaluateUserBadges } from "../../badges/service/badge.service.js";
 import { awardGamificationProgress } from "../../gamification/service/gamification.service.js";
 import { resolveCampaignCostPerClick, hasValidCampaignCostPerClick } from "../services/campaign-pricing.service.js";
+import { refreshUserReputation } from "../../user/services/user-reputation.service.js";
+import { evaluateCampaignTargetEligibility } from "../services/campaign-targeting-eligibility.service.js";
 
 const MAX_TX_RETRIES = 5;
 const MAX_ACCEPTS_PER_CAMPAIGN_PER_USER = Number(process.env.MAX_ACCEPTS_PER_CAMPAIGN_PER_USER ?? 3);
 const ACTIVE_PROMOTION_STATUSES = ["accepted", "submitted", "downloaded"];
-const DEFAULT_PROMOTION_TRACKING_PATH = "/api/v1/campaign/track";
-
 const isRetryableTxnError = (err) =>
   err?.errorLabels?.includes("TransientTransactionError") ||
   err?.errorLabels?.includes("UnknownTransactionCommitResult") ||
@@ -58,15 +62,11 @@ const normalizePromotionTrackingPath = (value) => {
 
 const buildPromotionUrl = (req, upi) => {
   const baseUrl = getRequestBaseUrl(req);
-  const trackingPath = normalizePromotionTrackingPath(process.env.PROMOTION_TRACKING_PATH);
-
-  if (/^https?:\/\//i.test(trackingPath)) {
-    return `${trackingPath}/${upi}`;
-  }
-
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
-  const dedupedBaseUrl = normalizedBaseUrl.replace(/\/api\/v1$/, "");
-  return `${dedupedBaseUrl}${trackingPath}/${upi}`;
+  return buildPromotionTrackingUrl({
+    baseUrl,
+    upi,
+    trackingPath: normalizePromotionTrackingPath(process.env.PROMOTION_TRACKING_PATH),
+  });
 };
 
 const buildWhatsAppDestinationUrl = (user) => {
@@ -165,6 +165,7 @@ export const acceptCampaign = async (req, res) => {
             budget spentBudget reservedBudget currency
             costPerClick payoutPerPromotion payoutModel
             maxPromoters currentPromoters totalPromotions
+            enableTarget ageTarget targetLocations requirements minRating
           `);
 
         if (!campaign) throw { status: 404, message: "Campaign not found" };
@@ -208,10 +209,35 @@ export const acceptCampaign = async (req, res) => {
 
         const promoter = await UserModel.findById(userId)
           .session(session)
-          .select("_id role");
+          .select(`
+            _id role rating ratingCount personalInfo interests professionalInfo tags
+            loginStreak gamificationProfile isActive
+          `);
 
         if (!promoter || promoter.role !== "promoter") {
           throw { status: 403, message: "Only promoters can accept campaigns" };
+        }
+
+        const reputationSnapshot = await refreshUserReputation({
+          _id: promoter._id,
+          role: promoter.role,
+          loginStreak: promoter.loginStreak,
+          gamificationProfile: promoter.gamificationProfile,
+        });
+
+        promoter.rating = reputationSnapshot.rating;
+        promoter.ratingCount = reputationSnapshot.ratingCount;
+
+        const eligibilityCheck = evaluateCampaignTargetEligibility({
+          campaign,
+          promoter,
+        });
+
+        if (!eligibilityCheck.eligible) {
+          throw {
+            status: 403,
+            message: `You do not meet this campaign's targeting rules: ${eligibilityCheck.reasons.join(", ")}`,
+          };
         }
 
         const existingPromotion = await PromotionModel.findOne({

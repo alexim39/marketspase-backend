@@ -6,6 +6,7 @@ import {
   VALIDATION
 } from "./promotion.constants.js";
 import { isValidProofViews } from "./promotion.utils.js";
+import { normalizePromotionUrl } from "../utils/promotion-url.js";
 import { spread } from "axios";
 
 const promotionSchema = new mongoose.Schema(
@@ -102,6 +103,7 @@ const promotionSchema = new mongoose.Schema(
     promotionUrl: {
       type: String,
       trim: true,
+      set: (value) => normalizePromotionUrl(value),
     },
     destinationUrl: {
       type: String,
@@ -119,6 +121,37 @@ const promotionSchema = new mongoose.Schema(
       duplicateClicks: { type: Number, default: 0, min: 0 },
       earnedAmount: { type: Number, default: 0, min: 0 },
       lastClickAt: Date,
+    },
+    fraudStatus: {
+      isFlagged: { type: Boolean, default: false },
+      reviewStatus: {
+        type: String,
+        enum: ["clear", "warning", "final_warning", "blocked", "resolved"],
+        default: "clear",
+      },
+      riskLevel: {
+        type: String,
+        enum: ["low", "medium", "high", "critical"],
+        default: "low",
+      },
+      reasonSummary: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      reasons: {
+        type: [String],
+        default: [],
+      },
+      warningCount: { type: Number, min: 0, default: 0 },
+      firstFlaggedAt: Date,
+      lastFlaggedAt: Date,
+      blockedAt: Date,
+      lastCaseId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "PromotionFraudCase",
+        default: null,
+      },
     },
 
     validatedBy: {

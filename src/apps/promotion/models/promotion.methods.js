@@ -36,8 +36,8 @@ export const setupPromotionMethods = (schema) => {
     return this.save();
   };
 
-  // Validate promotion
-  schema.methods.validate = function(validatedBy, viewsUsedForPayout = null) {
+  // Mark a submitted promotion as validated
+  schema.methods.markAsValidated = function(validatedBy, viewsUsedForPayout = null) {
     if (this.status !== 'submitted') {
       throw new Error('Only submitted promotions can be validated');
     }

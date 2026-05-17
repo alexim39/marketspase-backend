@@ -4,6 +4,10 @@ import { CampaignClickModel, CampaignModel } from "../models/index.js";
 import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import {
+  enforcePromotionFraudSignal,
+  evaluatePromotionClickFraud,
+} from "../../promotion/services/fraud/promotion-fraud.service.js";
+import {
   hasValidCampaignCostPerClick,
   resolveCampaignCostPerClick,
 } from "../services/campaign-pricing.service.js";
@@ -48,6 +52,9 @@ const normalizeDestinationUrl = (url) => {
   if (url.startsWith("/")) return `${fallback.replace(/\/$/, "")}${url}`;
   return `https://${url}`;
 };
+
+const getUnavailableRedirectUrl = () =>
+  process.env.CAMPAIGN_UNAVAILABLE_REDIRECT_URL || process.env.FRONTEND_URL || "https://marketspase.com";
 
 const buildWhatsAppDestinationUrl = (user) => {
   const phone =
@@ -277,6 +284,8 @@ export const trackCampaignClick = async (req, res) => {
   const { upi } = req.params;
   const now = new Date();
   const userAgent = req.headers["user-agent"] || "";
+  const redirectMode = String(req.query.redirect || "").toLowerCase();
+  const isRedirectBypassed = redirectMode === "false";
   const ipHash = hashValue(getClientIp(req));
   const userAgentHash = hashValue(userAgent);
   const referrer = req.get("referer") || req.get("referrer") || "";
@@ -360,6 +369,39 @@ export const trackCampaignClick = async (req, res) => {
           dedupeKey,
         };
 
+        const fraudSignal = await evaluatePromotionClickFraud({
+          promotion,
+          campaign,
+          promoter: await UserModel.findById(promotion.promoter)
+            .session(session)
+            .select("displayName email isActive fraudProfile securityProfile"),
+          ipHash,
+          userAgentHash,
+          userAgent,
+          referrer,
+          source,
+          now,
+        });
+
+        if (isRedirectBypassed) {
+          fraudSignal.reasons = [
+            ...fraudSignal.reasons,
+            {
+              code: "redirect_bypass_probe",
+              label: "Tracking link was probed without completing redirect",
+              score: 80,
+              details: "The request used redirect=false, which is treated as a scripted or automated probe.",
+            },
+          ];
+          fraudSignal.riskScore += 80;
+          fraudSignal.riskLevel = "critical";
+          fraudSignal.shouldBlock = true;
+          fraudSignal.evidence = {
+            ...(fraudSignal.evidence || {}),
+            notes: "redirect=false was used on the tracking endpoint.",
+          };
+        }
+
         if (campaign.status !== "active" || promotion.isActive === false) {
           const click = await createClickAudit({
             session,
@@ -384,8 +426,63 @@ export const trackCampaignClick = async (req, res) => {
             success: false,
             httpStatus: 410,
             message: "Campaign is no longer active",
-            redirectUrl: process.env.CAMPAIGN_UNAVAILABLE_REDIRECT_URL || process.env.FRONTEND_URL,
+            redirectUrl: getUnavailableRedirectUrl(),
             data: { clickId: click._id, status: click.status },
+          };
+          return;
+        }
+
+        if (fraudSignal.shouldBlock) {
+          const click = await createClickAudit({
+            session,
+            click: {
+              ...baseClick,
+              cost: 0,
+              status: "invalid",
+              chargeStatus: "not_charged",
+              metadata: {
+                reason: "promotion_fraud_signal",
+                riskScore: fraudSignal.riskScore,
+                riskLevel: fraudSignal.riskLevel,
+                reasons: fraudSignal.reasons.map((item) => ({
+                  code: item.code,
+                  label: item.label,
+                })),
+              },
+            },
+          });
+
+          await incrementNonBillableCounters({
+            session,
+            campaignId: campaign._id,
+            promotionId: promotion._id,
+            status: "invalid",
+            now,
+          });
+
+          txResult = {
+            success: false,
+            httpStatus: 403,
+            message: "Promotion link is temporarily unavailable",
+            redirectUrl: getUnavailableRedirectUrl(),
+            data: {
+              clickId: click._id,
+              status: "invalid",
+              charged: false,
+            },
+            fraudEnforcement: {
+              promotionId: promotion._id,
+              promoterId: promotion.promoter,
+              campaignId: campaign._id,
+              marketerId: campaign.owner,
+              reasons: fraudSignal.reasons,
+              evidence: {
+                ...(fraudSignal.evidence || {}),
+                clickIds: [click._id],
+              },
+              riskScore: fraudSignal.riskScore,
+              riskLevel: fraudSignal.riskLevel,
+            },
           };
           return;
         }
@@ -471,7 +568,7 @@ export const trackCampaignClick = async (req, res) => {
             success: false,
             httpStatus: 402,
             message: "Campaign owner has insufficient wallet balance",
-            redirectUrl: process.env.CAMPAIGN_UNAVAILABLE_REDIRECT_URL || process.env.FRONTEND_URL,
+            redirectUrl: getUnavailableRedirectUrl(),
             data: { clickId: click._id, status: "invalid", charged: false },
           };
           return;
@@ -601,6 +698,14 @@ export const trackCampaignClick = async (req, res) => {
           io.to(`user:${txResult.data.marketerId}`).emit("campaign_click_recorded", txResult.data);
         }
       });
+
+      if (txResult?.fraudEnforcement) {
+        setImmediate(() => {
+          enforcePromotionFraudSignal(txResult.fraudEnforcement).catch((error) => {
+            console.error("Failed to enforce promotion fraud signal:", error.message);
+          });
+        });
+      }
 
       return sendTrackingResponse(req, res, txResult);
     } catch (err) {

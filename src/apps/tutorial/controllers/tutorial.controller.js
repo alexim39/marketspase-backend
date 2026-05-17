@@ -5,6 +5,20 @@ import axios from 'axios';
 const YOUTUBE_API_KEY = 'AIzaSyAkXv9Lk93BRadrv2NgX53_FiDWYN2EZWY';
 const CHANNEL_ID = 'UC1E9WcNpP_3A0ZqMI3a_wtw';
 
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value ?? {}, key);
+const getRecentVideoFlag = (video) => Boolean(video?.isRecentlyAdded ?? video?.isNew);
+const normalizeVideoPayload = (payload = {}) => {
+  const normalized = { ...payload };
+
+  if (hasOwn(normalized, 'isNew') && !hasOwn(normalized, 'isRecentlyAdded')) {
+    normalized.isRecentlyAdded = Boolean(normalized.isNew);
+  }
+
+  delete normalized.isNew;
+
+  return normalized;
+};
+
 class TutorialController {
   
   // Get tutorials for frontend
@@ -39,10 +53,9 @@ class TutorialController {
             videoType: 'youtube',
             tags: v.tags,
             difficulty: v.difficulty,
-            views: v.views || 0, 
-            isNew: v.isNew,
-            isPopular: v.isFeatured,
-            views: v.views || 0
+            views: v.views || 0,
+            isNew: getRecentVideoFlag(v),
+            isPopular: v.isFeatured
           }))
       }));
 
@@ -60,7 +73,8 @@ class TutorialController {
       //console.log('Request params:', req.params);
       
       const { sectionId } = req.params;
-      const { youtubeUrl, tags, difficulty, isFeatured, isNew } = req.body;
+      const { youtubeUrl, tags, difficulty, isFeatured } = req.body;
+      const isRecentlyAdded = getRecentVideoFlag(req.body);
 
       if (!youtubeUrl) {
         return res.status(400).json({ 
@@ -110,7 +124,7 @@ class TutorialController {
         tags: tags || videoDetails.tags,
         difficulty: difficulty || 'beginner',
         isFeatured: isFeatured || false,
-        isNew: isNew || false,
+        isRecentlyAdded,
         order: section.videos.length,
         views: videoDetails.views || 0 
       });
@@ -183,7 +197,7 @@ class TutorialController {
   updateVideo = async (req, res) => {
     try {
       const { sectionId, videoId } = req.params;
-      const updates = req.body;
+      const updates = normalizeVideoPayload(req.body);
 
       const section = await TutorialSection.findById(sectionId);
       if (!section) {
@@ -284,7 +298,7 @@ class TutorialController {
                    snippet.thumbnails?.medium?.url || 
                    snippet.thumbnails?.default?.url || '',
         tags: snippet.tags || [],
-        views: views 
+        views: Number(video.statistics?.viewCount || 0)
       };
     } catch (error) {
       console.error('Error fetching video details:', error.response?.data || error.message);
@@ -350,7 +364,7 @@ class TutorialController {
               difficulty: 'beginner',
               isActive: true,
               isFeatured: false,
-              isNew: false,
+              isRecentlyAdded: false,
               views: video.statistics?.viewCount || 0
             });
           });
