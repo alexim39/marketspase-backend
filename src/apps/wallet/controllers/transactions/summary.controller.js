@@ -170,9 +170,11 @@ function calculateOverviewMetrics(transactions, wallet, role) {
     const category = tx.category || 'other';
     const type = tx.type || 'debit';
 
+    const isSuccessfulCredit = status === 'successful' || status === 'completed';
+
     if (role === 'promoter') {
       // Calculate promoter-specific metrics
-      if (type === 'credit' && status === 'successful') {
+      if (type === 'credit' && isSuccessfulCredit) {
         if (category === 'promotion' || category === 'bonus') {
           overview.totalEarnings += amount;
         }
