@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { validateStoreLink, validateStoreName, generateStoreLink } from "./store.utils.js";
+import { removeSearchEntity, scheduleSearchEntitySync } from "../../../search/services/search-index.service.js";
 
 export const setupStoreMiddleware = (schema) => {
   // Pre-save middleware
@@ -55,6 +56,10 @@ export const setupStoreMiddleware = (schema) => {
         { $set: { isDefaultStore: false } }
       );
     }
+
+    if (doc?._id) {
+      scheduleSearchEntitySync('store', doc._id);
+    }
   });
 
   // Pre-findOneAndUpdate middleware
@@ -103,6 +108,27 @@ export const setupStoreMiddleware = (schema) => {
       await Promise.all(result.map(item => populateFields(item)));
     } else {
       await populateFields(result);
+    }
+  });
+
+  schema.post('findOneAndUpdate', function(doc) {
+    if (doc?._id) {
+      scheduleSearchEntitySync('store', doc._id);
+    }
+  });
+
+  schema.post('updateOne', function() {
+    const query = this.getQuery();
+    if (query?._id) {
+      scheduleSearchEntitySync('store', query._id);
+    }
+  });
+
+  schema.post('findOneAndDelete', function(doc) {
+    if (doc?._id) {
+      removeSearchEntity('store', doc._id).catch((error) => {
+        console.warn('[global-search] failed to remove store search document:', error.message);
+      });
     }
   });
 };

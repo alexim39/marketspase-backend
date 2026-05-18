@@ -12,6 +12,20 @@ import { ensureUidSelfOrAdmin } from '../../../shared/utils/request-auth.util.js
 import { verifyFirebaseIdentityToken } from '../../../shared/middleware/auth.middleware.js';
 const referralService = new ReferralService();
 
+const sortAndLimitTransactions = (transactions = [], limit = 20) => {
+  if (!Array.isArray(transactions) || transactions.length === 0) {
+    return [];
+  }
+
+  return [...transactions]
+    .sort((left, right) => {
+      const leftTime = new Date(left?.createdAt || left?.processedAt || 0).getTime();
+      const rightTime = new Date(right?.createdAt || right?.processedAt || 0).getTime();
+      return rightTime - leftTime;
+    })
+    .slice(0, limit);
+};
+
 const AUTH_RESPONSE_PROJECTION = {
   _id: 1,
   uid: 1,
@@ -438,12 +452,12 @@ export const GetUser = async (req, res) => {
           'wallets.marketer.currency': 1,
           'wallets.marketer.balance': 1,
           'wallets.marketer.reserved': 1,
-          'wallets.marketer.transactions': { $slice: ['$wallets.marketer.transactions', -txLimit] },
+          'wallets.marketer.transactions': 1,
 
           'wallets.promoter.currency': 1,
           'wallets.promoter.balance': 1,
           'wallets.promoter.reserved': 1,
-          'wallets.promoter.transactions': { $slice: ['$wallets.promoter.transactions', -txLimit] },
+          'wallets.promoter.transactions': 1,
 
           // Saved payout accounts / notification settings (if needed in UI)
           savedAccounts: 1,
@@ -472,6 +486,21 @@ export const GetUser = async (req, res) => {
     const reputationSnapshot = await refreshUserReputation(user);
     user.rating = reputationSnapshot.rating;
     user.ratingCount = reputationSnapshot.ratingCount;
+
+    const marketerTransactions = Array.isArray(user.wallets?.marketer?.transactions)
+      ? user.wallets.marketer.transactions
+      : [];
+    const promoterTransactions = Array.isArray(user.wallets?.promoter?.transactions)
+      ? user.wallets.promoter.transactions
+      : [];
+
+    if (user.wallets?.marketer) {
+      user.wallets.marketer.transactions = sortAndLimitTransactions(marketerTransactions, txLimit);
+    }
+
+    if (user.wallets?.promoter) {
+      user.wallets.promoter.transactions = sortAndLimitTransactions(promoterTransactions, txLimit);
+    }
 
     await UserModel.updateOne(
       { _id: user._id },
@@ -512,8 +541,8 @@ export const GetUser = async (req, res) => {
         txLimit,
         campaignsLimit,
         promotionsLimit,
-        marketerTxCount: user.wallets?.marketer?.transactions?.length ?? 0,
-        promoterTxCount: user.wallets?.promoter?.transactions?.length ?? 0,
+        marketerTxCount: marketerTransactions.length,
+        promoterTxCount: promoterTransactions.length,
       },
       message: "User found successfully",
     });

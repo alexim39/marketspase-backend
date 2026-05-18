@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { ROLE_DEFAULT_NOTIFICATIONS } from "./user.constants.js";
+import { removeSearchEntity, scheduleSearchEntitySync } from "../../../search/services/search-index.service.js";
 
 export const setupUserMiddleware = (schema) => {
   // Pre-save middleware
@@ -50,5 +51,32 @@ export const setupUserMiddleware = (schema) => {
     });
     
     next();
+  });
+
+  schema.post('save', function(doc) {
+    if (doc?._id) {
+      scheduleSearchEntitySync('user', doc._id);
+    }
+  });
+
+  schema.post('findOneAndUpdate', function(doc) {
+    if (doc?._id) {
+      scheduleSearchEntitySync('user', doc._id);
+    }
+  });
+
+  schema.post('updateOne', function() {
+    const query = this.getQuery();
+    if (query?._id) {
+      scheduleSearchEntitySync('user', query._id);
+    }
+  });
+
+  schema.post('findOneAndDelete', function(doc) {
+    if (doc?._id) {
+      removeSearchEntity('user', doc._id).catch((error) => {
+        console.warn('[global-search] failed to remove user search document:', error.message);
+      });
+    }
   });
 };

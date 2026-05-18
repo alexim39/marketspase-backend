@@ -33,6 +33,8 @@ import { GamificationRouter } from './src/apps/gamification/index.js';
 import { metricsRoutes } from './src/apps/metrics/index.js';
 import { aiAssistantRoutes } from './src/apps/ai-assistant/index.js';
 import CollaborationRouter from './src/apps/collaboration/index.js';
+import SearchRouter from './src/apps/search/index.js';
+import { ensureGlobalSearchBootstrap } from './src/apps/search/services/search-index.service.js';
 
 // paystack transaction webhook imports
 import handlePaystackWithdrawalWebhook from './src/apps/wallet/services/paystack-webhook-wthdrawal-approval.service.js';
@@ -182,6 +184,7 @@ app.use('/api/v1/gamification', GamificationRouter);
 app.use('/api/v1/metrics', metricsRoutes);
 app.use('/api/v1/ai-assistant', aiAssistantRoutes);
 app.use('/api/v1/collaboration', CollaborationRouter);
+app.use('/api/v1/search', SearchRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
@@ -199,6 +202,11 @@ mongoose.connect(MONGODB_URI, MONGODB_OPTIONS)
     initFileUploadCleanupTask();
     updateVideoViewsJob.start();
     initWithdrawalSyncCron();
+    setImmediate(() => {
+        ensureGlobalSearchBootstrap().catch((error) => {
+            console.error('[global-search] bootstrap error', error);
+        });
+    });
 
     // FIXED: Use httpServer instead of app.listen for Socket.io
     httpServer.listen(PORT, HOST, () => {
