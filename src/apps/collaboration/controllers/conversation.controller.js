@@ -25,28 +25,39 @@ const parseLimit = (value, fallback = DEFAULT_LIMIT) => {
   return Math.min(parsed, MAX_LIMIT);
 };
 
-const serializeConversation = async (conversation, currentUserId) => {
+const serializeConversation = (conversation, currentUserId, unreadCount = 0) => {
   const normalizedCurrentUserId = toIdString(currentUserId);
   const counterpart = (conversation.participants || [])
     .map((participant) => participant.user)
     .find((participant) => toIdString(participant?._id) !== normalizedCurrentUserId) || null;
-
-  const unreadCount = await CollaborationMessageModel.countDocuments({
-    conversation: conversation._id,
-    sender: { $ne: currentUserId },
-    deletedAt: null,
-    readBy: { $not: { $elemMatch: { user: currentUserId } } },
-  });
 
   return {
     _id: conversation._id,
     type: conversation.type,
     title: conversation.title,
     participants: (conversation.participants || []).map((participant) => ({
-      user: participant.user,
+      user: participant.user
+        ? {
+            _id: participant.user._id,
+            displayName: participant.user.displayName,
+            username: participant.user.username,
+            avatar: participant.user.avatar,
+            role: participant.user.role,
+            isVerified: participant.user.isVerified,
+          }
+        : null,
       role: participant.role,
     })),
-    counterpart,
+    counterpart: counterpart
+      ? {
+          _id: counterpart._id,
+          displayName: counterpart.displayName,
+          username: counterpart.username,
+          avatar: counterpart.avatar,
+          role: counterpart.role,
+          isVerified: counterpart.isVerified,
+        }
+      : null,
     campaign: conversation.campaign
       ? {
           _id: conversation.campaign._id,
@@ -90,9 +101,10 @@ export const listConversations = async (req, res) => {
     }
 
     const conversations = await CollaborationConversationModel.find(query)
+      .select("type title participants campaign promotion metadata lastMessageAt lastMessagePreview lastMessageBy isArchived createdAt updatedAt")
       .populate("participants.user", "displayName username avatar role isVerified")
-      .populate("campaign", "title status owner")
-      .populate("promotion", "upi status promoter campaign")
+      .populate("campaign", "title status")
+      .populate("promotion", "upi status")
       .sort({ lastMessageAt: -1, updatedAt: -1 })
       .limit(limit)
       .lean();
@@ -115,10 +127,46 @@ export const listConversations = async (req, res) => {
         })
       : conversations;
 
-    const serialized = await Promise.all(
-      filteredConversations.map((conversation) => serializeConversation(conversation, currentUserId))
+    const conversationIds = filteredConversations
+      .map((conversation) => conversation?._id)
+      .filter(Boolean);
+
+    const unreadCounts = conversationIds.length
+      ? await CollaborationMessageModel.aggregate([
+          {
+            $match: {
+              conversation: { $in: conversationIds },
+              deletedAt: null,
+              sender: { $ne: currentUserId },
+              readBy: {
+                $not: {
+                  $elemMatch: { user: currentUserId },
+                },
+              },
+            },
+          },
+          {
+            $group: {
+              _id: "$conversation",
+              count: { $sum: 1 },
+            },
+          },
+        ])
+      : [];
+
+    const unreadCountMap = new Map(
+      unreadCounts.map((entry) => [toIdString(entry._id), Number(entry.count || 0)])
     );
 
+    const serialized = filteredConversations.map((conversation) =>
+      serializeConversation(
+        conversation,
+        currentUserId,
+        unreadCountMap.get(toIdString(conversation._id)) || 0
+      )
+    );
+
+    res.set("Cache-Control", "no-store");
     return res.json({
       success: true,
       data: serialized,
@@ -144,7 +192,7 @@ export const createDirectConversation = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      data: await serializeConversation(conversation, req.user?._id),
+      data: serializeConversation(conversation, req.user?._id, 0),
     });
   } catch (error) {
     console.error("Create direct collaboration conversation error:", error);
@@ -164,7 +212,7 @@ export const openCampaignConversation = async (req, res) => {
 
     return res.json({
       success: true,
-      data: await serializeConversation(conversation, req.user?._id),
+      data: serializeConversation(conversation, req.user?._id, 0),
     });
   } catch (error) {
     console.error("Open campaign collaboration room error:", error);
@@ -184,7 +232,7 @@ export const openPromotionConversation = async (req, res) => {
 
     return res.json({
       success: true,
-      data: await serializeConversation(conversation, req.user?._id),
+      data: serializeConversation(conversation, req.user?._id, 0),
     });
   } catch (error) {
     console.error("Open promotion collaboration room error:", error);
@@ -221,7 +269,7 @@ export const getConversationMessages = async (req, res) => {
     return res.json({
       success: true,
       data: {
-        conversation: await serializeConversation(conversation, req.user?._id),
+        conversation: serializeConversation(conversation, req.user?._id, 0),
         messages,
         pagination: {
           page,
