@@ -1,4 +1,5 @@
 import { formatDuration, calculateDaysBetween } from "./campaign.utils.js";
+import { removeSearchEntity, scheduleSearchEntitySync } from "../../search/services/search-index.service.js";
 
 export const setupCampaignMiddleware = (schema) => {
   // Pre-save middleware
@@ -59,6 +60,10 @@ export const setupCampaignMiddleware = (schema) => {
       await doc.save();
       delete doc._justExhausted;
     }
+
+    if (doc?._id) {
+      scheduleSearchEntitySync('campaign', doc._id);
+    }
   });
 
   // Post-findOneAndUpdate middleware
@@ -70,6 +75,25 @@ export const setupCampaignMiddleware = (schema) => {
         timestamp: new Date()
       });
       await doc.save();
+    }
+
+    if (doc?._id) {
+      scheduleSearchEntitySync('campaign', doc._id);
+    }
+  });
+
+  schema.post('updateOne', function() {
+    const query = this.getQuery();
+    if (query?._id) {
+      scheduleSearchEntitySync('campaign', query._id);
+    }
+  });
+
+  schema.post('findOneAndDelete', function(doc) {
+    if (doc?._id) {
+      removeSearchEntity('campaign', doc._id).catch((error) => {
+        console.warn('[global-search] failed to remove campaign search document:', error.message);
+      });
     }
   });
 };

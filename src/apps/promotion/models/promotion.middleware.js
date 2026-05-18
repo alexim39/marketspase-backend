@@ -3,6 +3,7 @@ import { NOTIFICATION_TYPES, DEFAULTS, SERVICE_TIMEOUTS } from "./promotion.cons
 import { createActivityEntry, withTimeout  } from "./promotion.utils.js";
 import mongoose from "mongoose";
 import { NotificationService } from "../../notification/services/notification.service.js";
+import { removeSearchEntity, scheduleSearchEntitySync } from "../../search/services/search-index.service.js";
 
 export const setupPromotionMiddleware = (schema) => {
   // Pre-save middleware
@@ -86,6 +87,10 @@ export const setupPromotionMiddleware = (schema) => {
 
   // Post-save middleware for notifications
   schema.post('save', async function(doc) {
+    if (doc?._id) {
+      scheduleSearchEntitySync('promotion', doc._id);
+    }
+
     if (!doc._pendingNotification) return;
 
     const { type, timestamp } = doc._pendingNotification;
@@ -166,5 +171,26 @@ export const setupPromotionMiddleware = (schema) => {
         console.error("Notification background error:", err.message);
       }
     });
+  });
+
+  schema.post('findOneAndUpdate', function(doc) {
+    if (doc?._id) {
+      scheduleSearchEntitySync('promotion', doc._id);
+    }
+  });
+
+  schema.post('updateOne', function() {
+    const query = this.getQuery();
+    if (query?._id) {
+      scheduleSearchEntitySync('promotion', query._id);
+    }
+  });
+
+  schema.post('findOneAndDelete', function(doc) {
+    if (doc?._id) {
+      removeSearchEntity('promotion', doc._id).catch((error) => {
+        console.warn('[global-search] failed to remove promotion search document:', error.message);
+      });
+    }
   });
 };

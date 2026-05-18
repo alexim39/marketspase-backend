@@ -1,3 +1,5 @@
+import { removeSearchEntity, scheduleSearchEntitySync } from "../../../../search/services/search-index.service.js";
+
 export const setupProductMiddleware = (schema) => {
   schema.pre('save', function(next) {
     if (this.isModified('name') && !this.slug) {
@@ -29,5 +31,32 @@ export const setupProductMiddleware = (schema) => {
     this.meta.updatedAt = new Date();
     
     next();
+  });
+
+  schema.post('save', function(doc) {
+    if (doc?._id) {
+      scheduleSearchEntitySync('product', doc._id);
+    }
+  });
+
+  schema.post('findOneAndUpdate', function(doc) {
+    if (doc?._id) {
+      scheduleSearchEntitySync('product', doc._id);
+    }
+  });
+
+  schema.post('updateOne', function() {
+    const query = this.getQuery();
+    if (query?._id) {
+      scheduleSearchEntitySync('product', query._id);
+    }
+  });
+
+  schema.post('findOneAndDelete', function(doc) {
+    if (doc?._id) {
+      removeSearchEntity('product', doc._id).catch((error) => {
+        console.warn('[global-search] failed to remove product search document:', error.message);
+      });
+    }
   });
 };
