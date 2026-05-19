@@ -15,21 +15,15 @@ const PROMOTION_LIST_SELECT = [
   "rejectedAt",
   "paidAt",
   "payoutAmount",
-  "payoutModel",
   "costPerClick",
-  "payoutSnapshot",
   "viewsAchieved",
   "rejectionReason",
-  "notes",
-  "isDownloaded",
   "upi",
   "promotionUrl",
-  "destinationUrl",
   "isActive",
   "clickStats",
   "fraudStatus",
   "createdAt",
-  "updatedAt",
   "campaign"
 ].join(" ");
 
@@ -42,13 +36,12 @@ const CAMPAIGN_LIST_SELECT = [
   "payoutPerPromotion",
   "mediaUrl",
   "thumbnailUrl",
-  "mediaType",
-  "category",
-  "budget",
-  "spentBudget",
-  "reservedBudget",
-  "remainingBudget",
-  "endDate"
+      "mediaType",
+      "category",
+      "budget",
+      "spentBudget",
+      "remainingBudget",
+      "endDate"
 ].join(" ");
 
 const ALLOWED_SORT_FIELDS = new Set([
@@ -148,6 +141,8 @@ export const GetUserPromotions = async (req, res) => {
         .lean(),
       PromotionModel.countDocuments(query),
     ]);
+
+    res.set("Cache-Control", "no-store");
 
     if (!promotions || promotions.length === 0) {
       return res.status(200).json({

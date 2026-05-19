@@ -5,6 +5,7 @@ import { refreshUserReputation } from "../../user/services/user-reputation.servi
 
 const DEFAULT_COST_PER_CLICK = 80;
 const CAMPAIGN_DISCOVERY_CACHE_TTL_MS = 60 * 1000;
+const REPUTATION_STALE_MS = 15 * 60 * 1000;
 const campaignDiscoveryCache = new Map();
 
 /**
@@ -53,6 +54,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     });
     const cachedResponse = campaignDiscoveryCache.get(cacheKey);
     if (cachedResponse && cachedResponse.expiresAt > Date.now()) {
+      res.set("Cache-Control", "no-store");
       return res.status(200).json(cachedResponse.payload);
     }
 
@@ -64,15 +66,45 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    const reputationSnapshot = await refreshUserReputation({
-      _id: userId,
-      role: user.role,
-      loginStreak: user.loginStreak,
-      gamificationProfile: user.gamificationProfile,
-    });
+    const cachedRating = Number(user.rating);
+    const cachedRatingCount = Number(user.ratingCount);
+    const ratingUpdatedAt = user.ratingUpdatedAt ? new Date(user.ratingUpdatedAt) : null;
+    const hasCachedReputation =
+      Number.isFinite(cachedRating) &&
+      Number.isFinite(cachedRatingCount) &&
+      ratingUpdatedAt instanceof Date &&
+      !Number.isNaN(ratingUpdatedAt.getTime());
 
-    user.rating = reputationSnapshot.rating;
-    user.ratingCount = reputationSnapshot.ratingCount;
+    if (hasCachedReputation) {
+      user.rating = cachedRating;
+      user.ratingCount = cachedRatingCount;
+
+      if ((Date.now() - ratingUpdatedAt.getTime()) > REPUTATION_STALE_MS) {
+        setImmediate(() => {
+          refreshUserReputation({
+            _id: userId,
+            role: user.role,
+            loginStreak: user.loginStreak,
+            gamificationProfile: user.gamificationProfile,
+            rating: cachedRating,
+            ratingCount: cachedRatingCount,
+            ratingUpdatedAt,
+          }).catch((error) => {
+            console.warn("Unable to refresh promoter reputation during campaign discovery:", error.message);
+          });
+        });
+      }
+    } else {
+      const reputationSnapshot = await refreshUserReputation({
+        _id: userId,
+        role: user.role,
+        loginStreak: user.loginStreak,
+        gamificationProfile: user.gamificationProfile,
+      });
+
+      user.rating = reputationSnapshot.rating;
+      user.ratingCount = reputationSnapshot.ratingCount;
+    }
 
     const userAddress = extractUserLocation(user);
     const hasUserAddress = Object.values(userAddress).some(Boolean);
@@ -265,36 +297,18 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
                 mediaUrl: 1,
                 thumbnailUrl: 1,
                 caption: 1,
-                link: 1,
                 category: 1,
                 mediaType: 1,
                 budget: 1,
-                payoutPerPromotion: 1,
                 costPerClick: "$normalizedCostPerClick",
                 currency: 1,
-                maxPromoters: 1,
-                currentPromoters: { $ifNull: ["$totalPromotions", 0] },
-                minViewsPerPromotion: 1,
                 totalPromotions: 1,
-                validatedPromotions: 1,
-                paidPromotions: 1,
                 spentBudget: 1,
-                reservedBudget: 1,
-                payoutModel: 1,
-                enableTarget: 1,
-                ageTarget: 1,
-                targetLocations: 1,
-                requirements: 1,
-                minRating: 1,
-                campaignType: 1,
-                priority: 1,
-                startDate: 1,
                 endDate: 1,
-                hasEndDate: 1,
                 status: 1,
-                isDeleted: 1,
                 createdAt: 1,
-                updatedAt: 1,
+                totalClicks: 1,
+                billableClicks: 1,
                 remainingBudget: 1,
                 canAcceptPromoters: "$availabilityEligible",
                 ownerAddressScore: 1,
@@ -369,6 +383,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
         expiresAt: Date.now() + CAMPAIGN_DISCOVERY_CACHE_TTL_MS,
       });
 
+      res.set("Cache-Control", "no-store");
       return res.status(200).json(payload);
     }
 
@@ -407,6 +422,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       expiresAt: Date.now() + CAMPAIGN_DISCOVERY_CACHE_TTL_MS,
     });
 
+    res.set("Cache-Control", "no-store");
     return res.status(200).json(payload);
   } catch (error) {
     console.error("Error fetching campaigns by status (promoter relevance):", error);
