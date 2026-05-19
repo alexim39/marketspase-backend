@@ -30,6 +30,7 @@ const campaignSchema = new mongoose.Schema(
     link: { type: String }, // optional CTA link
     category: { type: String, required: true },
     mediaType: { type: String, enum: MEDIA_TYPE_ARRAY, required: true },
+    mediaPublicId: { type: String },
     thumbnailUrl: { type: String },
 
     // Budgeting

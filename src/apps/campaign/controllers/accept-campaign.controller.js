@@ -1,9 +1,7 @@
 // apps/campaign/controllers/accept-campaign.controller.js
-import mongoose from "mongoose";
 import { CampaignModel } from "../models/index.js";
 import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
-import { logUserActivity } from "../../user/services/activity.service.js";
 import { generateUniqueUpi } from "../../promotion/utils/generateUniqueUpi.js";
 import {
   buildPromotionTrackingUrl,
@@ -11,8 +9,10 @@ import {
 } from "../../promotion/utils/promotion-url.js";
 import { evaluateUserBadges } from "../../badges/service/badge.service.js";
 import { awardGamificationProgress } from "../../gamification/service/gamification.service.js";
-import { resolveCampaignCostPerClick, hasValidCampaignCostPerClick } from "../services/campaign-pricing.service.js";
-import { refreshUserReputation } from "../../user/services/user-reputation.service.js";
+import {
+  resolveCampaignCostPerClick,
+  hasValidCampaignCostPerClick,
+} from "../services/campaign-pricing.service.js";
 import { evaluateCampaignTargetEligibility } from "../services/campaign-targeting-eligibility.service.js";
 import {
   deactivateCampaignPromotions,
@@ -20,15 +20,11 @@ import {
   normalizeLegacyPpcPromotionStatus,
 } from "../services/campaign-runtime.service.js";
 
-const MAX_TX_RETRIES = 5;
-const MAX_ACCEPTS_PER_CAMPAIGN_PER_USER = Number(process.env.MAX_ACCEPTS_PER_CAMPAIGN_PER_USER ?? 3);
-const ACTIVE_PROMOTION_STATUSES = ["accepted"];
-const isRetryableTxnError = (err) =>
-  err?.errorLabels?.includes("TransientTransactionError") ||
-  err?.errorLabels?.includes("UnknownTransactionCommitResult") ||
-  /Write conflict/i.test(err?.message ?? "");
-
-const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+const MAX_CREATE_RETRIES = 4;
+const MAX_ACCEPTS_PER_CAMPAIGN_PER_USER = Number(
+  process.env.MAX_ACCEPTS_PER_CAMPAIGN_PER_USER ?? 3
+);
+const ACTIVE_PROMOTION_STATUSES = ["accepted", "downloaded", "submitted"];
 
 const getRequestBaseUrl = (req) => {
   const configuredBaseUrl =
@@ -38,7 +34,10 @@ const getRequestBaseUrl = (req) => {
 
   if (configuredBaseUrl) return configuredBaseUrl.replace(/\/$/, "");
 
-  const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+  const protocol =
+    req.secure || req.headers["x-forwarded-proto"] === "https"
+      ? "https"
+      : "http";
   return `${protocol}://${req.get("host")}`;
 };
 
@@ -53,7 +52,9 @@ const normalizePromotionTrackingPath = (value) => {
     return url.toString().replace(/\/+$/, "");
   }
 
-  const normalizedPath = `/${rawValue.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+  const normalizedPath = `/${rawValue
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "")}`;
   if (normalizedPath === "/campaign/track") {
     return DEFAULT_PROMOTION_TRACKING_PATH;
   }
@@ -70,7 +71,9 @@ const buildPromotionUrl = (req, upi) => {
   return buildPromotionTrackingUrl({
     baseUrl,
     upi,
-    trackingPath: normalizePromotionTrackingPath(process.env.PROMOTION_TRACKING_PATH),
+    trackingPath: normalizePromotionTrackingPath(
+      process.env.PROMOTION_TRACKING_PATH
+    ),
   });
 };
 
@@ -98,19 +101,19 @@ const getDestinationUrl = (campaign, marketer) => {
 const getCampaignCostPerClick = (campaign) =>
   resolveCampaignCostPerClick(campaign?.costPerClick, campaign?.payoutPerPromotion);
 
-const generatePromotionUpi = async (session) => {
+const generatePromotionUpi = async () => {
   for (let attempt = 0; attempt < 8; attempt++) {
     const upi = generateUniqueUpi();
-    const exists = await PromotionModel.exists({ upi }).session(session);
+    const exists = await PromotionModel.exists({ upi });
     if (!exists) return upi;
   }
 
   throw { status: 503, message: "Unable to generate promotion link. Please retry." };
 };
 
-const ensurePromotionLink = async ({ promotion, campaign, marketer, req, session }) => {
+const ensurePromotionLink = async ({ promotion, campaign, marketer, req }) => {
   const costPerClick = getCampaignCostPerClick(campaign);
-  const upi = promotion.upi || await generatePromotionUpi(session);
+  const upi = promotion.upi || await generatePromotionUpi();
   const promotionUrl = buildPromotionUrl(req, upi);
 
   promotion.upi = upi;
@@ -139,144 +142,277 @@ const ensurePromotionLink = async ({ promotion, campaign, marketer, req, session
     };
   }
 
-  await promotion.save({ session });
+  await promotion.save();
 
   if (!hasValidCampaignCostPerClick(campaign?.costPerClick)) {
-    campaign.costPerClick = costPerClick;
-    campaign.payoutModel = "pay_per_click";
-    await campaign.save({ session });
+    await CampaignModel.updateOne(
+      { _id: campaign._id },
+      {
+        $set: {
+          costPerClick,
+          payoutModel: "pay_per_click",
+        },
+      }
+    );
   }
 
   return promotion;
 };
 
-export const acceptCampaign = async (req, res) => {
-  for (let attempt = 1; attempt <= MAX_TX_RETRIES; attempt++) {
-    const session = await mongoose.startSession();
-    let txResult = null;
-
-    try {
-      await session.withTransaction(async () => {
-        const { campaignId } = req.params;
-        const userId = req.userId;
-
-        const campaign = await CampaignModel.findById(campaignId)
-          .session(session)
-          .select(`
-            _id title owner status link
-            budget spentBudget reservedBudget currency
-            costPerClick payoutPerPromotion payoutModel
-            totalPromotions
-            enableTarget ageTarget targetLocations requirements minRating
-          `);
-
-        if (!campaign) throw { status: 404, message: "Campaign not found" };
-        if (campaign.status !== "active") {
-          throw { status: 400, message: "Campaign is not active" };
-        }
-
-        const marketer = await UserModel.findById(campaign.owner)
-          .session(session)
-          .select("personalInfo.phone personalInfo.phoneDetails");
-
-        if (!marketer) {
-          throw { status: 404, message: "Campaign owner not found" };
-        }
-
-        const costPerClick = getCampaignCostPerClick(campaign);
-        const destinationUrl = getDestinationUrl(campaign, marketer);
-        const remainingBudget = getCampaignRemainingBudgetValue(campaign);
-        if (remainingBudget < costPerClick) {
-          await CampaignModel.updateOne(
-            { _id: campaign._id, status: "active" },
+const appendPromotionAcceptActivity = async ({
+  userId,
+  campaign,
+  promotion,
+  metadata,
+}) => {
+  await UserModel.updateOne(
+    { _id: userId },
+    {
+      $push: {
+        activityLog: {
+          $each: [
             {
-              $set: { status: "exhausted", exhaustedAt: new Date() },
-              $push: {
-                activityLog: {
-                  action: "Campaign Exhausted",
-                  details: "Campaign does not have enough remaining budget for another click.",
-                  timestamp: new Date(),
-                },
-              },
+              action: "campaign_accept",
+              description: `Accepted campaign "${campaign.title}"`,
+              resourceType: "campaign",
+              resourceId: campaign._id,
+              metadata,
+              timestamp: new Date(),
             },
-            { session }
-          );
-          await deactivateCampaignPromotions({ campaignId: campaign._id, session });
-          throw { status: 400, message: "Campaign budget exhausted" };
+          ],
+          $position: 0,
+          $slice: 1000,
+        },
+      },
+      $set: {
+        lastSeenAt: new Date(),
+      },
+    }
+  );
+};
+
+const scheduleAcceptanceSideEffects = ({
+  req,
+  campaign,
+  promotion,
+  alreadyAccepted,
+}) => {
+  setImmediate(async () => {
+    const metadata = {
+      promotionId: promotion._id,
+      upi: promotion.upi,
+      promotionUrl: promotion.promotionUrl,
+      destinationUrl: promotion.destinationUrl,
+      costPerClick: promotion.costPerClick,
+      payoutModel: "pay_per_click",
+    };
+
+    const tasks = [
+      appendPromotionAcceptActivity({
+        userId: req.userId,
+        campaign,
+        promotion,
+        metadata,
+      }),
+      evaluateUserBadges(req.userId, {
+        force: true,
+        trigger: alreadyAccepted
+          ? "campaign_accept_refresh"
+          : "campaign_accepted",
+      }),
+    ];
+
+    if (!alreadyAccepted) {
+      tasks.push(
+        awardGamificationProgress({
+          userId: req.userId,
+          actionKey: "promotion_accepted",
+          sourceKey: `promotion:${promotion._id}:accepted`,
+          sourceType: "promotion",
+          sourceId: promotion._id,
+          metadata: {
+            campaignId: req.params.campaignId,
+            promotionId: promotion._id?.toString?.() || null,
+            upi: promotion.upi || null,
+            costPerClick: Number(promotion.costPerClick || 0),
+          },
+        })
+      );
+    }
+
+    const results = await Promise.allSettled(tasks);
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        console.error(
+          `Campaign accept side effect ${index + 1} failed for ${promotion._id}:`,
+          result.reason
+        );
+      }
+    });
+  });
+};
+
+const isDuplicatePromotionError = (error) =>
+  error?.code === 11000 &&
+  (error?.message?.includes("uniq_campaign_promoter_active") ||
+    error?.message?.includes("campaign_1_promoter_1") ||
+    error?.keyPattern?.campaign ||
+    error?.keyPattern?.upi);
+
+export const acceptCampaign = async (req, res) => {
+  try {
+    const { campaignId } = req.params;
+    const userId = req.userId;
+
+    const campaign = await CampaignModel.findById(campaignId).select(`
+      _id title owner status link
+      budget spentBudget reservedBudget currency
+      costPerClick payoutPerPromotion payoutModel
+      totalPromotions
+      enableTarget ageTarget targetLocations requirements minRating
+    `);
+
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign not found",
+      });
+    }
+
+    if (campaign.status !== "active") {
+      return res.status(400).json({
+        success: false,
+        message: "Campaign is not active",
+      });
+    }
+
+    const marketer = await UserModel.findById(campaign.owner).select(
+      "personalInfo.phone personalInfo.phoneDetails"
+    );
+
+    if (!marketer) {
+      return res.status(404).json({
+        success: false,
+        message: "Campaign owner not found",
+      });
+    }
+
+    const costPerClick = getCampaignCostPerClick(campaign);
+    const destinationUrl = getDestinationUrl(campaign, marketer);
+    const remainingBudget = getCampaignRemainingBudgetValue(campaign);
+
+    if (remainingBudget < costPerClick) {
+      await CampaignModel.updateOne(
+        { _id: campaign._id, status: "active" },
+        {
+          $set: { status: "exhausted", exhaustedAt: new Date() },
+          $push: {
+            activityLog: {
+              action: "Campaign Exhausted",
+              details:
+                "Campaign does not have enough remaining budget for another click.",
+              timestamp: new Date(),
+            },
+          },
         }
+      );
+      await deactivateCampaignPromotions({ campaignId: campaign._id });
 
-        const promoter = await UserModel.findById(userId)
-          .session(session)
-          .select(`
-            _id role rating ratingCount personalInfo interests professionalInfo tags
-            loginStreak gamificationProfile isActive
-          `);
+      return res.status(400).json({
+        success: false,
+        message: "Campaign budget exhausted",
+      });
+    }
 
-        if (!promoter || promoter.role !== "promoter") {
-          throw { status: 403, message: "Only promoters can accept campaigns" };
-        }
+    const promoter = await UserModel.findById(userId).select(`
+      _id role rating ratingCount personalInfo interests professionalInfo tags
+      isActive
+    `);
 
-        const reputationSnapshot = await refreshUserReputation({
-          _id: promoter._id,
-          role: promoter.role,
-          loginStreak: promoter.loginStreak,
-          gamificationProfile: promoter.gamificationProfile,
-        });
+    if (!promoter || promoter.role !== "promoter") {
+      return res.status(403).json({
+        success: false,
+        message: "Only promoters can accept campaigns",
+      });
+    }
 
-        promoter.rating = reputationSnapshot.rating;
-        promoter.ratingCount = reputationSnapshot.ratingCount;
+    if (promoter.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: "Your promoter account is inactive",
+      });
+    }
 
-        const eligibilityCheck = evaluateCampaignTargetEligibility({
-          campaign,
-          promoter,
-        });
+    const eligibilityCheck = evaluateCampaignTargetEligibility({
+      campaign,
+      promoter,
+    });
 
-        if (!eligibilityCheck.eligible) {
-          throw {
-            status: 403,
-            message: `You do not meet this campaign's targeting rules: ${eligibilityCheck.reasons.join(", ")}`,
-          };
-        }
+    if (!eligibilityCheck.eligible) {
+      return res.status(403).json({
+        success: false,
+        message: `You do not meet this campaign's targeting rules: ${eligibilityCheck.reasons.join(", ")}`,
+      });
+    }
 
-        const existingPromotion = await PromotionModel.findOne({
-          campaign: campaign._id,
-          promoter: promoter._id,
-          status: { $in: ACTIVE_PROMOTION_STATUSES },
-        }).session(session);
+    const existingPromotion = await PromotionModel.findOne({
+      campaign: campaign._id,
+      promoter: promoter._id,
+      status: { $in: ACTIVE_PROMOTION_STATUSES },
+    });
 
-        if (existingPromotion) {
-          existingPromotion.status = normalizeLegacyPpcPromotionStatus(
-            existingPromotion.status,
-            existingPromotion.isActive
-          );
-          const promotion = await ensurePromotionLink({
-            promotion: existingPromotion,
-            campaign,
-            marketer,
-            req,
-            session,
-          });
+    if (existingPromotion) {
+      existingPromotion.status = normalizeLegacyPpcPromotionStatus(
+        existingPromotion.status,
+        existingPromotion.isActive
+      );
 
-          txResult = { promotion, alreadyAccepted: true };
-          return;
-        }
+      const promotion = await ensurePromotionLink({
+        promotion: existingPromotion,
+        campaign,
+        marketer,
+        req,
+      });
 
-        const lifetimeCount = await PromotionModel.countDocuments({
-          campaign: campaign._id,
-          promoter: promoter._id,
-        }).session(session);
+      scheduleAcceptanceSideEffects({
+        req,
+        campaign,
+        promotion,
+        alreadyAccepted: true,
+      });
 
-        if (lifetimeCount >= MAX_ACCEPTS_PER_CAMPAIGN_PER_USER) {
-          throw {
-            status: 403,
-            message: `Limit reached: you can only accept this campaign ${MAX_ACCEPTS_PER_CAMPAIGN_PER_USER} times`,
-          };
-        }
+      return res.json({
+        success: true,
+        message: "Campaign already accepted. Promotion link returned.",
+        promotion,
+        upi: promotion.upi,
+        promotionUrl: promotion.promotionUrl,
+        destinationUrl: promotion.destinationUrl,
+        costPerClick: promotion.costPerClick,
+      });
+    }
 
-        const upi = await generatePromotionUpi(session);
+    const lifetimeCount = await PromotionModel.countDocuments({
+      campaign: campaign._id,
+      promoter: promoter._id,
+    });
+
+    if (lifetimeCount >= MAX_ACCEPTS_PER_CAMPAIGN_PER_USER) {
+      return res.status(403).json({
+        success: false,
+        message: `Limit reached: you can only accept this campaign ${MAX_ACCEPTS_PER_CAMPAIGN_PER_USER} times`,
+      });
+    }
+
+    let promotion = null;
+    let created = false;
+
+    for (let attempt = 1; attempt <= MAX_CREATE_RETRIES; attempt++) {
+      try {
+        const upi = await generatePromotionUpi();
         const promotionUrl = buildPromotionUrl(req, upi);
 
-        const promotion = await new PromotionModel({
+        promotion = await PromotionModel.create({
           campaign: campaign._id,
           promoter: promoter._id,
           upi,
@@ -305,105 +441,86 @@ export const acceptCampaign = async (req, res) => {
             duplicateClicks: 0,
             earnedAmount: 0,
           },
-        }).save({ session });
-
-        await CampaignModel.updateOne(
-          { _id: campaign._id },
-          {
-            $inc: { totalPromotions: 1 },
-            $set: { payoutModel: "pay_per_click", costPerClick },
-          },
-          { session }
-        );
-
-        await logUserActivity({
-          session,
-          userId: promoter._id,
-          action: "campaign_accept",
-          description: `Accepted campaign "${campaign.title}"`,
-          resourceType: "campaign",
-          resourceId: campaign._id,
-          metadata: {
-            promotionId: promotion._id,
-            upi,
-            promotionUrl,
-            destinationUrl,
-            costPerClick,
-            payoutModel: "pay_per_click",
-          },
         });
 
-        txResult = { promotion, alreadyAccepted: false };
-      },
-      {
-        maxCommitTimeMS: 8000,
-        readConcern: { level: "snapshot" },
-        writeConcern: { w: "majority" },
-      });
+        created = true;
+        break;
+      } catch (error) {
+        if (!isDuplicatePromotionError(error) || attempt === MAX_CREATE_RETRIES) {
+          throw error;
+        }
 
-      session.endSession();
-
-      setImmediate(() => {
-        UserModel.updateOne(
-          { _id: req.userId },
-          { $set: { lastSeenAt: new Date() } }
-        ).catch(err => console.error("lastSeenAt update failed:", err.message));
-      });
-
-      if (!txResult.alreadyAccepted) {
-        await awardGamificationProgress({
-          userId: req.userId,
-          actionKey: 'promotion_accepted',
-          sourceKey: `promotion:${txResult.promotion._id}:accepted`,
-          sourceType: 'promotion',
-          sourceId: txResult.promotion._id,
-          metadata: {
-            campaignId: req.params.campaignId,
-            promotionId: txResult.promotion._id?.toString?.() || null,
-            upi: txResult.promotion.upi || null,
-            costPerClick: Number(txResult.promotion.costPerClick || 0),
-          },
-        }).catch((gamificationError) => {
-          console.error("Gamification update after campaign acceptance failed:", gamificationError);
+        const duplicatePromotion = await PromotionModel.findOne({
+          campaign: campaign._id,
+          promoter: promoter._id,
+          status: { $in: ACTIVE_PROMOTION_STATUSES },
         });
+
+        if (duplicatePromotion) {
+          duplicatePromotion.status = normalizeLegacyPpcPromotionStatus(
+            duplicatePromotion.status,
+            duplicatePromotion.isActive
+          );
+
+          promotion = await ensurePromotionLink({
+            promotion: duplicatePromotion,
+            campaign,
+            marketer,
+            req,
+          });
+          created = false;
+          break;
+        }
       }
+    }
 
-      await evaluateUserBadges(req.userId, {
-        force: true,
-        trigger: txResult.alreadyAccepted ? 'campaign_accept_refresh' : 'campaign_accepted',
-      }).catch((badgeError) => {
-        console.error("Badge evaluation after campaign acceptance failed:", badgeError);
-      });
-
-      return res.json({
-        success: true,
-        message: txResult.alreadyAccepted
-          ? "Campaign already accepted. Promotion link returned."
-          : "Campaign accepted successfully",
-        promotion: txResult.promotion,
-        upi: txResult.promotion.upi,
-        promotionUrl: txResult.promotion.promotionUrl,
-        destinationUrl: txResult.promotion.destinationUrl,
-        costPerClick: txResult.promotion.costPerClick,
-      });
-
-    } catch (err) {
-      session.endSession();
-
-      if (isRetryableTxnError(err) && attempt < MAX_TX_RETRIES) {
-        await delay(50 * 2 ** attempt);
-        continue;
-      }
-
-      return res.status(err?.status ?? 500).json({
+    if (!promotion) {
+      return res.status(503).json({
         success: false,
-        message: err?.message ?? "Failed to accept campaign",
+        message: "Unable to accept campaign right now. Please retry.",
       });
     }
-  }
 
-  return res.status(503).json({
-    success: false,
-    message: "System busy. Please retry.",
-  });
+    if (created) {
+      await CampaignModel.updateOne(
+        { _id: campaign._id },
+        {
+          $inc: { totalPromotions: 1 },
+          $set: { payoutModel: "pay_per_click", costPerClick },
+        }
+      );
+    } else if (!hasValidCampaignCostPerClick(campaign?.costPerClick)) {
+      await CampaignModel.updateOne(
+        { _id: campaign._id },
+        {
+          $set: { payoutModel: "pay_per_click", costPerClick },
+        }
+      );
+    }
+
+    scheduleAcceptanceSideEffects({
+      req,
+      campaign,
+      promotion,
+      alreadyAccepted: !created,
+    });
+
+    return res.json({
+      success: true,
+      message: created
+        ? "Campaign accepted successfully"
+        : "Campaign already accepted. Promotion link returned.",
+      promotion,
+      upi: promotion.upi,
+      promotionUrl: promotion.promotionUrl,
+      destinationUrl: promotion.destinationUrl,
+      costPerClick: promotion.costPerClick,
+    });
+  } catch (err) {
+    console.error("Accept campaign error:", err);
+    return res.status(err?.status ?? 500).json({
+      success: false,
+      message: err?.message ?? "Failed to accept campaign",
+    });
+  }
 };

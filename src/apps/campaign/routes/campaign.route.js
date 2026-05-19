@@ -5,6 +5,7 @@ import { acceptCampaign } from '../controllers/accept-campaign.controller.js'
 import { trackCampaignClick } from '../controllers/track-campaign-click.controller.js'
 import { createCampaign } from '../controllers/create-campaign.controller.js'
 import { saveCampaign } from '../controllers/save-campaign.controller.js'
+import { uploadCampaignMedia } from '../controllers/upload-campaign-media.controller.js'
 import { EditCampaign, UpdateCampaignPartial  } from '../controllers/edit-campaign.controller.js'
 import { getCampaignsByStatusAndUserId } from '../controllers/get-by-status-and-userid.controller.js'
 import { GetAMarketerCampaigns } from '../controllers/get-marketer-campaign.controller.js'
@@ -39,6 +40,7 @@ router.get('/:id', getCampaignById);
 router.post('/create', cloudinaryMediaUpload.single('media'), createCampaign); 
 
 router.post('/save', cloudinaryMediaUpload.single('media'), saveCampaign);
+router.post('/media/upload', cloudinaryMediaUpload.single('media'), uploadCampaignMedia);
 
 // General campaign editing routes
 router.put('/edit/:campaignId/:performedBy', cloudinaryMediaUpload.single('media'), EditCampaign);
