@@ -8,7 +8,8 @@
     "node": "20.x"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npm run test:auth",
+    "test:auth": "node --test \"src/apps/auth/tests/*.test.js\"",
     "start": "node bootstrap.js",
     "dev": "nodemon bootstrap.js"
   },

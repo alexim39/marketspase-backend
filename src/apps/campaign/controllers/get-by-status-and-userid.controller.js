@@ -539,6 +539,10 @@ function buildOwnerAddressScoreExpr(userAddress) {
     });
   }
 
+  if (branches.length === 0) {
+    return 0;
+  }
+
   return {
     $switch: {
       branches,
@@ -595,6 +599,10 @@ function buildTargetLocationScoreExpr(userAddress) {
       case: buildAnyTargetLocationMatchExpr(userAddress.country),
       then: 1,
     });
+  }
+
+  if (branches.length === 0) {
+    return 0;
   }
 
   return {
