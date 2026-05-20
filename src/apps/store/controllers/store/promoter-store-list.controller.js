@@ -4,6 +4,15 @@ import { StoreModel } from '../../models/store/index.js';
 import { StoreAnalyticsModel } from '../../models/store-analytics/index.js';
 import mongoose from 'mongoose';
 
+const DEFAULT_PAGE_SIZE = 12;
+const MAX_PAGE_SIZE = 24;
+const FILTER_OPTIONS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+let storeFilterOptionsCache = {
+  value: null,
+  expiresAt: 0,
+};
+
 export const storeController = {
   // Get stores for promoter with following status
   async getStoresForPromoter(req, res) {
@@ -28,7 +37,18 @@ export const storeController = {
         });
       }
 
-      const skip = (parseInt(page) - 1) * parseInt(limit);
+      if (!mongoose.Types.ObjectId.isValid(currentUserId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid authenticated user ID'
+        });
+      }
+
+      const safePage = Math.max(parseInt(page, 10) || 1, 1);
+      const safeLimit = Math.min(Math.max(parseInt(limit, 10) || DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE);
+      const safeMinProducts = Math.max(parseInt(minProducts, 10) || 0, 0);
+      const skip = (safePage - 1) * safeLimit;
+      const currentUserObjectId = new mongoose.Types.ObjectId(currentUserId);
 
       // Build filter
       const filter = {
@@ -57,9 +77,9 @@ export const storeController = {
       }
 
       // Minimum products filter
-      if (parseInt(minProducts) > 0) {
+      if (safeMinProducts > 0) {
         filter.$expr = {
-          $gte: [{ $size: '$storeProducts' }, parseInt(minProducts)]
+          $gte: [{ $size: { $ifNull: ['$storeProducts', []] } }, safeMinProducts]
         };
       }
 
@@ -80,98 +100,105 @@ export const storeController = {
           sort.createdAt = sortOrder === 'asc' ? 1 : -1;
       }
 
-      // Execute query with aggregation for product count and following status
-      const stores = await StoreModel.aggregate([
-        { $match: filter },
-        {
-          $lookup: {
-            from: 'products',
-            localField: 'storeProducts',
-            foreignField: '_id',
-            as: 'productsList'
-          }
-        },
-        {
-          $addFields: {
-            productCount: { $size: '$productsList' },
-            productPreview: {
-              $map: {
-                input: { $slice: ['$productsList', 5] },
-                as: 'product',
-                in: {
-                  _id: '$$product._id',
-                  name: '$$product.name',
-                  price: '$$product.price',
-                  images: '$$product.images',
-                  promotion: {
-                    $ifNull: ['$$product.promotion', {
-                      commissionRate: 0,
-                      commissionType: 'percentage',
-                      fixedCommission: 0
-                    }]
+      const [stores, total, filterOptions] = await Promise.all([
+        StoreModel.aggregate([
+          { $match: filter },
+          {
+            $addFields: {
+              productCount: { $size: { $ifNull: ['$storeProducts', []] } },
+              isFollowing: {
+                $in: [currentUserObjectId, { $ifNull: ['$followers', []] }]
+              }
+            }
+          },
+          {
+            $lookup: {
+              from: 'products',
+              let: {
+                previewProductIds: { $slice: [{ $ifNull: ['$storeProducts', []] }, 5] }
+              },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $in: ['$_id', '$$previewProductIds'] },
+                    isDeleted: { $ne: true },
+                    isActive: true
+                  }
+                },
+                {
+                  $project: {
+                    _id: 1,
+                    name: 1,
+                    price: 1,
+                    images: 1,
+                    promotion: {
+                      $ifNull: ['$promotion', {
+                        commissionRate: 0,
+                        commissionType: 'percentage',
+                        fixedCommission: 0
+                      }]
+                    }
                   }
                 }
-              }
-            },
-            // Add following status using the userId from request
-            isFollowing: {
-              $in: [new mongoose.Types.ObjectId(currentUserId), { $ifNull: ['$followers', []] }]
+              ],
+              as: 'productPreview'
+            }
+          },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'owner',
+              foreignField: '_id',
+              as: 'ownerInfo',
+              pipeline: [
+                {
+                  $project: {
+                    username: 1,
+                    displayName: 1,
+                    avatar: 1
+                  }
+                }
+              ]
+            }
+          },
+          { $unwind: { path: '$ownerInfo', preserveNullAndEmptyArrays: true } },
+          { $sort: sort },
+          { $skip: skip },
+          { $limit: safeLimit },
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              description: 1,
+              logo: 1,
+              category: 1,
+              storeLink: 1,
+              isVerified: 1,
+              verificationTier: 1,
+              createdAt: 1,
+              analytics: 1,
+              productCount: 1,
+              productPreview: 1,
+              isFollowing: 1,
+              ownerInfo: 1,
+              address: 1
             }
           }
-        },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'owner',
-            foreignField: '_id',
-            as: 'ownerInfo'
-          }
-        },
-        { $unwind: { path: '$ownerInfo', preserveNullAndEmptyArrays: true } },
-        { $sort: sort },
-        { $skip: skip },
-        { $limit: parseInt(limit) },
-        {
-          $project: {
-            _id: 1,
-            name: 1,
-            description: 1,
-            logo: 1,
-            category: 1,
-            storeLink: 1,
-            isVerified: 1,
-            verificationTier: 1,
-            createdAt: 1,
-            analytics: 1,
-            productCount: 1,
-            productPreview: 1,
-            isFollowing: 1,
-            ownerInfo: {
-              username: 1,
-              displayName: 1,
-              avatar: 1
-            },
-            address: 1
-          }
-        }
+        ]),
+        StoreModel.countDocuments(filter),
+        getFilterOptions()
       ]);
-
-      // Get total count
-      const total = await StoreModel.countDocuments(filter);
-
-      // Get filter options for sidebar
-      const filterOptions = await getFilterOptions();
 
       res.status(200).json({
         success: true,
         data: stores,
         pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
+          page: safePage,
+          limit: safeLimit,
           total,
-          totalPages: Math.ceil(total / parseInt(limit)),
+          totalPages: Math.ceil(total / safeLimit),
           hasNext: skip + stores.length < total,
-          hasPrev: parseInt(page) > 1
+          hasPrev: safePage > 1
         },
         filters: filterOptions
       });
@@ -429,21 +456,36 @@ export const storeController = {
 
 // Helper function to get filter options
 async function getFilterOptions() {
-  const categories = await StoreModel.aggregate([
-    { $match: { isDeleted: false, isActive: true } },
-    { $group: { _id: '$category', count: { $sum: 1 } } },
-    { $sort: { count: -1 } }
+  const now = Date.now();
+  if (storeFilterOptionsCache.value && storeFilterOptionsCache.expiresAt > now) {
+    return storeFilterOptionsCache.value;
+  }
+
+  const [categories, verificationTiers, totalStores, verifiedStores] = await Promise.all([
+    StoreModel.aggregate([
+      { $match: { isDeleted: false, isActive: true } },
+      { $group: { _id: '$category', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }
+    ]),
+    StoreModel.aggregate([
+      { $match: { isDeleted: false, isActive: true, isVerified: true } },
+      { $group: { _id: '$verificationTier', count: { $sum: 1 } } }
+    ]),
+    StoreModel.countDocuments({ isDeleted: false, isActive: true }),
+    StoreModel.countDocuments({ isDeleted: false, isActive: true, isVerified: true })
   ]);
 
-  const verificationTiers = await StoreModel.aggregate([
-    { $match: { isDeleted: false, isActive: true, isVerified: true } },
-    { $group: { _id: '$verificationTier', count: { $sum: 1 } } }
-  ]);
-
-  return {
+  const value = {
     categories: categories.map(c => ({ name: c._id, count: c.count })),
     verificationTiers: verificationTiers.map(v => ({ name: v._id, count: v.count })),
-    totalStores: await StoreModel.countDocuments({ isDeleted: false, isActive: true }),
-    verifiedStores: await StoreModel.countDocuments({ isDeleted: false, isActive: true, isVerified: true })
+    totalStores,
+    verifiedStores
   };
+
+  storeFilterOptionsCache = {
+    value,
+    expiresAt: now + FILTER_OPTIONS_CACHE_TTL_MS,
+  };
+
+  return value;
 }
