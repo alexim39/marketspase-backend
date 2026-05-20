@@ -22,6 +22,7 @@ const router = express.Router();
 
 
 // Public tracking endpoint
+router.head('/track/:upi', (_req, res) => res.sendStatus(204));
 router.get('/track/:upi', trackCampaignClick);
 
 // All remaining campaign routes require an authenticated actor.

@@ -94,6 +94,11 @@ const campaignClickSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+    chargeLockKey: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
     metadata: {
       type: mongoose.Schema.Types.Mixed,
       default: {},

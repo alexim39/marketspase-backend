@@ -20,7 +20,10 @@ import {
 
 const MAX_TX_RETRIES = 5;
 const DEDUPE_WINDOW_MINUTES = Number(process.env.PPC_CLICK_DEDUPE_WINDOW_MINUTES ?? 30);
+const CHARGE_LOCK_WINDOW_SECONDS = Number(process.env.PPC_CLICK_CHARGE_LOCK_SECONDS ?? 5);
 const HASH_SALT = process.env.CLICK_TRACKING_HASH_SALT || process.env.JWTTOKENSECRET || "marketspase-click";
+const KNOWN_NON_BILLABLE_UA_PATTERN =
+  /facebookexternalhit|facebot|twitterbot|slackbot|telegrambot|discordbot|linkedinbot|skypeuripreview|google-inspectiontool|googleother|bingbot|duckduckbot|applebot|crawler|spider|headlesschrome/i;
 
 const isRetryableTxnError = (err) =>
   err?.errorLabels?.includes("TransientTransactionError") ||
@@ -50,6 +53,14 @@ const getDeviceType = (userAgent = "") => {
   if (ua) return "desktop";
   return "unknown";
 };
+
+const getHeaderValue = (req, name) => {
+  const value = req.get(name);
+  return typeof value === "string" ? value.trim() : "";
+};
+
+const getLowerHeaderValue = (req, name) =>
+  getHeaderValue(req, name).toLowerCase();
 
 const normalizeDestinationUrl = (url) => {
   const fallback = process.env.FRONTEND_URL || "https://marketspase.com";
@@ -95,11 +106,50 @@ const getCostPerClick = (promotion, campaign) =>
 const buildClickKeys = ({ promotionId, ipHash, userAgentHash, clickedAt }) => {
   const windowMs = Math.max(DEDUPE_WINDOW_MINUTES, 1) * 60 * 1000;
   const bucket = Math.floor(clickedAt.getTime() / windowMs);
+  const chargeLockWindowMs = Math.max(CHARGE_LOCK_WINDOW_SECONDS, 1) * 1000;
+  const chargeLockBucket = Math.floor(clickedAt.getTime() / chargeLockWindowMs);
   const dedupeKey = `${promotionId}:${ipHash}:${userAgentHash}:${bucket}`;
   return {
     dedupeKey,
     billableKey: dedupeKey,
+    chargeLockKey: `${promotionId}:${ipHash}:${chargeLockBucket}`,
   };
+};
+
+const getNonBillableRequestReason = (req) => {
+  const method = String(req.method || "GET").toUpperCase();
+  if (method === "HEAD") {
+    return "head_request";
+  }
+
+  const purposeHeaders = [
+    getLowerHeaderValue(req, "purpose"),
+    getLowerHeaderValue(req, "x-purpose"),
+    getLowerHeaderValue(req, "sec-purpose"),
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  if (/(prefetch|preview|prerender)/i.test(purposeHeaders)) {
+    return "prefetch_or_preview";
+  }
+
+  const secFetchMode = getLowerHeaderValue(req, "sec-fetch-mode");
+  if (secFetchMode && secFetchMode !== "navigate") {
+    return `sec_fetch_mode_${secFetchMode}`;
+  }
+
+  const secFetchDest = getLowerHeaderValue(req, "sec-fetch-dest");
+  if (secFetchDest && !["document", "iframe"].includes(secFetchDest)) {
+    return `sec_fetch_dest_${secFetchDest}`;
+  }
+
+  const requestUserAgent = String(req.headers["user-agent"] || "");
+  if (KNOWN_NON_BILLABLE_UA_PATTERN.test(requestUserAgent)) {
+    return "bot_or_preview_user_agent";
+  }
+
+  return null;
 };
 
 const createClickAudit = async ({ session, click }) => {
@@ -381,7 +431,7 @@ export const trackCampaignClick = async (req, res) => {
           await campaign.save({ session });
         }
 
-        const { dedupeKey, billableKey } = buildClickKeys({
+        const { dedupeKey, billableKey, chargeLockKey } = buildClickKeys({
           promotionId: promotion._id,
           ipHash,
           userAgentHash,
@@ -405,6 +455,36 @@ export const trackCampaignClick = async (req, res) => {
           deviceType,
           dedupeKey,
         };
+
+        const nonBillableReason = getNonBillableRequestReason(req);
+        if (nonBillableReason) {
+          const click = await createClickAudit({
+            session,
+            click: {
+              ...baseClick,
+              cost: 0,
+              status: "duplicate",
+              chargeStatus: "not_charged",
+              metadata: { reason: nonBillableReason },
+            },
+          });
+
+          await incrementNonBillableCounters({
+            session,
+            campaignId: campaign._id,
+            promotionId: promotion._id,
+            status: "duplicate",
+            now,
+          });
+
+          txResult = {
+            success: true,
+            message: "Non-billable request recorded without charge",
+            redirectUrl: destinationUrl,
+            data: { clickId: click._id, status: "duplicate", charged: false },
+          };
+          return;
+        }
 
         const fraudSignal = await evaluatePromotionClickFraud({
           promotion,
@@ -540,7 +620,9 @@ export const trackCampaignClick = async (req, res) => {
           return;
         }
 
-        const duplicate = await CampaignClickModel.exists({ billableKey }).session(session);
+        const duplicate = await CampaignClickModel.exists({
+          $or: [{ billableKey }, { chargeLockKey }],
+        }).session(session);
         if (duplicate) {
           const click = await createClickAudit({
             session,
@@ -712,6 +794,7 @@ export const trackCampaignClick = async (req, res) => {
             status: "billable",
             chargeStatus: "charged",
             billableKey,
+            chargeLockKey,
           },
         });
 
