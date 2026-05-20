@@ -6,6 +6,8 @@ import { UserModel } from "../../user/models/user/index.js";
 import {
   enforcePromotionFraudSignal,
   evaluatePromotionClickFraud,
+  isPromotionFraudLinkRestoreDue,
+  restorePromotionLinkAfterFraudHold,
 } from "../../promotion/services/fraud/promotion-fraud.service.js";
 import {
   hasValidCampaignCostPerClick,
@@ -291,7 +293,7 @@ export const trackCampaignClick = async (req, res) => {
           .session(session)
           .select(`
             _id campaign promoter upi promotionUrl destinationUrl
-            status isActive payoutModel costPerClick clickStats payoutAmount
+            status isActive payoutModel costPerClick clickStats payoutAmount fraudStatus
           `);
 
         if (!promotion) {
@@ -327,7 +329,11 @@ export const trackCampaignClick = async (req, res) => {
           .session(session)
           .select("displayName personalInfo.phone personalInfo.phoneDetails");
 
-        if (!marketer) {
+        const promoter = await UserModel.findById(promotion.promoter)
+          .session(session)
+          .select("displayName email isActive fraudProfile securityProfile");
+
+        if (!marketer || !promoter) {
           txResult = {
             success: false,
             httpStatus: 410,
@@ -339,6 +345,24 @@ export const trackCampaignClick = async (req, res) => {
             data: { status: "invalid" },
           };
           return;
+        }
+
+        if (isPromotionFraudLinkRestoreDue(promotion, now)) {
+          const restoreResult = await restorePromotionLinkAfterFraudHold({
+            promotion,
+            now,
+            session,
+            source: "tracking link revisit after fraud hold elapsed",
+          });
+
+          if (restoreResult.restored) {
+            promotion.isActive = Boolean(restoreResult.reactivated);
+            promotion.fraudStatus = {
+              ...(promotion.fraudStatus?.toObject?.() || promotion.fraudStatus || {}),
+              blockedUntil: null,
+              autoRestoredAt: now,
+            };
+          }
         }
 
         const costPerClick = getCostPerClick(promotion, campaign);
@@ -385,9 +409,7 @@ export const trackCampaignClick = async (req, res) => {
         const fraudSignal = await evaluatePromotionClickFraud({
           promotion,
           campaign,
-          promoter: await UserModel.findById(promotion.promoter)
-            .session(session)
-            .select("displayName email isActive fraudProfile securityProfile"),
+          promoter,
           ipHash,
           userAgentHash,
           userAgent,
@@ -415,7 +437,7 @@ export const trackCampaignClick = async (req, res) => {
           };
         }
 
-        if (campaign.status !== "active" || promotion.isActive === false) {
+        if (campaign.status !== "active" || promotion.isActive === false || promoter.isActive === false) {
           const click = await createClickAudit({
             session,
             click: {
@@ -423,7 +445,11 @@ export const trackCampaignClick = async (req, res) => {
               cost: 0,
               status: campaign.status === "exhausted" ? "exhausted" : "invalid",
               chargeStatus: "not_charged",
-              metadata: { reason: "campaign_or_promotion_inactive" },
+              metadata: {
+                reason: promoter.isActive === false
+                  ? "promoter_account_suspended"
+                  : "campaign_or_promotion_inactive",
+              },
             },
           });
 
@@ -437,12 +463,18 @@ export const trackCampaignClick = async (req, res) => {
 
           txResult = {
             success: false,
-            httpStatus: 410,
-            message: "Campaign is no longer active",
+            httpStatus: promoter.isActive === false ? 403 : 410,
+            message: promoter.isActive === false
+              ? "Promotion is temporarily unavailable"
+              : "Campaign is no longer active",
             redirectUrl: buildCampaignUnavailableUrl({
               campaign,
               marketer,
-              reason: campaign.status === "exhausted" ? "exhausted" : String(campaign.status || "inactive"),
+              reason: promoter.isActive === false
+                ? "promoter_suspended"
+                : campaign.status === "exhausted"
+                  ? "exhausted"
+                  : String(campaign.status || "inactive"),
             }),
             data: { clickId: click._id, status: click.status },
           };

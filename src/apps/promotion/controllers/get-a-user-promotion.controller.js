@@ -5,6 +5,7 @@ import { UserModel } from "../../user/models/user/index.js";
 import { isPromotionExpired, calculateTimeRemaining, calculateProgressPercentage } from './../services/utils.js';
 import { normalizePromotionTrackingFields } from "../utils/promotion-url.js";
 import { normalizeLegacyPpcPromotionStatus } from "../../campaign/services/campaign-runtime.service.js";
+import { restoreExpiredPromotionFraudLinks } from "../services/fraud/promotion-fraud.service.js";
 
 const MAX_PAGE_SIZE = 100;
 const DEFAULT_PAGE_SIZE = 10;
@@ -110,6 +111,11 @@ export const GetUserPromotions = async (req, res) => {
         console.warn("Unable to update promoter lastSeenAt while loading promotions:", error.message);
       });
     }
+
+    await restoreExpiredPromotionFraudLinks({
+      promoterId: userId,
+      source: "promoter promotion list refresh",
+    });
 
     // Build query
     const query = { promoter: userId };

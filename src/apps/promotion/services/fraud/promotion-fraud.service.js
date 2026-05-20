@@ -14,7 +14,8 @@ import {
 
 const OPEN_CASE_STATUSES = ["open", "warning_sent", "final_warning_sent", "suspended"];
 const ACTIVE_CASE_FILTER = { $in: OPEN_CASE_STATUSES };
-const FRAUD_SUSPENSION_DAYS = Math.max(Number.parseInt(process.env.PROMOTION_FRAUD_SUSPENSION_DAYS || "30", 10) || 30, 1);
+const FRAUD_SUSPENSION_HOURS = Math.max(Number.parseInt(process.env.PROMOTION_FRAUD_SUSPENSION_HOURS || "2", 10) || 2, 1);
+const FRAUD_LINK_HOLD_HOURS = Math.max(Number.parseInt(process.env.PROMOTION_FRAUD_LINK_HOLD_HOURS || "1", 10) || 1, 1);
 const MAX_PROMOTION_BILLABLE_PER_IP_24H = Math.max(Number.parseInt(process.env.PROMOTION_FRAUD_MAX_IP_PROMOTION_24H || "3", 10) || 3, 1);
 const MAX_PROMOTION_BILLABLE_PER_IP_UA_6H = Math.max(Number.parseInt(process.env.PROMOTION_FRAUD_MAX_IP_UA_PROMOTION_6H || "2", 10) || 2, 1);
 const MAX_PROMOTER_BILLABLE_PER_IP_24H = Math.max(Number.parseInt(process.env.PROMOTION_FRAUD_MAX_IP_PROMOTER_24H || "6", 10) || 6, 1);
@@ -27,6 +28,14 @@ const SUSPICIOUS_SOURCE_PATTERN = /(autosurf|exchange|traffic|incentive|reward|b
 
 const buildPromotionActionUrl = (promotionId) =>
   `https://marketspase.com/dashboard/campaigns/promotions/${promotionId}`;
+
+const FRAUD_SUSPENSION_POLICY_REASONS = [
+  "Clicking your own promotion link or testing it repeatedly from your device or network.",
+  "Using bots, scripts, automation tools, autosurf systems, traffic exchanges, or incentivized traffic sources.",
+  "Generating repeated clicks from the same IP address, browser signature, or closely related devices.",
+  "Creating abnormal click bursts, duplicate traffic, or other low-quality traffic patterns.",
+  "Sharing traffic infrastructure across multiple promoter accounts to influence paid click volume.",
+];
 
 const formatDateTime = (value) => {
   try {
@@ -66,6 +75,26 @@ const buildReasonSummary = (reasons = []) =>
     .filter(Boolean)
     .slice(0, 3)
     .join(", ");
+
+const buildSuspensionDurationLabel = () =>
+  `${FRAUD_SUSPENSION_HOURS} hour${FRAUD_SUSPENSION_HOURS === 1 ? "" : "s"}`;
+
+const buildLinkHoldDurationLabel = () =>
+  `${FRAUD_LINK_HOLD_HOURS} hour${FRAUD_LINK_HOLD_HOURS === 1 ? "" : "s"}`;
+
+const resolveFraudLinkBlockedUntil = (promotionOrFraudStatus = {}) => {
+  const fraudStatus = promotionOrFraudStatus?.fraudStatus || promotionOrFraudStatus;
+
+  if (fraudStatus?.blockedUntil) {
+    return new Date(fraudStatus.blockedUntil);
+  }
+
+  if (fraudStatus?.blockedAt) {
+    return new Date(new Date(fraudStatus.blockedAt).getTime() + (FRAUD_LINK_HOLD_HOURS * 60 * 60 * 1000));
+  }
+
+  return null;
+};
 
 const mergeReasonEntries = (existing = [], incoming = []) => {
   const merged = new Map();
@@ -126,9 +155,14 @@ const appendUserActivity = async (userId, description, metadata = {}) => {
 
 const buildSuspensionWindow = () => {
   const startedAt = new Date();
-  const endsAt = new Date(startedAt.getTime() + (FRAUD_SUSPENSION_DAYS * 24 * 60 * 60 * 1000));
+  const endsAt = new Date(startedAt.getTime() + (FRAUD_SUSPENSION_HOURS * 60 * 60 * 1000));
   return { startedAt, endsAt };
 };
+
+const buildLinkHoldWindow = (startedAt = new Date()) => ({
+  startedAt,
+  endsAt: new Date(startedAt.getTime() + (FRAUD_LINK_HOLD_HOURS * 60 * 60 * 1000)),
+});
 
 const updatePromoterTrust = (promoterDoc, penalty, riskLevel, caseId, now) => {
   const currentProfile = promoterDoc.fraudProfile || {};
@@ -360,7 +394,15 @@ export const evaluatePromotionClickFraud = async ({
   };
 };
 
-const sendPromoterFraudWarning = async ({ promoter, promotion, campaign, action, reasonSummary, suspendedUntil }) => {
+const sendPromoterFraudWarning = async ({
+  promoter,
+  promotion,
+  campaign,
+  action,
+  reasonSummary,
+  reasons = [],
+  suspendedUntil,
+}) => {
   const actionUrl = buildPromotionActionUrl(promotion._id);
 
   try {
@@ -400,6 +442,10 @@ const sendPromoterFraudWarning = async ({ promoter, promotion, campaign, action,
           promoterName: promoter.displayName,
           campaignTitle: campaign.title,
           reasonSummary,
+          detectedReasons: reasons,
+          policyReasons: FRAUD_SUSPENSION_POLICY_REASONS,
+          linkHoldDurationLabel: buildLinkHoldDurationLabel(),
+          suspensionDurationLabel: buildSuspensionDurationLabel(),
           suspendedUntil: formatDateTime(suspendedUntil),
           promotionUrl: actionUrl,
         })
@@ -407,6 +453,10 @@ const sendPromoterFraudWarning = async ({ promoter, promotion, campaign, action,
           promoterName: promoter.displayName,
           campaignTitle: campaign.title,
           reasonSummary,
+          detectedReasons: reasons,
+          policyReasons: FRAUD_SUSPENSION_POLICY_REASONS,
+          linkHoldDurationLabel: buildLinkHoldDurationLabel(),
+          suspensionDurationLabel: buildSuspensionDurationLabel(),
           promotionUrl: actionUrl,
         });
 
@@ -456,6 +506,128 @@ const sendPromoterFraudClearedMessage = async ({ promoter, promotion, campaign }
   }
 };
 
+export const isPromotionFraudLinkRestoreDue = (promotion, now = new Date()) => {
+  if (!promotion || promotion.isActive !== false || !promotion?.fraudStatus?.isFlagged) {
+    return false;
+  }
+
+  const blockedUntil = resolveFraudLinkBlockedUntil(promotion);
+  if (!blockedUntil) {
+    return false;
+  }
+
+  return blockedUntil <= now;
+};
+
+export const restorePromotionLinkAfterFraudHold = async ({
+  promotion,
+  now = new Date(),
+  session = null,
+  source = "automatic fraud hold release",
+}) => {
+  if (!isPromotionFraudLinkRestoreDue(promotion, now)) {
+    return { restored: false };
+  }
+
+  const campaign = promotion?.campaign
+    ? await CampaignModel.findById(promotion.campaign)
+      .select("status")
+      .session(session || null)
+      .lean()
+    : null;
+  const canReactivateLink =
+    String(promotion?.status || "") === "accepted" &&
+    String(campaign?.status || "") === "active";
+  const restoreDetails = canReactivateLink
+    ? `Promotion link auto-restored after the ${buildLinkHoldDurationLabel()} fraud hold window elapsed.`
+    : `Fraud hold expired after ${buildLinkHoldDurationLabel()}, but the promotion remained unavailable because the campaign is not active.`;
+  const updateOptions = session ? { session } : undefined;
+
+  const restoreResult = await PromotionModel.updateOne(
+    { _id: promotion._id, isActive: false },
+    {
+      $set: {
+        isActive: canReactivateLink,
+        "fraudStatus.blockedUntil": null,
+        "fraudStatus.autoRestoredAt": now,
+      },
+      $push: {
+        activityLog: {
+          action: "Promotion Link Auto Restored",
+          details: restoreDetails,
+          timestamp: now,
+        },
+      },
+    },
+    updateOptions
+  );
+
+  if (!restoreResult.modifiedCount) {
+    return { restored: false };
+  }
+
+  if (promotion?.fraudStatus?.lastCaseId) {
+    await PromotionFraudCaseModel.updateOne(
+      { _id: promotion.fraudStatus.lastCaseId },
+      {
+        $push: {
+          actionLog: {
+            action: "auto_restore_link",
+            details: `${restoreDetails} Source: ${source}.`,
+            timestamp: now,
+          },
+        },
+      },
+      updateOptions
+    );
+  }
+
+  return { restored: true, reactivated: canReactivateLink };
+};
+
+export const restoreExpiredPromotionFraudLinks = async ({
+  promoterId = null,
+  now = new Date(),
+  limit = 100,
+  source = "scheduled promotion fraud refresh",
+} = {}) => {
+  const blockedBefore = new Date(now.getTime() - (FRAUD_LINK_HOLD_HOURS * 60 * 60 * 1000));
+  const query = {
+    isActive: false,
+    "fraudStatus.isFlagged": true,
+    status: { $nin: ["rejected", "paid"] },
+    ...(promoterId ? { promoter: promoterId } : {}),
+    $or: [
+      { "fraudStatus.blockedUntil": { $lte: now } },
+      {
+        "fraudStatus.blockedUntil": { $exists: false },
+        "fraudStatus.blockedAt": { $lte: blockedBefore },
+      },
+    ],
+  };
+
+  const promotions = await PromotionModel.find(query)
+    .select("_id campaign status isActive fraudStatus")
+    .sort({ "fraudStatus.blockedAt": 1 })
+    .limit(limit);
+
+  let restoredCount = 0;
+
+  for (const promotion of promotions) {
+    const result = await restorePromotionLinkAfterFraudHold({
+      promotion,
+      now,
+      source,
+    });
+
+    if (result.restored) {
+      restoredCount += 1;
+    }
+  }
+
+  return restoredCount;
+};
+
 const getOpenCaseCount = async (promoterId) =>
   PromotionFraudCaseModel.countDocuments({
     promoter: promoterId,
@@ -471,6 +643,7 @@ const updatePromotionFraudState = async ({
   reviewStatus,
   now,
 }) => {
+  const linkHoldWindow = buildLinkHoldWindow(now);
   promotion.isActive = false;
   promotion.fraudStatus = {
     ...(promotion.fraudStatus || {}),
@@ -483,6 +656,7 @@ const updatePromotionFraudState = async ({
     firstFlaggedAt: promotion.fraudStatus?.firstFlaggedAt || now,
     lastFlaggedAt: now,
     blockedAt: now,
+    blockedUntil: linkHoldWindow.endsAt,
     lastCaseId: caseId,
   };
   await promotion.save();
@@ -496,6 +670,7 @@ const suspendPromoterAndLinks = async ({
   now,
 }) => {
   const { startedAt, endsAt } = buildSuspensionWindow();
+  const linkHoldWindow = buildLinkHoldWindow(now);
 
   promoter.isActive = false;
   updatePromoterTrust(promoter, 40, "critical", caseId, now);
@@ -527,6 +702,7 @@ const suspendPromoterAndLinks = async ({
         "fraudStatus.reasonSummary": "Promoter account suspended after repeated suspicious traffic.",
         "fraudStatus.lastFlaggedAt": now,
         "fraudStatus.blockedAt": now,
+        "fraudStatus.blockedUntil": linkHoldWindow.endsAt,
         "fraudStatus.lastCaseId": caseId,
       },
       $addToSet: {
@@ -696,6 +872,7 @@ export const enforcePromotionFraudSignal = async ({
     campaign,
     action,
     reasonSummary,
+    reasons: mergedReasons,
     suspendedUntil,
   });
 
@@ -709,6 +886,10 @@ export const enforcePromotionFraudSignal = async ({
 };
 
 export const getPromotionFraudSummary = async () => {
+  await restoreExpiredPromotionFraudLinks({
+    source: "admin fraud summary refresh",
+  });
+
   const [caseStats, blockedPromotions, suspendedPromoters, criticalCases] = await Promise.all([
     PromotionFraudCaseModel.aggregate([
       {
@@ -769,6 +950,10 @@ export const getPromotionFraudCases = async ({
   page = 1,
   limit = 25,
 }) => {
+  await restoreExpiredPromotionFraudLinks({
+    source: "admin fraud case refresh",
+  });
+
   const pageNum = Math.max(Number.parseInt(page, 10) || 1, 1);
   const limitNum = Math.max(Math.min(Number.parseInt(limit, 10) || 25, 100), 1);
   const skip = (pageNum - 1) * limitNum;
@@ -855,7 +1040,7 @@ export const applyPromotionFraudCaseAction = async ({
 
   const now = new Date();
 
-  if (action === "suspend_30_days") {
+  if (action === "suspend_30_days" || action === "suspend_2_hours") {
     return enforcePromotionFraudSignal({
       promotionId: promotion._id,
       promoterId: promoter._id,
