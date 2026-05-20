@@ -284,6 +284,8 @@ const ensureUserAccessAllowed = async (authContext) => {
         }
       );
 
+      invalidateAuthCacheForUser(String(authContext.user._id));
+
       authContext.user.isActive = true;
       authContext.user.fraudProfile = {
         ...(authContext.user.fraudProfile || {}),

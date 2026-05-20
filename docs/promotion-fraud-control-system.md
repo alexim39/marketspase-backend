@@ -8,7 +8,7 @@ It is meant for developers and operators who need to understand:
 
 - which loopholes are applicable to the current PPC/PPL-style system
 - how suspicious traffic is detected
-- how warnings, link blocking, and 30-day suspensions are enforced
+- how warnings, 1-hour link holds, and temporary 2-hour suspensions are enforced
 - how admins review and administer fraud cases
 - which parts are complete now versus intentionally deferred
 
@@ -61,19 +61,21 @@ When a promotion link starts showing suspicious traffic:
 2. the marketer is not charged
 3. the promoter is not credited
 4. the promotion link is paused
-5. the promoter receives a warning email
-6. the promoter also receives an in-app warning
-7. the fraud case becomes visible in admin monitoring
+5. the fraud hold on that link is set for 1 hour
+6. the promoter receives a warning email
+7. the promoter also receives an in-app warning
+8. the fraud case becomes visible in admin monitoring
 
 ### Repeat suspicious behavior
 
 If the promoter continues and a new enforceable fraud event is detected:
 
 1. the promoter receives a final suspension email
-2. the promoter account is set inactive for 30 days
+2. the promoter account is set inactive for 2 hours
 3. all active promotion links for that promoter are disabled
-4. the fraud case is marked suspended
-5. admin monitoring reflects the suspension immediately
+4. each affected link gets a 1-hour fraud hold window
+5. the fraud case is marked suspended
+6. admin monitoring reflects the suspension immediately
 
 ## Architecture overview
 
@@ -223,6 +225,8 @@ Added `fraudStatus` on promotions with:
 - `firstFlaggedAt`
 - `lastFlaggedAt`
 - `blockedAt`
+- `blockedUntil`
+- `autoRestoredAt`
 - `lastCaseId`
 
 Also important:
@@ -290,6 +294,7 @@ This stores:
 When a fraud event crosses the block threshold for a promoter who has not already been warned:
 
 - the promotion link is paused
+- a 1-hour fraud hold is placed on the link
 - the case status becomes `warning_sent`
 - promoter trust is reduced
 - promoter warning count increases
@@ -302,8 +307,9 @@ When a promoter is already warned and a new enforceable fraud event is detected:
 
 - the case status becomes `suspended`
 - the promoter account is set `isActive = false`
-- `fraudProfile.suspendedUntil` is set for 30 days
+- `fraudProfile.suspendedUntil` is set for 2 hours
 - all active promotions for the promoter are disabled
+- each affected promotion keeps a 1-hour fraud hold window recorded in `fraudStatus.blockedUntil`
 - final warning / suspension email is sent
 - in-app suspension notification is sent
 
@@ -314,6 +320,16 @@ The auth middleware now checks suspension windows. If the suspension date has pa
 This behavior is in:
 
 - `C:\Projects\marketspase-workspace\marketspase-api\src\shared\middleware\auth.middleware.js`
+
+### Automatic fraud-hold release
+
+Promotion links that were paused by fraud enforcement are automatically released from the fraud hold after 1 hour on the next relevant platform request. The release is recorded in both the promotion activity log and the fraud case action log so admins can still review the full pattern later.
+
+This behavior is handled in:
+
+- `C:\Projects\marketspase-workspace\marketspase-api\src\apps\promotion\services\fraud\promotion-fraud.service.js`
+- `C:\Projects\marketspase-workspace\marketspase-api\src\apps\campaign\controllers\track-campaign-click.controller.js`
+- `C:\Projects\marketspase-workspace\marketspase-api\src\apps\promotion\controllers\get-a-user-promotion.controller.js`
 
 ## Admin monitoring and administration
 
@@ -367,7 +383,7 @@ Route:
 
 Admin actions supported:
 
-- suspend promoter for 30 days
+- suspend promoter for 2 hours
 - restore promotion link
 - mark case resolved
 - dismiss case
@@ -386,6 +402,7 @@ The admin dashboard now exposes:
 - fraud pulse count in the header
 - direct navigation to the fraud monitor
 - overview panel for fraud review
+- detailed fraud history including warnings, strikes, suspension history, link hold timing, and action history
 
 ## Promoter-facing behavior
 
@@ -411,7 +428,8 @@ This keeps the UI consistent with backend enforcement.
 
 Current fraud tuning is environment-driven through these variables:
 
-- `PROMOTION_FRAUD_SUSPENSION_DAYS`
+- `PROMOTION_FRAUD_SUSPENSION_HOURS`
+- `PROMOTION_FRAUD_LINK_HOLD_HOURS`
 - `PROMOTION_FRAUD_MAX_IP_PROMOTION_24H`
 - `PROMOTION_FRAUD_MAX_IP_UA_PROMOTION_6H`
 - `PROMOTION_FRAUD_MAX_IP_PROMOTER_24H`
@@ -511,7 +529,8 @@ This fraud-control system turns the current promotion model from a trust-heavy c
 - no-credit / no-charge invalidation
 - automatic warning escalation
 - promotion link shutdown
-- 30-day promoter suspension for repeat offenders
+- 1-hour automatic link hold release with audit history
+- 2-hour promoter suspension for repeat offenders
 - admin monitoring and manual review controls
 
 It materially improves platform trust for marketers while leaving room for a future verified-lead and deeper identity-trust layer.

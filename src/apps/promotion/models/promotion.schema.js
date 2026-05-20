@@ -147,6 +147,8 @@ const promotionSchema = new mongoose.Schema(
       firstFlaggedAt: Date,
       lastFlaggedAt: Date,
       blockedAt: Date,
+      blockedUntil: Date,
+      autoRestoredAt: Date,
       lastCaseId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "PromotionFraudCase",
