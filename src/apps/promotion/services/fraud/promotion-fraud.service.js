@@ -609,20 +609,130 @@ export const restoreExpiredPromotionFraudLinks = async ({
   const promotions = await PromotionModel.find(query)
     .select("_id campaign status isActive fraudStatus")
     .sort({ "fraudStatus.blockedAt": 1 })
-    .limit(limit);
+    .limit(limit)
+    .lean();
 
-  let restoredCount = 0;
+  if (!promotions.length) {
+    return 0;
+  }
+
+  const campaignIds = Array.from(new Set(
+    promotions
+      .map((promotion) => promotion?.campaign)
+      .filter(Boolean)
+      .map((campaignId) => String(campaignId))
+  ));
+
+  const activeCampaignIds = new Set(
+    campaignIds.length > 0
+      ? (await CampaignModel.find({ _id: { $in: campaignIds }, status: "active" })
+          .select("_id")
+          .lean())
+          .map((campaign) => String(campaign._id))
+      : []
+  );
+
+  const reactivatableIds = [];
+  const holdReleasedIds = [];
+  const reactivatableCaseIds = new Set();
+  const holdReleasedCaseIds = new Set();
 
   for (const promotion of promotions) {
-    const result = await restorePromotionLinkAfterFraudHold({
-      promotion,
-      now,
-      source,
-    });
+    const canReactivateLink =
+      String(promotion?.status || "") === "accepted"
+      && promotion?.campaign
+      && activeCampaignIds.has(String(promotion.campaign));
 
-    if (result.restored) {
-      restoredCount += 1;
+    if (canReactivateLink) {
+      reactivatableIds.push(promotion._id);
+      if (promotion?.fraudStatus?.lastCaseId) {
+        reactivatableCaseIds.add(String(promotion.fraudStatus.lastCaseId));
+      }
+      continue;
     }
+
+    holdReleasedIds.push(promotion._id);
+    if (promotion?.fraudStatus?.lastCaseId) {
+      holdReleasedCaseIds.add(String(promotion.fraudStatus.lastCaseId));
+    }
+  }
+
+  let restoredCount = 0;
+  const restoredDetails = `Promotion link auto-restored after the ${buildLinkHoldDurationLabel()} fraud hold window elapsed.`;
+  const holdReleasedDetails = `Fraud hold expired after ${buildLinkHoldDurationLabel()}, but the promotion remained unavailable because the campaign is not active.`;
+
+  if (reactivatableIds.length > 0) {
+    const restoreResult = await PromotionModel.updateMany(
+      { _id: { $in: reactivatableIds }, isActive: false },
+      {
+        $set: {
+          isActive: true,
+          "fraudStatus.blockedUntil": null,
+          "fraudStatus.autoRestoredAt": now,
+        },
+        $push: {
+          activityLog: {
+            action: "Promotion Link Auto Restored",
+            details: restoredDetails,
+            timestamp: now,
+          },
+        },
+      }
+    );
+
+    restoredCount += Number(restoreResult.modifiedCount || 0);
+  }
+
+  if (holdReleasedIds.length > 0) {
+    const releaseResult = await PromotionModel.updateMany(
+      { _id: { $in: holdReleasedIds }, isActive: false },
+      {
+        $set: {
+          isActive: false,
+          "fraudStatus.blockedUntil": null,
+          "fraudStatus.autoRestoredAt": now,
+        },
+        $push: {
+          activityLog: {
+            action: "Promotion Fraud Hold Cleared",
+            details: holdReleasedDetails,
+            timestamp: now,
+          },
+        },
+      }
+    );
+
+    restoredCount += Number(releaseResult.modifiedCount || 0);
+  }
+
+  if (reactivatableCaseIds.size > 0) {
+    await PromotionFraudCaseModel.updateMany(
+      { _id: { $in: Array.from(reactivatableCaseIds) } },
+      {
+        $push: {
+          actionLog: {
+            action: "auto_restore_link",
+            details: `${restoredDetails} Source: ${source}.`,
+            timestamp: now,
+          },
+        },
+      }
+    );
+  }
+
+  if (holdReleasedCaseIds.size > 0) {
+    await PromotionFraudCaseModel.updateMany(
+      { _id: { $in: Array.from(holdReleasedCaseIds) } },
+      {
+        $push: {
+          actionLog: {
+            action: "auto_release_hold",
+            details: `${holdReleasedDetails} Source: ${source}.`,
+            timestamp: now,
+          },
+        },
+      }
+    );
   }
 
   return restoredCount;

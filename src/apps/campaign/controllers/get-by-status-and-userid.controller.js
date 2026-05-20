@@ -4,6 +4,7 @@ import { UserModel } from "../../user/models/user/index.js";
 import { refreshUserReputation } from "../../user/services/user-reputation.service.js";
 
 const DEFAULT_COST_PER_CLICK = 80;
+const MAX_PAGE_SIZE = 40;
 const CAMPAIGN_DISCOVERY_CACHE_TTL_MS = 60 * 1000;
 const REPUTATION_STALE_MS = 15 * 60 * 1000;
 const campaignDiscoveryCache = new Map();
@@ -36,7 +37,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     }
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-    const limitNum = Math.max(parseInt(limit, 10) || 20, 1);
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), MAX_PAGE_SIZE);
     const skip = (pageNum - 1) * limitNum;
     const normalizedStatus = status ? String(status).trim().toLowerCase() : "active";
     const normalizedSortOrder = String(sortOrder).toLowerCase() === "asc" ? 1 : -1;
@@ -59,7 +60,7 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     }
 
     const user = await UserModel.findById(userId)
-      .select("preferences personalInfo rating ratingCount ratingUpdatedAt tags role loginStreak gamificationProfile")
+      .select("preferences personalInfo.address personalInfo.dob rating ratingCount ratingUpdatedAt tags role loginStreak gamificationProfile")
       .lean();
 
     if (!user) {
@@ -75,35 +76,23 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       ratingUpdatedAt instanceof Date &&
       !Number.isNaN(ratingUpdatedAt.getTime());
 
-    if (hasCachedReputation) {
-      user.rating = cachedRating;
-      user.ratingCount = cachedRatingCount;
+    user.rating = Number.isFinite(cachedRating) ? cachedRating : 0;
+    user.ratingCount = Number.isFinite(cachedRatingCount) ? cachedRatingCount : 0;
 
-      if ((Date.now() - ratingUpdatedAt.getTime()) > REPUTATION_STALE_MS) {
-        setImmediate(() => {
-          refreshUserReputation({
-            _id: userId,
-            role: user.role,
-            loginStreak: user.loginStreak,
-            gamificationProfile: user.gamificationProfile,
-            rating: cachedRating,
-            ratingCount: cachedRatingCount,
-            ratingUpdatedAt,
-          }).catch((error) => {
-            console.warn("Unable to refresh promoter reputation during campaign discovery:", error.message);
-          });
+    if (!hasCachedReputation || (Date.now() - ratingUpdatedAt.getTime()) > REPUTATION_STALE_MS) {
+      setImmediate(() => {
+        refreshUserReputation({
+          _id: userId,
+          role: user.role,
+          loginStreak: user.loginStreak,
+          gamificationProfile: user.gamificationProfile,
+          rating: user.rating,
+          ratingCount: user.ratingCount,
+          ratingUpdatedAt: hasCachedReputation ? ratingUpdatedAt : undefined,
+        }).catch((error) => {
+          console.warn("Unable to refresh promoter reputation during campaign discovery:", error.message);
         });
-      }
-    } else {
-      const reputationSnapshot = await refreshUserReputation({
-        _id: userId,
-        role: user.role,
-        loginStreak: user.loginStreak,
-        gamificationProfile: user.gamificationProfile,
       });
-
-      user.rating = reputationSnapshot.rating;
-      user.ratingCount = reputationSnapshot.ratingCount;
     }
 
     const userAddress = extractUserLocation(user);
@@ -252,7 +241,10 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
                 displayName: 1,
                 username: 1,
                 email: 1,
-                personalInfo: 1,
+                "personalInfo.address.street": 1,
+                "personalInfo.address.city": 1,
+                "personalInfo.address.state": 1,
+                "personalInfo.address.country": 1,
               },
             },
           ],
