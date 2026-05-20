@@ -37,6 +37,7 @@ const promotionSchema = new mongoose.Schema(
     submittedAt: Date,
     validatedAt: Date,
     rejectedAt: Date,
+    autoRejectedAt: Date,
     paidAt: Date,
 
     proofMedia: [String],
