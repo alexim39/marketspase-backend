@@ -100,11 +100,9 @@ export const promotionAutoRejection = async () => {
         !shouldReversePromoterReserve &&
         Boolean(promotion?.hasReservedFromMarketer) &&
         reservedAmount > 0;
-      const refundedAmount =
-        shouldReversePromoterReserve || shouldReleaseMarketerReserve
-          ? reservedAmount
-          : 0;
-      const rejectionDetails = needsManualReserveReview
+      let refundedAmount = 0;
+      let refundFailureReason = "";
+      const rejectionDetailsBase = needsManualReserveReview
         ? `Expired after 24 hours. ${scenario}. Reserved-funds flags were present but no reversible amount could be resolved; review wallet history manually.`
         : `Expired after 24 hours. ${scenario}.`;
       const session = await mongoose.startSession();
@@ -130,7 +128,7 @@ export const promotionAutoRejection = async () => {
             $push: {
               activityLog: {
                 action: "Auto-Rejected",
-                details: rejectionDetails,
+                details: rejectionDetailsBase,
                 timestamp: new Date(),
               },
             },
@@ -143,40 +141,84 @@ export const promotionAutoRejection = async () => {
           continue;
         }
 
-        if (shouldReversePromoterReserve) {
-          await moveBetweenWallets({
-            session,
-            fromUserId: promoter._id,
-            fromSide: "promoter",
-            fromField: "reserved",
-            toUserId: marketer._id,
-            toSide: "marketer",
-            toField: "balance",
-            amount: reservedAmount,
-          });
-        } else if (shouldReleaseMarketerReserve) {
-          await moveWithinWallet({
-            session,
-            userId: marketer._id,
-            side: "marketer",
-            incReserved: -reservedAmount,
-            incBalance: +reservedAmount,
-          });
+        // Wallet reversal is best-effort. If it fails due to insufficient funds (or inconsistent legacy flags), 
+        // we still commit the auto-rejection so the job doesn't retry forever; the wallet state is then flagged 
+        // for manual reconciliation via activity logs + retained reserve flags. 
+        let walletReversalSucceeded = false; 
+        if (shouldReversePromoterReserve) { 
+          try { 
+            const ok = await moveBetweenWallets({ 
+              session, 
+              fromUserId: promoter._id, 
+              fromSide: "promoter", 
+              fromField: "reserved", 
+              toUserId: marketer._id, 
+              toSide: "marketer", 
+              toField: "balance", 
+              amount: reservedAmount, 
+              throwOnFailure: false,
+            }); 
+            walletReversalSucceeded = Boolean(ok); 
+            if (!ok) { 
+              refundFailureReason = "Promoter reserved balance was insufficient for reversal."; 
+            } 
+          } catch (err) { 
+            refundFailureReason = err?.message || "Failed to reverse promoter reserved funds."; 
+          } 
+        } else if (shouldReleaseMarketerReserve) { 
+          try { 
+            const ok = await moveWithinWallet({ 
+              session, 
+              userId: marketer._id, 
+              side: "marketer", 
+              incReserved: -reservedAmount, 
+              incBalance: +reservedAmount, 
+              throwOnFailure: false,
+            }); 
+            walletReversalSucceeded = Boolean(ok); 
+            if (!ok) { 
+              refundFailureReason = "Marketer reserved balance was insufficient for release."; 
+            } 
+          } catch (err) { 
+            refundFailureReason = err?.message || "Failed to release marketer reserved funds."; 
+          } 
+        } 
+
+        if (walletReversalSucceeded) {
+          refundedAmount = reservedAmount;
         }
+
+        const rejectionDetails = refundFailureReason
+          ? `${rejectionDetailsBase} Wallet reversal failed: ${refundFailureReason}`
+          : rejectionDetailsBase;
 
         await PromotionModel.updateOne(
           { _id: promotion._id },
           {
             $set: {
               hasBeenRefunded:
-                refundedAmount > 0 || !hasLegacyReserveFlags,
-              hasReservedFromMarketer: needsManualReserveReview
-                ? Boolean(promotion?.hasReservedFromMarketer)
-                : false,
-              hasReservedForPromoter: needsManualReserveReview
-                ? Boolean(promotion?.hasReservedForPromoter)
-                : false,
+                refundedAmount > 0 || (!hasLegacyReserveFlags && !refundFailureReason),
+              hasReservedFromMarketer:
+                // Keep flags when wallet reversal is ambiguous/failing so finance/admin can reconcile later.
+                needsManualReserveReview || Boolean(refundFailureReason)
+                  ? Boolean(promotion?.hasReservedFromMarketer)
+                  : false,
+              hasReservedForPromoter:
+                needsManualReserveReview || Boolean(refundFailureReason)
+                  ? Boolean(promotion?.hasReservedForPromoter)
+                  : false,
             },
+            ...(refundFailureReason
+              ? {
+                  $push: {
+                    activityLog: {
+                      action: "Wallet Reversal Pending",
+                      details: `Auto-reject wallet reversal failed: ${refundFailureReason}`,
+                      timestamp: new Date(),
+                    },
+                  },
+                }
+              : {}),
           },
           { session }
         );
@@ -192,7 +234,7 @@ export const promotionAutoRejection = async () => {
               activityLog: {
                 action: "Promotion Auto-Rejected",
                 details: `Promotion ${promotion._id} auto-rejected. ${scenario}.${
-                  needsManualReserveReview
+                  needsManualReserveReview || refundFailureReason
                     ? " Wallet reversal needs manual review."
                     : ""
                 }`,

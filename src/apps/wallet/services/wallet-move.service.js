@@ -1,6 +1,6 @@
 
 // src/services/wallet-move.service.js
-import { UserModel } from "../..//user/models/user/index.js";
+import { UserModel } from "../../user/models/user/index.js";
 
 /**
  * Move funds within a single wallet side (e.g., balance -> reserved).
@@ -11,7 +11,8 @@ export async function moveWithinWallet({
   userId,
   side,               // 'marketer' | 'promoter'
   incBalance = 0,     // e.g., -payout
-  incReserved = 0     // e.g., +payout
+  incReserved = 0,    // e.g., +payout
+  throwOnFailure = true,
 }) {
   if (!session) throw new Error("moveWithinWallet requires a MongoDB session");
   const pre = {};
@@ -24,8 +25,13 @@ export async function moveWithinWallet({
 
   const res = await UserModel.updateOne({ _id: userId, ...pre }, { $inc: inc }, { session });
   if (!res.modifiedCount) {
-    throw new Error(`Guard failed for ${side} wallet: insufficient funds for requested move.`);
+    if (throwOnFailure) {
+      throw new Error(`Guard failed for ${side} wallet: insufficient funds for requested move.`);
+    }
+    return false;
   }
+
+  return true;
 }
 
 /**
@@ -36,7 +42,8 @@ export async function moveBetweenWallets({
   session,
   fromUserId, fromSide, fromField,   // e.g., 'marketer', 'reserved'
   toUserId,   toSide,   toField,     // e.g., 'promoter', 'reserved' or 'marketer','balance'
-  amount
+  amount,
+  throwOnFailure = true,
 }) {
   if (!session) throw new Error("moveBetweenWallets requires a MongoDB session");
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("amount must be > 0");
@@ -77,7 +84,10 @@ export async function moveBetweenWallets({
     { session }
   );
   if (!res1.modifiedCount) {
-    throw new Error(`Insufficient ${fromSide}.${fromField} to move ${amount}`);
+    if (throwOnFailure) {
+      throw new Error(`Insufficient ${fromSide}.${fromField} to move ${amount}`);
+    }
+    return false;
   }
 
   // 2) credit toUser
@@ -87,6 +97,11 @@ export async function moveBetweenWallets({
     { session }
   );
   if (!res2.modifiedCount) {
-    throw new Error(`Failed to credit ${toSide}.${toField}`);
+    if (throwOnFailure) {
+      throw new Error(`Failed to credit ${toSide}.${toField}`);
+    }
+    return false;
   }
+
+  return true;
 }
