@@ -54,13 +54,10 @@ export const rejectPromotion = async (req, res) => {
     await promotion.save();
 
     // Update campaign stats
-    await CampaignModel.findByIdAndUpdate(
-      promotion.campaign._id,
-      {
-        $inc: {
-          currentPromoters: -1
-        }
-      }
+    // Guard against counters drifting negative.
+    await CampaignModel.updateOne(
+      { _id: promotion.campaign._id, currentPromoters: { $gt: 0 } },
+      { $inc: { currentPromoters: -1 } }
     );
 
     // Send notification to promoter

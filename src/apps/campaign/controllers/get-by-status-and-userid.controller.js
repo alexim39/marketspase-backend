@@ -147,8 +147,31 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
       },
     };
 
+    // Robust "not expired" check:
+    // - If endDate is missing/null => treat as no end date (ongoing) => eligible
+    // - If endDate exists but cannot be converted to a Date => treat as expired => NOT eligible
+    // - Otherwise compare the converted date to "now".
+    const endDateTypeExpr = { $type: "$endDate" };
+    const endDateMissingOrNullExpr = { $in: [endDateTypeExpr, ["missing", "null"]] };
+    const endDateAsDateExpr = {
+      $convert: {
+        input: "$endDate",
+        to: "date",
+        onError: null,
+        onNull: null,
+      },
+    };
     const notExpiredExpr = {
-      $cond: [{ $ifNull: ["$endDate", false] }, { $gte: ["$endDate", new Date()] }, true],
+      $cond: [
+        endDateMissingOrNullExpr,
+        true,
+        {
+          $and: [
+            { $ne: [endDateAsDateExpr, null] },
+            { $gte: [endDateAsDateExpr, new Date()] },
+          ],
+        },
+      ],
     };
 
     const hasTargetLocationsExpr = {

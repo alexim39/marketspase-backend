@@ -112,11 +112,13 @@ These are the safest high-value slices to migrate next:
    - move dashboard hydration behind a read-model query service
 2. `wallet` transfer and withdrawal orchestration
    - split controllers from ledger/domain rules
-3. `campaign` accept/create flows
+3. `campaign/TopUpCampaign`
+   - move top-up rules out of the controller and behind an application use case + repositories
+4. `campaign` accept/create flows
    - move policy and persistence behind application services/repositories
-4. `promotion` promoter dashboard reads
+5. `promotion` promoter dashboard reads
    - introduce query services and repositories
-5. `store` product promotion creation
+6. `store` product promotion creation
    - isolate affiliate/promotion rules from controllers
 
 ## Modules to Leave Alone For Now
@@ -136,6 +138,47 @@ The live app matters more than architectural purity. If a module has a wide blas
 - backend syntax checks for changed files
 - targeted node tests for new auth domain/application files
 - frontend platform typecheck/build when request payloads change
+
+## Incremental Slice: `campaign` -> `TopUpCampaign`
+
+This slice migrates `POST /api/v1/campaign/:campaignId/top-up` because it is:
+
+- revenue-impacting (enables campaigns to resume spending safely)
+- bounded (single write workflow with clear invariants)
+- a good candidate to demonstrate Mongoose isolation behind repositories
+
+### Old shape
+
+- `top-up-campaign.controller.js` contained:
+  - validation
+  - auth/authorization rules
+  - wallet balance checks
+  - campaign mutation + reactivation side effects
+  - persistence
+
+### New layered shape
+
+#### Interface layer
+
+- `src/apps/campaign/controllers/top-up-campaign.controller.js`
+  - parses request
+  - resolves actor identity
+  - delegates to the application use case
+
+#### Application layer
+
+- `src/apps/campaign/application/use-cases/top-up-campaign.use-case.js`
+  - enforces top-up invariants
+  - owns the transaction boundary
+  - applies campaign reactivation rules
+
+#### Infrastructure layer
+
+- `src/apps/campaign/infrastructure/repositories/mongoose-campaign.repository.js`
+  - encapsulates campaign persistence for this use case
+
+- `src/apps/campaign/infrastructure/repositories/mongoose-marketer-wallet.repository.js`
+  - encapsulates marketer wallet reads required for top-up validation
 
 ## Longer-Term Target Shape
 

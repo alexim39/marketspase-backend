@@ -493,66 +493,93 @@ export const trackCampaignClick = async (req, res) => {
   const geoLookupIp = normalizeIpForGeoLookup(clientIp);
   const geo = geoLookupIp ? geoip.lookup(geoLookupIp) : null;
 
-  // Stage-gated tracking to prevent double billing caused by link unfurlers / speculative prefetch.
-  // First request (no `go=1`) serves OG tags and immediately navigates to the billable stage via JS.
-  // Most crawlers do not execute JS, so they never reach the billable stage.
-  if (!isGoStage && !isRedirectBypassed && req.accepts("html")) {
-    try {
-      const promotion = await PromotionModel.findOne({ upi })
-        .select("_id campaign promoter upi destinationUrl promotionUrl status isActive costPerClick");
+  // Hard gate: we ONLY ever charge/bill on the explicit billable stage (`go=1`).
+  // Anything without `go=1` is treated as a preview/landing request (safe for link unfurlers,
+  // prefetchers, and social crawlers) and will never hit billing logic.
+  if (!isGoStage) {
+    const nextUrl = buildGoStageUrl(req);
 
-      if (!promotion) {
-        const unavailableUrl = buildCampaignUnavailableUrl({ reason: "invalid_link" });
+    // For normal browser navigation, serve an HTML interstitial with OG tags + a JS hop to go=1.
+    // For API/XHR usage (including redirect=false callers), return JSON instructing the client
+    // to call the go-stage URL.
+    if (!isRedirectBypassed) {
+      try {
+        const promotion = await PromotionModel.findOne({ upi })
+          .select("_id campaign promoter upi destinationUrl promotionUrl status isActive costPerClick");
+
+        if (!promotion) {
+          const unavailableUrl = buildCampaignUnavailableUrl({ reason: "invalid_link" });
+          return sendTrackingResponse(req, res, {
+            httpStatus: 410,
+            html: buildTrackingLandingHtml({
+              title: "MarketSpase Promotion",
+              description: "This promotion link is no longer available.",
+              canonicalUrl: buildCanonicalTrackingUrl(req),
+              nextUrl: unavailableUrl,
+              fallbackUrl: unavailableUrl,
+            }),
+            success: false,
+            message: "Campaign is no longer available",
+            data: { status: "invalid" },
+          });
+        }
+
+        const campaign = await CampaignModel.findById(promotion.campaign)
+          .select("_id title caption thumbnailUrl mediaUrl owner link status costPerClick payoutPerPromotion currency");
+
+        const marketer = campaign
+          ? await UserModel.findById(campaign.owner).select("personalInfo.phone personalInfo.phoneDetails")
+          : null;
+
+        const destinationUrl = campaign
+          ? getDestinationUrl(promotion, campaign, marketer)
+          : buildCampaignUnavailableUrl({ reason: "campaign_removed" });
+
+        const canonicalUrl = buildCanonicalTrackingUrl(req);
+        const imageUrl = campaign?.thumbnailUrl || campaign?.mediaUrl;
+        const description = campaign?.caption || "Open this link to view the offer.";
+
         return sendTrackingResponse(req, res, {
-          httpStatus: 410,
+          httpStatus: 200,
+          html: buildTrackingLandingHtml({
+            title: campaign?.title || "MarketSpase Promotion",
+            description,
+            imageUrl,
+            canonicalUrl,
+            nextUrl,
+            // If JS is blocked, the user can still proceed by tapping the link.
+            fallbackUrl: nextUrl,
+          }),
+          success: true,
+          message: "Tracking link landing",
+          data: { stage: "landing", destinationUrl },
+        });
+      } catch (error) {
+        console.error("Failed to build tracking landing HTML:", error?.message || error);
+
+        // As a last resort, still serve a non-billable landing page without DB lookups.
+        return sendTrackingResponse(req, res, {
+          httpStatus: 200,
           html: buildTrackingLandingHtml({
             title: "MarketSpase Promotion",
-            description: "This promotion link is no longer available.",
+            description: "Open this link to view the offer.",
             canonicalUrl: buildCanonicalTrackingUrl(req),
-            nextUrl: unavailableUrl,
-            fallbackUrl: unavailableUrl,
+            nextUrl,
+            fallbackUrl: nextUrl,
           }),
-          success: false,
-          message: "Campaign is no longer available",
-          data: { status: "invalid" },
+          success: true,
+          message: "Tracking link landing",
+          data: { stage: "landing" },
         });
       }
-
-      const campaign = await CampaignModel.findById(promotion.campaign)
-        .select("_id title caption thumbnailUrl mediaUrl owner link status costPerClick payoutPerPromotion currency");
-
-      const marketer = campaign
-        ? await UserModel.findById(campaign.owner).select("personalInfo.phone personalInfo.phoneDetails")
-        : null;
-
-      const destinationUrl = campaign
-        ? getDestinationUrl(promotion, campaign, marketer)
-        : buildCampaignUnavailableUrl({ reason: "campaign_removed" });
-
-      const nextUrl = buildGoStageUrl(req);
-      const canonicalUrl = buildCanonicalTrackingUrl(req);
-      const imageUrl = campaign?.thumbnailUrl || campaign?.mediaUrl;
-      const description = campaign?.caption || "Open this link to view the offer.";
-
-      return sendTrackingResponse(req, res, {
-        httpStatus: 200,
-        html: buildTrackingLandingHtml({
-          title: campaign?.title || "MarketSpase Promotion",
-          description,
-          imageUrl,
-          canonicalUrl,
-          nextUrl,
-          // If JS is blocked, the user can still proceed by tapping the link.
-          fallbackUrl: nextUrl,
-        }),
-        success: true,
-        message: "Tracking link landing",
-        data: { stage: "landing" },
-      });
-    } catch (error) {
-      console.error("Failed to build tracking landing HTML:", error?.message || error);
-      // Fall back to the original behaviour if something unexpected happens.
     }
+
+    return sendTrackingResponse(req, res, {
+      httpStatus: 200,
+      success: true,
+      message: "Tracking link landing (go-stage required)",
+      data: { stage: "landing", nextUrl },
+    });
   }
 
   for (let attempt = 1; attempt <= MAX_TX_RETRIES; attempt++) {

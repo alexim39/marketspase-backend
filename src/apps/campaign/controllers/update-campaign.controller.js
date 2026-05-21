@@ -173,10 +173,18 @@ export const UpdateCampaignStatus = async (req, res) => {
         campaign.exhaustedAt = undefined;
       }
 
+      // Defensive: some older flows allowed counters to drift negative. Saving a document
+      // validates the whole doc by default, so we clamp to keep status transitions reliable.
+      if (Number(campaign.currentPromoters) < 0) campaign.currentPromoters = 0;
+      if (Number(campaign.totalPromotions) < 0) campaign.totalPromotions = 0;
+      if (Number(campaign.validatedPromotions) < 0) campaign.validatedPromotions = 0;
+      if (Number(campaign.paidPromotions) < 0) campaign.paidPromotions = 0;
+      if (Number(campaign.rejectedPromotions) < 0) campaign.rejectedPromotions = 0;
+
       campaign.payoutModel = "pay_per_click";
       campaign.reservedBudget = 0;
       campaign.updateStatus(status, performedBy || actorId, details);
-      await campaign.save({ session });
+      await campaign.save({ session, validateModifiedOnly: true });
 
       if (status === "active") {
         await reactivateCampaignPromotions({ campaignId: campaign._id, session });

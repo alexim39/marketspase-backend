@@ -11,10 +11,10 @@ import {
 
 const AUTO_REJECT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+// Legacy-only: these promotions used to require a download + proof submission flow.
+// The product has moved to PPC, so keep scenarios generic (no "download" wording) to avoid confusing admins/users.
 const getExpiredPromotionScenario = (promotion) =>
-  promotion?.isDownloaded
-    ? "Downloaded but NOT submitted"
-    : "Accepted but NOT downloaded";
+  promotion?.isDownloaded ? "No proof submitted" : "No activity after acceptance";
 
 const resolveReservedAmount = (promotion, campaign) => {
   const candidates = [
@@ -44,6 +44,9 @@ export const promotionAutoRejection = async () => {
 
     const expiredPromotions = await PromotionModel.find({
       status: { $in: ["accepted", "downloaded"] },
+      // PPC promotions do not require a "download/proof submission" lifecycle. Only legacy
+      // fixed-per-promoter promotions should ever be auto-rejected for "not downloaded/submitted".
+      payoutModel: "fixed_per_promoter",
       createdAt: { $lte: threshold },
       autoRejectedAt: { $exists: false },
     })
@@ -223,27 +226,35 @@ export const promotionAutoRejection = async () => {
           { session }
         );
 
-        await CampaignModel.updateOne(
-          { _id: campaign._id },
-          {
-            $inc: {
-              currentPromoters: -1,
-              totalPromotions: -1,
-            },
-            $push: {
-              activityLog: {
-                action: "Promotion Auto-Rejected",
-                details: `Promotion ${promotion._id} auto-rejected. ${scenario}.${
-                  needsManualReserveReview || refundFailureReason
-                    ? " Wallet reversal needs manual review."
-                    : ""
-                }`,
-                timestamp: new Date(),
-              },
-            },
-          },
-          { session }
-        );
+        // Keep campaign counters non-negative. This job historically caused counters to drift below 0,
+        // which later breaks unrelated operations (e.g. top-ups) due to schema min validations.
+        const campaignDoc = await CampaignModel.findById(campaign._id).session(session);
+        if (campaignDoc) {
+          campaignDoc.currentPromoters = Math.max(
+            0,
+            Number(campaignDoc.currentPromoters || 0) - 1
+          );
+          campaignDoc.totalPromotions = Math.max(
+            0,
+            Number(campaignDoc.totalPromotions || 0) - 1
+          );
+
+          if (!Array.isArray(campaignDoc.activityLog)) {
+            campaignDoc.activityLog = [];
+          }
+
+          campaignDoc.activityLog.push({
+            action: "Promotion Auto-Rejected",
+            details: `Promotion ${promotion._id} auto-rejected. ${scenario}.${
+              needsManualReserveReview || refundFailureReason
+                ? " Wallet reversal needs manual review."
+                : ""
+            }`,
+            timestamp: new Date(),
+          });
+
+          await campaignDoc.save({ session, validateModifiedOnly: true });
+        }
 
         await session.commitTransaction();
         committed = true;
@@ -263,16 +274,10 @@ export const promotionAutoRejection = async () => {
         continue;
       }
 
-      const notificationJobs = [
-        NotificationService.createNotification({
-          recipient: promoter._id,
-          type: "promotion_rejected",
-          title: "Promotion Expired",
-          message: `Your promotion for "${campaign.title}" expired after 24 hours (${scenario}).`,
-          data: { campaignId: campaign._id, promotionId: promotion._id },
-          priority: "medium",
-        }),
-      ];
+      // Legacy-only lifecycle: we still auto-reject + reconcile wallets/campaign stats, but we no longer
+      // notify promoters with "download/proof" messaging because the app has moved to PPC and that
+      // notification is confusing / not actionable.
+      const notificationJobs = [];
 
       if (refundedAmount > 0) {
         notificationJobs.push(
