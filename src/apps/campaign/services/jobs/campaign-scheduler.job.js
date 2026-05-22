@@ -20,8 +20,9 @@ function logResult(prefix, res) {
 
 export const CampaignSchedulerService = {
   registerCampaignExpiryCron: function () {
-    // Run once every day at midnight
-    const schedule = '0 0 * * *';
+    // Run hourly so campaigns stop showing as available shortly after their endDate passes.
+    // (Daily midnight runs can leave "active" campaigns visible for many hours.)
+    const schedule = '0 * * * *';
     //const schedule = '*/2 * * * *';
 
     cron.schedule(schedule, async () => {

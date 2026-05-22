@@ -40,6 +40,17 @@ const hashValue = (value = "") =>
     .digest("hex");
 
 const getClientIp = (req) => {
+  // Prefer real client IP headers from common reverse proxies / CDNs.
+  const cfConnectingIp = req.headers["cf-connecting-ip"];
+  if (typeof cfConnectingIp === "string" && cfConnectingIp.trim()) {
+    return cfConnectingIp.trim();
+  }
+
+  const xRealIp = req.headers["x-real-ip"];
+  if (typeof xRealIp === "string" && xRealIp.trim()) {
+    return xRealIp.trim();
+  }
+
   const forwardedFor = req.headers["x-forwarded-for"];
   if (typeof forwardedFor === "string" && forwardedFor.trim()) {
     return forwardedFor.split(",")[0].trim();
@@ -48,12 +59,29 @@ const getClientIp = (req) => {
 };
 
 const normalizeIpForGeoLookup = (value = "") => {
-  const ip = String(value || "").trim();
+  let ip = String(value || "").trim();
   if (!ip) return "";
+
+  // Some proxies include ports in X-Forwarded-For and/or wrap IPv6 in brackets:
+  //   - "203.0.113.195:41237"
+  //   - "[2001:db8::1a2b:3c4d]:41237"
+  // Keep only the address portion so hashing/deduping is stable.
+  if (ip.startsWith("[")) {
+    const end = ip.indexOf("]");
+    if (end > 0) ip = ip.slice(1, end);
+  } else {
+    const ipv4WithPort = ip.match(/^(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?$/);
+    if (ipv4WithPort) ip = ipv4WithPort[1];
+  }
+
   // Normalize IPv4-mapped IPv6 (e.g., "::ffff:1.2.3.4")
-  if (ip.startsWith("::ffff:")) return ip.slice("::ffff:".length);
+  if (ip.startsWith("::ffff:")) ip = ip.slice("::ffff:".length);
+
   // Drop IPv6 zone index if present (e.g., "fe80::1%lo0")
-  return ip.split("%")[0];
+  ip = ip.split("%")[0];
+
+  // Canonicalize IPv6 casing to keep hashes stable.
+  return ip.toLowerCase();
 };
 
 const getRequestProto = (req) => {
@@ -485,12 +513,16 @@ export const trackCampaignClick = async (req, res) => {
   const goParam = String(req.query.go || "").toLowerCase();
   const isGoStage = ["1", "true", "yes", "go"].includes(goParam);
   const clientIp = getClientIp(req);
-  const ipHash = hashValue(clientIp);
+  // IMPORTANT: Normalize the IP for hashing/deduping.
+  // We still persist the raw IP for fraud investigation, but the hash must be stable across
+  // equivalent representations (e.g. "::ffff:1.2.3.4" vs "1.2.3.4") or we can double-charge.
+  const normalizedIp = normalizeIpForGeoLookup(clientIp);
+  const ipHash = hashValue(normalizedIp || clientIp);
   const userAgentHash = hashValue(userAgent);
   const referrer = req.get("referer") || req.get("referrer") || "";
   const source = req.query.source || req.query.utm_source || "";
   const deviceType = getDeviceType(userAgent);
-  const geoLookupIp = normalizeIpForGeoLookup(clientIp);
+  const geoLookupIp = normalizedIp;
   const geo = geoLookupIp ? geoip.lookup(geoLookupIp) : null;
 
   // Hard gate: we ONLY ever charge/bill on the explicit billable stage (`go=1`).
@@ -611,6 +643,7 @@ export const trackCampaignClick = async (req, res) => {
           .select(`
             _id title owner status link budget spentBudget reservedBudget
             costPerClick payoutPerPromotion currency
+            hasEndDate endDate
           `);
 
         if (!campaign) {
@@ -642,6 +675,98 @@ export const trackCampaignClick = async (req, res) => {
               reason: "campaign_removed",
             }),
             data: { status: "invalid" },
+          };
+          return;
+        }
+
+        // Enforce campaign end date inside the click transaction so an "active" campaign cannot be
+        // billed after expiry (even if the expiry cron hasn't run yet).
+        const endDatePassed =
+          (campaign.hasEndDate === true || Boolean(campaign.endDate)) &&
+          Boolean(campaign.endDate) &&
+          new Date(campaign.endDate).getTime() <= now.getTime();
+
+        if (endDatePassed) {
+          const costPerClick = getCostPerClick(promotion, campaign);
+          const destinationUrl = getDestinationUrl(promotion, campaign, marketer);
+
+          const { dedupeKey } = buildClickKeys({
+            promotionId: promotion._id,
+            ipHash,
+            userAgentHash,
+            clickedAt: now,
+          });
+
+          const click = await createClickAudit({
+            session,
+            click: {
+              campaign: campaign._id,
+              promotion: promotion._id,
+              promoter: promotion.promoter,
+              marketer: campaign.owner,
+              upi,
+              clickedAt: now,
+              unitCost: costPerClick,
+              cost: 0,
+              currency: campaign.currency || "NGN",
+              status: "invalid",
+              chargeStatus: "not_charged",
+              destinationUrl,
+              referrer,
+              source,
+              ipHash,
+              ip: normalizedIp || clientIp,
+              userAgentHash,
+              deviceType,
+              geo: geo
+                ? {
+                    country: geo.country || "",
+                    region: geo.region || "",
+                    city: geo.city || "",
+                    timezone: geo.timezone || "",
+                    ll: Array.isArray(geo.ll) ? geo.ll : undefined,
+                  }
+                : undefined,
+              dedupeKey,
+              metadata: { reason: "campaign_end_date_passed" },
+            },
+          });
+
+          await incrementNonBillableCounters({
+            session,
+            campaignId: campaign._id,
+            promotionId: promotion._id,
+            status: "invalid",
+            now,
+          });
+
+          await CampaignModel.updateOne(
+            { _id: campaign._id, status: "active" },
+            {
+              $set: { status: "expired" },
+              $push: {
+                activityLog: {
+                  action: "Status Changed",
+                  details: "Auto-expired by click gate: endDate passed.",
+                  timestamp: now,
+                },
+              },
+            },
+            { session }
+          );
+
+          await deactivateCampaignPromotions({ campaignId: campaign._id, session });
+
+          txResult = {
+            success: false,
+            httpStatus: 410,
+            message: "Campaign has expired",
+            redirectUrl: buildCampaignUnavailableUrl({
+              campaign,
+              marketer,
+              reason: "expired",
+            }),
+            data: { clickId: click._id, status: "invalid", charged: false },
           };
           return;
         }
@@ -700,7 +825,9 @@ export const trackCampaignClick = async (req, res) => {
           referrer,
           source,
           ipHash,
-          ip: clientIp,
+          // Persist a canonical IP string for analytics (grouping) and fraud review.
+          // (The raw IP form can vary: IPv4 vs IPv4-mapped IPv6, etc.)
+          ip: normalizedIp || clientIp,
           userAgentHash,
           deviceType,
           geo: geo

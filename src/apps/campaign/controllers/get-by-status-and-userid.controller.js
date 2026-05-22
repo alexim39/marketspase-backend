@@ -148,11 +148,9 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
     };
 
     // Robust "not expired" check:
-    // - If endDate is missing/null => treat as no end date (ongoing) => eligible
-    // - If endDate exists but cannot be converted to a Date => treat as expired => NOT eligible
-    // - Otherwise compare the converted date to "now".
-    const endDateTypeExpr = { $type: "$endDate" };
-    const endDateMissingOrNullExpr = { $in: [endDateTypeExpr, ["missing", "null"]] };
+    // - If hasEndDate !== true => treat as no end date (ongoing) => eligible
+    // - If hasEndDate === true and endDate is missing/null/invalid => treat as expired => NOT eligible
+    // - Otherwise compare endDate to "now".
     const endDateAsDateExpr = {
       $convert: {
         input: "$endDate",
@@ -161,16 +159,24 @@ export const getCampaignsByStatusAndUserId = async (req, res) => {
         onNull: null,
       },
     };
+
+    // Treat endDate as authoritative when present (legacy data may have `endDate` set without `hasEndDate=true`).
+    const hasEffectiveEndDateExpr = {
+      $or: [
+        { $eq: ["$hasEndDate", true] },
+        { $ne: [endDateAsDateExpr, null] },
+      ],
+    };
     const notExpiredExpr = {
       $cond: [
-        endDateMissingOrNullExpr,
-        true,
+        hasEffectiveEndDateExpr,
         {
           $and: [
             { $ne: [endDateAsDateExpr, null] },
             { $gte: [endDateAsDateExpr, new Date()] },
           ],
         },
+        true,
       ],
     };
 

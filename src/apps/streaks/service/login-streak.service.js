@@ -29,6 +29,22 @@ const LEADERBOARD_WINDOW_DAYS = {
 };
 const MAX_HEARTBEAT_SECONDS = 90;
 
+const isTransactionUnsupportedError = (error) => {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    message.includes('transaction numbers are only allowed') ||
+    message.includes('transactions are not supported') ||
+    message.includes('transaction is not allowed') ||
+    message.includes('replica set') && message.includes('transaction')
+  );
+};
+
+const applySession = (query, mongoSession) => (mongoSession ? query.session(mongoSession) : query);
+
+const saveWithSession = (doc, mongoSession) => (
+  mongoSession ? doc.save({ session: mongoSession }) : doc.save()
+);
+
 const toDateKey = (date = new Date(), timezone = DEFAULT_TIMEZONE) => {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: timezone,
@@ -662,42 +678,100 @@ export const getLoginStreakStatus = async (userId) => {
   };
 };
 
-export const pingLoginStreakSession = async (userId, sessionId = null) => {
-  const mongoSession = await mongoose.startSession();
-  mongoSession.startTransaction();
-
-  try {
+export const pingLoginStreakSession = async (userId, sessionId = null, metadata = {}) => {
+  const runCore = async (mongoSession = null) => {
     const config = await ensureConfig();
     const todayDateKey = toDateKey(new Date(), config.timezone || DEFAULT_TIMEZONE);
 
-    const user = await UserModel.findById(userId).session(mongoSession);
+    const userQuery = UserModel.findById(userId);
+    const user = await applySession(userQuery, mongoSession);
     if (!user) {
       throw new Error('User not found');
     }
 
     if (!['marketer', 'promoter'].includes(user.role)) {
-      await mongoSession.commitTransaction();
       return {
-        success: true,
-        data: {
-          ...buildStatusPayload({ user, config, session: null, todayDateKey }),
-          enabled: false,
+        response: {
+          success: true,
+          data: {
+            ...buildStatusPayload({ user, config, session: null, todayDateKey }),
+            enabled: false,
+          },
         },
+        recentlyQualified: false,
+        todayDateKey,
+        userId: user._id,
+        currentStreak: Number(user.loginStreak?.currentStreak || 0),
+        rewardPoints: 0,
+        streakSessionId: null,
       };
     }
 
     resetBrokenStreakIfNeeded(user, todayDateKey);
 
-    const sessionQuery = sessionId
-      ? { _id: sessionId, user: userId }
-      : { user: userId, dateKey: todayDateKey };
+    const now = new Date();
 
-    const streakSession = await LoginStreakSessionModel.findOne(sessionQuery).session(mongoSession);
+    // The mobile/web client may send a stale sessionId (tab restore, cache) or none at all.
+    // Avoid 500s by falling back to today's session (and creating one when missing).
+    const normalizedSessionId = (typeof sessionId === 'string' && mongoose.Types.ObjectId.isValid(sessionId))
+      ? new mongoose.Types.ObjectId(sessionId)
+      : null;
+
+    let streakSession = null;
+    if (normalizedSessionId) {
+      const byId = LoginStreakSessionModel.findOne({ _id: normalizedSessionId, user: userId });
+      streakSession = await applySession(byId, mongoSession);
+    }
+
+    if (!streakSession) {
+      const byDate = LoginStreakSessionModel.findOne({ user: userId, dateKey: todayDateKey });
+      streakSession = await applySession(byDate, mongoSession);
+    }
+
+    if (!streakSession) {
+      try {
+        if (mongoSession) {
+          streakSession = await LoginStreakSessionModel.create([{
+            user: userId,
+            dateKey: todayDateKey,
+            timezone: config.timezone || DEFAULT_TIMEZONE,
+            requiredActiveSeconds: Number(config.minimumSessionMinutes || 12) * 60,
+            startedAt: now,
+            lastPingAt: now,
+            metadata: {
+              userAgent: metadata.userAgent || null,
+              ipAddress: metadata.ipAddress || null,
+            },
+          }], { session: mongoSession }).then((rows) => rows?.[0] || null);
+        } else {
+          streakSession = await LoginStreakSessionModel.create({
+            user: userId,
+            dateKey: todayDateKey,
+            timezone: config.timezone || DEFAULT_TIMEZONE,
+            requiredActiveSeconds: Number(config.minimumSessionMinutes || 12) * 60,
+            startedAt: now,
+            lastPingAt: now,
+            metadata: {
+              userAgent: metadata.userAgent || null,
+              ipAddress: metadata.ipAddress || null,
+            },
+          });
+        }
+      } catch (createError) {
+        // If we hit the unique index (user+dateKey) due to concurrent pings, read the existing record and continue.
+        if (createError?.code === 11000) {
+          const fallbackQuery = LoginStreakSessionModel.findOne({ user: userId, dateKey: todayDateKey });
+          streakSession = await applySession(fallbackQuery, mongoSession);
+        } else {
+          throw createError;
+        }
+      }
+    }
+
     if (!streakSession) {
       throw new Error('Streak session not found');
     }
 
-    const now = new Date();
     const previousPing = streakSession.lastPingAt || streakSession.startedAt || now;
     const deltaSeconds = Math.max(
       0,
@@ -748,27 +822,52 @@ export const pingLoginStreakSession = async (userId, sessionId = null) => {
       recentlyQualified = true;
     }
 
-    await user.save({ session: mongoSession });
-    await streakSession.save({ session: mongoSession });
+    await saveWithSession(user, mongoSession);
+    await saveWithSession(streakSession, mongoSession);
+
+    return {
+      response: {
+        success: true,
+        data: buildStatusPayload({
+          user,
+          config,
+          session: streakSession,
+          todayDateKey,
+          recentlyQualified,
+        }),
+      },
+      recentlyQualified,
+      todayDateKey,
+      userId: user._id,
+      currentStreak: Number(user.loginStreak?.currentStreak || 0),
+      rewardPoints: Number(streakSession.rewardPointsGranted || 0),
+      streakSessionId: streakSession._id,
+    };
+  };
+
+  const mongoSession = await mongoose.startSession();
+  try {
+    mongoSession.startTransaction();
+    const coreResult = await runCore(mongoSession);
     await mongoSession.commitTransaction();
 
-    if (recentlyQualified) {
+    if (coreResult.recentlyQualified) {
       await awardGamificationProgress({
-        userId: user._id,
+        userId: coreResult.userId,
         actionKey: 'login_qualified',
-        sourceKey: `login_streak:${todayDateKey}`,
+        sourceKey: `login_streak:${coreResult.todayDateKey}`,
         sourceType: 'login_streak',
-        sourceId: streakSession._id,
+        sourceId: coreResult.streakSessionId,
         metadata: {
-          dateKey: todayDateKey,
-          currentStreak: Number(user.loginStreak?.currentStreak || 0),
-          rewardPoints: Number(streakSession.rewardPointsGranted || 0),
+          dateKey: coreResult.todayDateKey,
+          currentStreak: coreResult.currentStreak,
+          rewardPoints: coreResult.rewardPoints,
         },
       }).catch((gamificationError) => {
         console.error('Gamification update after streak qualification failed:', gamificationError);
       });
 
-      await evaluateUserBadges(user._id, {
+      await evaluateUserBadges(coreResult.userId, {
         force: true,
         trigger: 'login_streak_qualified',
       }).catch((badgeError) => {
@@ -776,18 +875,43 @@ export const pingLoginStreakSession = async (userId, sessionId = null) => {
       });
     }
 
-    return {
-      success: true,
-      data: buildStatusPayload({
-        user,
-        config,
-        session: streakSession,
-        todayDateKey,
-        recentlyQualified,
-      }),
-    };
+    return coreResult.response;
   } catch (error) {
-    await mongoSession.abortTransaction();
+    try {
+      await mongoSession.abortTransaction();
+    } catch {
+      // ignore
+    }
+
+    if (isTransactionUnsupportedError(error)) {
+      const coreResult = await runCore(null);
+      if (coreResult.recentlyQualified) {
+        await awardGamificationProgress({
+          userId: coreResult.userId,
+          actionKey: 'login_qualified',
+          sourceKey: `login_streak:${coreResult.todayDateKey}`,
+          sourceType: 'login_streak',
+          sourceId: coreResult.streakSessionId,
+          metadata: {
+            dateKey: coreResult.todayDateKey,
+            currentStreak: coreResult.currentStreak,
+            rewardPoints: coreResult.rewardPoints,
+          },
+        }).catch((gamificationError) => {
+          console.error('Gamification update after streak qualification failed:', gamificationError);
+        });
+
+        await evaluateUserBadges(coreResult.userId, {
+          force: true,
+          trigger: 'login_streak_qualified',
+        }).catch((badgeError) => {
+          console.error('Badge evaluation after streak qualification failed:', badgeError);
+        });
+      }
+
+      return coreResult.response;
+    }
+
     throw error;
   } finally {
     mongoSession.endSession();

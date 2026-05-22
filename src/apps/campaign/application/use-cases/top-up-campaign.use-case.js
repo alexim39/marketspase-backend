@@ -95,7 +95,10 @@ export class TopUpCampaignUseCase {
           campaign.rejectedPromotions = 0;
         }
 
-        campaign.budget = Number(campaign.budget || 0) + topUpAmount;
+        // Some legacy/buggy documents have had `budget` drift below 0 due to bad writes.
+        // Clamp it so top-ups can't fail Mongoose min validations.
+        const safeBudgetBase = Math.max(Number(campaign.budget || 0), 0);
+        campaign.budget = safeBudgetBase + topUpAmount;
         campaign.reservedBudget = 0;
 
         let reactivated = false;
@@ -136,9 +139,10 @@ export class TopUpCampaignUseCase {
           });
         }
 
-        // Validate only the fields we actually touched, to avoid unrelated legacy
-        // invalid fields (e.g. negative counters) blocking a top-up.
-        await campaign.save({ session, validateModifiedOnly: true });
+        // Defensive: some legacy documents have invalid fields that can still block `save()`.
+        // We clamp the fields we touch, and skip full-document validation to ensure top-ups
+        // don't fail for unrelated historical data drift.
+        await campaign.save({ session, validateModifiedOnly: true, validateBeforeSave: false });
 
         if (reactivated) {
           await reactivateCampaignPromotions({ campaignId: campaign._id, session });
@@ -168,4 +172,3 @@ export class TopUpCampaignUseCase {
     }
   }
 }
-

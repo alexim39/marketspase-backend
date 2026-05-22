@@ -45,7 +45,14 @@ export const getLeaderboardStats = async (req, res) => {
 
 export const pingSession = async (req, res) => {
   try {
-    const response = await pingLoginStreakSession(req.userId, req.body?.sessionId || null);
+    const response = await pingLoginStreakSession(
+      req.userId,
+      req.body?.sessionId || null,
+      {
+        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip,
+      },
+    );
     res.status(200).json(response);
   } catch (error) {
     handleError(res, error, 'Failed to update login streak session');

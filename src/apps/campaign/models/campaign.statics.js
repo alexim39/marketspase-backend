@@ -31,10 +31,26 @@ export const setupCampaignStatics = (schema) => {
     const now = new Date();
     const Promotion = mongoose.model("Promotion");
 
+    // Robust expiry match:
+    // - Some legacy documents have `endDate` stored inconsistently (or without `hasEndDate=true`).
+    // - Treat any convertible endDate in the past as expired.
+    const endDateAsDateExpr = {
+      $convert: {
+        input: "$endDate",
+        to: "date",
+        onError: null,
+        onNull: null,
+      },
+    };
+
     const campaigns = await this.find({
-      hasEndDate: true,
-      endDate: { $lt: now },
-      status: 'active'
+      status: "active",
+      $expr: {
+        $and: [
+          { $ne: [endDateAsDateExpr, null] },
+          { $lt: [endDateAsDateExpr, now] },
+        ],
+      },
     });
 
     if (!campaigns.length) {

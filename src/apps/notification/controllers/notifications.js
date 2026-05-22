@@ -101,12 +101,13 @@ export const markAllAsRead = async (req, res) => {
 
 // Add SSE endpoint
 export const addSSEEndpoint = async (req, res) => {
- const userId = getNotificationUserId(req);
+  const userId = getNotificationUserId(req);
   
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
+    // NOTE: Connection-specific headers (like `Connection: keep-alive`) are prohibited in HTTP/2/HTTP/3.
+    // Some proxies/CDNs will surface this as `net::ERR_HTTP2_PROTOCOL_ERROR` in browsers.
     'Access-Control-Allow-Origin': process.env.FRONTEND_URL || 'http://localhost:4200',
     'Access-Control-Allow-Credentials': 'true'
   });
