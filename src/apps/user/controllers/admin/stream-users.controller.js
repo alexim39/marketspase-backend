@@ -78,7 +78,8 @@ export const streamUsers = async (req, res) => {
     // Set headers for streaming
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="users_export_${new Date().toISOString().split('T')[0]}.json"`);
-    res.setHeader('Transfer-Encoding', 'chunked');
+    // NOTE: `Transfer-Encoding` is prohibited in HTTP/2/HTTP/3 and can trigger `ERR_HTTP2_PROTOCOL_ERROR`
+    // behind some proxies/CDNs. Let Node/proxies negotiate the framing.
 
     // Create cursor for streaming
     const cursor = UserModel.find(query)

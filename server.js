@@ -42,7 +42,6 @@ import handlePaystackFundingWebhook from './src/apps/wallet/services/paystack-we
 
 // cron job imports
 import { initWithdrawalSyncCron } from './src/apps/wallet/jobs/withdrawal-sync.cron.js';
-import { PromotionExpirationCheckerCronJobs } from './src/apps/promotion/services/jobs/promotion-expiration.job.js';
 import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
 import { initFileUploadCleanupTask } from './src/utils/cleanup.js';
 import { updateVideoViewsJob } from './src/apps/tutorial/jobs/update-video-views.job.js';
@@ -195,7 +194,6 @@ mongoose.connect(MONGODB_URI, MONGODB_OPTIONS)
     console.log(`MongoDB connected (autoIndex=${ENABLE_AUTO_INDEX ? 'on' : 'off'}, maxPoolSize=${MONGODB_OPTIONS.maxPoolSize})`);
 
     // Start cron jobs
-    PromotionExpirationCheckerCronJobs();
     CampaignSchedulerService.registerCampaignExpiryCron();
     CampaignSchedulerService.registerCampaignExhaustionCron();
     CampaignSchedulerService.registerAutoActivateCampaignsCron();

@@ -13,3 +13,13 @@ CampaignClickModel.collection
   .catch((error) => {
     console.error("Failed to ensure campaign click charge lock index:", error.message);
   });
+
+// Longer-window dedupe: ensures that a click fingerprint is billable at most once per window bucket.
+CampaignClickModel.collection
+  .createIndex(
+    { billableKey: 1 },
+    { unique: true, sparse: true, name: "billableKey_1" }
+  )
+  .catch((error) => {
+    console.error("Failed to ensure campaign click billable key index:", error.message);
+  });

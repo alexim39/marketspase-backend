@@ -60,14 +60,24 @@ export const validatePromotion = async (req, res) => {
     await promotion.save();
 
     // Update campaign stats
-    await CampaignModel.findByIdAndUpdate(
-      promotion.campaign._id,
-      {
-        $inc: {
-          validatedPromotions: 1,
-          currentPromoters: -1
-        }
-      }
+    // Use a pipeline update to prevent counters from going negative.
+    await CampaignModel.updateOne(
+      { _id: promotion.campaign._id },
+      [
+        {
+          $set: {
+            validatedPromotions: {
+              $add: [{ $ifNull: ["$validatedPromotions", 0] }, 1],
+            },
+            currentPromoters: {
+              $max: [
+                { $subtract: [{ $ifNull: ["$currentPromoters", 0] }, 1] },
+                0,
+              ],
+            },
+          },
+        },
+      ]
     );
 
     // Send notification to promoter

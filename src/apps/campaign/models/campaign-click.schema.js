@@ -79,11 +79,25 @@ const campaignClickSchema = new mongoose.Schema(
       type: String,
       index: true,
     },
+    // Raw IP is stored for admin fraud investigation and geo analytics.
+    // Older records may not have this populated.
+    ip: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     userAgentHash: String,
     deviceType: {
       type: String,
       enum: ["mobile", "desktop", "tablet", "unknown"],
       default: "unknown",
+    },
+    geo: {
+      country: { type: String, trim: true, default: "" },
+      region: { type: String, trim: true, default: "" },
+      city: { type: String, trim: true, default: "" },
+      timezone: { type: String, trim: true, default: "" },
+      ll: { type: [Number], default: undefined }, // [lat, lon]
     },
     dedupeKey: {
       type: String,
@@ -115,5 +129,7 @@ campaignClickSchema.index({ promoter: 1, clickedAt: -1 });
 campaignClickSchema.index({ marketer: 1, clickedAt: -1 });
 campaignClickSchema.index({ campaign: 1, status: 1, clickedAt: -1 });
 campaignClickSchema.index({ promotion: 1, status: 1, clickedAt: -1 });
+campaignClickSchema.index({ ip: 1, clickedAt: -1 });
+campaignClickSchema.index({ "geo.country": 1, clickedAt: -1 });
 
 export default campaignClickSchema;

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import mongoose from "mongoose";
+import geoip from "geoip-lite";
 import { CampaignClickModel, CampaignModel } from "../models/index.js";
 import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
@@ -23,7 +24,7 @@ const DEDUPE_WINDOW_MINUTES = Number(process.env.PPC_CLICK_DEDUPE_WINDOW_MINUTES
 const CHARGE_LOCK_WINDOW_SECONDS = Number(process.env.PPC_CLICK_CHARGE_LOCK_SECONDS ?? 5);
 const HASH_SALT = process.env.CLICK_TRACKING_HASH_SALT || process.env.JWTTOKENSECRET || "marketspase-click";
 const KNOWN_NON_BILLABLE_UA_PATTERN =
-  /facebookexternalhit|facebot|twitterbot|slackbot|telegrambot|discordbot|linkedinbot|skypeuripreview|google-inspectiontool|googleother|bingbot|duckduckbot|applebot|crawler|spider|headlesschrome/i;
+  /facebookexternalhit|facebot|meta-externalagent|meta-externalfetcher|twitterbot|slackbot|telegrambot|discordbot|linkedinbot|skypeuripreview|googlebot|google-inspectiontool|googleother|bingbot|duckduckbot|applebot|crawler|spider|headlesschrome/i;
 
 const isRetryableTxnError = (err) =>
   err?.errorLabels?.includes("TransientTransactionError") ||
@@ -39,11 +40,182 @@ const hashValue = (value = "") =>
     .digest("hex");
 
 const getClientIp = (req) => {
+  // Prefer real client IP headers from common reverse proxies / CDNs.
+  const cfConnectingIp = req.headers["cf-connecting-ip"];
+  if (typeof cfConnectingIp === "string" && cfConnectingIp.trim()) {
+    return cfConnectingIp.trim();
+  }
+
+  const xRealIp = req.headers["x-real-ip"];
+  if (typeof xRealIp === "string" && xRealIp.trim()) {
+    return xRealIp.trim();
+  }
+
   const forwardedFor = req.headers["x-forwarded-for"];
   if (typeof forwardedFor === "string" && forwardedFor.trim()) {
     return forwardedFor.split(",")[0].trim();
   }
   return req.ip || req.socket?.remoteAddress || "";
+};
+
+const normalizeIpForGeoLookup = (value = "") => {
+  let ip = String(value || "").trim();
+  if (!ip) return "";
+
+  // Some proxies include ports in X-Forwarded-For and/or wrap IPv6 in brackets:
+  //   - "203.0.113.195:41237"
+  //   - "[2001:db8::1a2b:3c4d]:41237"
+  // Keep only the address portion so hashing/deduping is stable.
+  if (ip.startsWith("[")) {
+    const end = ip.indexOf("]");
+    if (end > 0) ip = ip.slice(1, end);
+  } else {
+    const ipv4WithPort = ip.match(/^(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?$/);
+    if (ipv4WithPort) ip = ipv4WithPort[1];
+  }
+
+  // Normalize IPv4-mapped IPv6 (e.g., "::ffff:1.2.3.4")
+  if (ip.startsWith("::ffff:")) ip = ip.slice("::ffff:".length);
+
+  // Drop IPv6 zone index if present (e.g., "fe80::1%lo0")
+  ip = ip.split("%")[0];
+
+  // Canonicalize IPv6 casing to keep hashes stable.
+  return ip.toLowerCase();
+};
+
+const getRequestProto = (req) => {
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  if (typeof forwardedProto === "string" && forwardedProto.trim()) {
+    return forwardedProto.split(",")[0].trim();
+  }
+  return req.protocol || "https";
+};
+
+const buildGoStageUrl = (req) => {
+  // Preserve attribution params (utm_*, source, etc), but force go=1 and ensure redirect isn't bypassed.
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(req.query || {})) {
+    if (!key) continue;
+    if (key === "go" || key === "redirect") continue;
+
+    if (Array.isArray(value)) {
+      value.forEach((entry) => {
+        if (entry !== undefined && entry !== null && String(entry).trim() !== "") {
+          params.append(key, String(entry));
+        }
+      });
+      continue;
+    }
+
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      params.set(key, String(value));
+    }
+  }
+
+  params.set("go", "1");
+
+  const basePath = String(req.originalUrl || "").split("?")[0] || req.path || "";
+  const query = params.toString();
+  return query ? `${basePath}?${query}` : basePath;
+};
+
+const buildCanonicalTrackingUrl = (req) => {
+  const proto = getRequestProto(req);
+  const host = req.get("host") || "";
+  const basePath = String(req.originalUrl || "").split("?")[0] || req.path || "";
+  if (!host) return basePath;
+  return `${proto}://${host}${basePath}`;
+};
+
+const buildPreviewHtml = ({ title, description, imageUrl, canonicalUrl }) => { 
+  const safe = (input) =>
+    String(input || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+  const ogTitle = safe(title || "MarketSpase Promotion");
+  const ogDescription = safe(description || "Open this link to view the offer.");
+  const ogImage = safe(imageUrl || "https://marketspase.com/img/email_logo.jpg");
+  const ogUrl = safe(canonicalUrl || "https://marketspase.com");
+
+  return `<!doctype html> 
+<html lang="en"> 
+<head> 
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>${ogTitle}</title>
+  <meta name="robots" content="noindex,nofollow" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="${ogTitle}" />
+  <meta property="og:description" content="${ogDescription}" />
+  <meta property="og:image" content="${ogImage}" />
+  <meta property="og:url" content="${ogUrl}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${ogTitle}" />
+  <meta name="twitter:description" content="${ogDescription}" />
+  <meta name="twitter:image" content="${ogImage}" />
+</head>
+<body>
+  <a href="${ogUrl}">Open</a>
+</body>
+</html>`; 
+}; 
+
+// Interstitial HTML used for the public tracking link.
+// Social/link-preview crawlers do not execute JavaScript, so they will only read the OG tags
+// and will not advance to the billable stage.
+const buildTrackingLandingHtml = ({ title, description, imageUrl, canonicalUrl, nextUrl, fallbackUrl }) => {
+  const safe = (input) =>
+    String(input || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+  const ogTitle = safe(title || "MarketSpase Promotion");
+  const ogDescription = safe(description || "Open this link to view the offer.");
+  const ogImage = safe(imageUrl || "https://marketspase.com/img/email_logo.jpg");
+  const ogUrl = safe(canonicalUrl || "https://marketspase.com");
+  const next = safe(nextUrl || ogUrl);
+  const fallback = safe(fallbackUrl || ogUrl);
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>${ogTitle}</title>
+  <meta name="robots" content="noindex,nofollow" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="${ogTitle}" />
+  <meta property="og:description" content="${ogDescription}" />
+  <meta property="og:image" content="${ogImage}" />
+  <meta property="og:url" content="${ogUrl}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${ogTitle}" />
+  <meta name="twitter:description" content="${ogDescription}" />
+  <meta name="twitter:image" content="${ogImage}" />
+  <script>
+    (function () {
+      try {
+        window.location.replace(${JSON.stringify(next)});
+      } catch (e) {
+        window.location.href = ${JSON.stringify(next)};
+      }
+    })();
+  </script>
+</head>
+<body>
+  <noscript>
+    <a href="${fallback}">Open</a>
+  </noscript>
+</body>
+</html>`;
 };
 
 const getDeviceType = (userAgent = "") => {
@@ -145,6 +317,11 @@ const getNonBillableRequestReason = (req) => {
   }
 
   const requestUserAgent = String(req.headers["user-agent"] || "");
+  // WhatsApp link preview crawler uses a UA that begins with "WhatsApp/<version>".
+  // The in-app browser uses a normal Mozilla UA, so we only match the prefix form.
+  if (/^whatsapp\//i.test(requestUserAgent.trim())) {
+    return "whatsapp_link_preview";
+  }
   if (KNOWN_NON_BILLABLE_UA_PATTERN.test(requestUserAgent)) {
     return "bot_or_preview_user_agent";
   }
@@ -221,14 +398,20 @@ const maybeExhaustCampaign = async ({ session, campaignId, costPerClick, now }) 
   return Boolean(exhausted.modifiedCount);
 };
 
-const sendTrackingResponse = (req, res, result) => {
-  if (req.query.redirect === "false") {
-    return res.status(result.httpStatus ?? 200).json({
-      success: result.success,
-      message: result.message,
-      data: result.data,
-    });
-  }
+const sendTrackingResponse = (req, res, result) => { 
+  if (result?.html) { 
+    res.setHeader("Content-Type", "text/html; charset=utf-8"); 
+    return res.status(result.httpStatus ?? 200).send(result.html); 
+  } 
+ 
+  if (req.query.redirect === "false") { 
+    return res.status(result.httpStatus ?? 200).json({ 
+      success: result.success, 
+      message: result.message, 
+      redirectUrl: result.redirectUrl || null,
+      data: result.data, 
+    }); 
+  } 
 
   if (result.redirectUrl) {
     return res.redirect(result.redirectUrl);
@@ -327,11 +510,109 @@ export const trackCampaignClick = async (req, res) => {
   const userAgent = req.headers["user-agent"] || "";
   const redirectMode = String(req.query.redirect || "").toLowerCase();
   const isRedirectBypassed = redirectMode === "false";
-  const ipHash = hashValue(getClientIp(req));
+  const goParam = String(req.query.go || "").toLowerCase();
+  const isGoStage = ["1", "true", "yes", "go"].includes(goParam);
+  const clientIp = getClientIp(req);
+  // IMPORTANT: Normalize the IP for hashing/deduping.
+  // We still persist the raw IP for fraud investigation, but the hash must be stable across
+  // equivalent representations (e.g. "::ffff:1.2.3.4" vs "1.2.3.4") or we can double-charge.
+  const normalizedIp = normalizeIpForGeoLookup(clientIp);
+  const ipHash = hashValue(normalizedIp || clientIp);
   const userAgentHash = hashValue(userAgent);
   const referrer = req.get("referer") || req.get("referrer") || "";
   const source = req.query.source || req.query.utm_source || "";
   const deviceType = getDeviceType(userAgent);
+  const geoLookupIp = normalizedIp;
+  const geo = geoLookupIp ? geoip.lookup(geoLookupIp) : null;
+
+  // Hard gate: we ONLY ever charge/bill on the explicit billable stage (`go=1`).
+  // Anything without `go=1` is treated as a preview/landing request (safe for link unfurlers,
+  // prefetchers, and social crawlers) and will never hit billing logic.
+  if (!isGoStage) {
+    const nextUrl = buildGoStageUrl(req);
+
+    // For normal browser navigation, serve an HTML interstitial with OG tags + a JS hop to go=1.
+    // For API/XHR usage (including redirect=false callers), return JSON instructing the client
+    // to call the go-stage URL.
+    if (!isRedirectBypassed) {
+      try {
+        const promotion = await PromotionModel.findOne({ upi })
+          .select("_id campaign promoter upi destinationUrl promotionUrl status isActive costPerClick");
+
+        if (!promotion) {
+          const unavailableUrl = buildCampaignUnavailableUrl({ reason: "invalid_link" });
+          return sendTrackingResponse(req, res, {
+            httpStatus: 410,
+            html: buildTrackingLandingHtml({
+              title: "MarketSpase Promotion",
+              description: "This promotion link is no longer available.",
+              canonicalUrl: buildCanonicalTrackingUrl(req),
+              nextUrl: unavailableUrl,
+              fallbackUrl: unavailableUrl,
+            }),
+            success: false,
+            message: "Campaign is no longer available",
+            data: { status: "invalid" },
+          });
+        }
+
+        const campaign = await CampaignModel.findById(promotion.campaign)
+          .select("_id title caption thumbnailUrl mediaUrl owner link status costPerClick payoutPerPromotion currency");
+
+        const marketer = campaign
+          ? await UserModel.findById(campaign.owner).select("personalInfo.phone personalInfo.phoneDetails")
+          : null;
+
+        const destinationUrl = campaign
+          ? getDestinationUrl(promotion, campaign, marketer)
+          : buildCampaignUnavailableUrl({ reason: "campaign_removed" });
+
+        const canonicalUrl = buildCanonicalTrackingUrl(req);
+        const imageUrl = campaign?.thumbnailUrl || campaign?.mediaUrl;
+        const description = campaign?.caption || "Open this link to view the offer.";
+
+        return sendTrackingResponse(req, res, {
+          httpStatus: 200,
+          html: buildTrackingLandingHtml({
+            title: campaign?.title || "MarketSpase Promotion",
+            description,
+            imageUrl,
+            canonicalUrl,
+            nextUrl,
+            // If JS is blocked, the user can still proceed by tapping the link.
+            fallbackUrl: nextUrl,
+          }),
+          success: true,
+          message: "Tracking link landing",
+          data: { stage: "landing", destinationUrl },
+        });
+      } catch (error) {
+        console.error("Failed to build tracking landing HTML:", error?.message || error);
+
+        // As a last resort, still serve a non-billable landing page without DB lookups.
+        return sendTrackingResponse(req, res, {
+          httpStatus: 200,
+          html: buildTrackingLandingHtml({
+            title: "MarketSpase Promotion",
+            description: "Open this link to view the offer.",
+            canonicalUrl: buildCanonicalTrackingUrl(req),
+            nextUrl,
+            fallbackUrl: nextUrl,
+          }),
+          success: true,
+          message: "Tracking link landing",
+          data: { stage: "landing" },
+        });
+      }
+    }
+
+    return sendTrackingResponse(req, res, {
+      httpStatus: 200,
+      success: true,
+      message: "Tracking link landing (go-stage required)",
+      data: { stage: "landing", nextUrl },
+    });
+  }
 
   for (let attempt = 1; attempt <= MAX_TX_RETRIES; attempt++) {
     const session = await mongoose.startSession();
@@ -362,6 +643,7 @@ export const trackCampaignClick = async (req, res) => {
           .select(`
             _id title owner status link budget spentBudget reservedBudget
             costPerClick payoutPerPromotion currency
+            hasEndDate endDate
           `);
 
         if (!campaign) {
@@ -393,6 +675,98 @@ export const trackCampaignClick = async (req, res) => {
               reason: "campaign_removed",
             }),
             data: { status: "invalid" },
+          };
+          return;
+        }
+
+        // Enforce campaign end date inside the click transaction so an "active" campaign cannot be
+        // billed after expiry (even if the expiry cron hasn't run yet).
+        const endDatePassed =
+          (campaign.hasEndDate === true || Boolean(campaign.endDate)) &&
+          Boolean(campaign.endDate) &&
+          new Date(campaign.endDate).getTime() <= now.getTime();
+
+        if (endDatePassed) {
+          const costPerClick = getCostPerClick(promotion, campaign);
+          const destinationUrl = getDestinationUrl(promotion, campaign, marketer);
+
+          const { dedupeKey } = buildClickKeys({
+            promotionId: promotion._id,
+            ipHash,
+            userAgentHash,
+            clickedAt: now,
+          });
+
+          const click = await createClickAudit({
+            session,
+            click: {
+              campaign: campaign._id,
+              promotion: promotion._id,
+              promoter: promotion.promoter,
+              marketer: campaign.owner,
+              upi,
+              clickedAt: now,
+              unitCost: costPerClick,
+              cost: 0,
+              currency: campaign.currency || "NGN",
+              status: "invalid",
+              chargeStatus: "not_charged",
+              destinationUrl,
+              referrer,
+              source,
+              ipHash,
+              ip: normalizedIp || clientIp,
+              userAgentHash,
+              deviceType,
+              geo: geo
+                ? {
+                    country: geo.country || "",
+                    region: geo.region || "",
+                    city: geo.city || "",
+                    timezone: geo.timezone || "",
+                    ll: Array.isArray(geo.ll) ? geo.ll : undefined,
+                  }
+                : undefined,
+              dedupeKey,
+              metadata: { reason: "campaign_end_date_passed" },
+            },
+          });
+
+          await incrementNonBillableCounters({
+            session,
+            campaignId: campaign._id,
+            promotionId: promotion._id,
+            status: "invalid",
+            now,
+          });
+
+          await CampaignModel.updateOne(
+            { _id: campaign._id, status: "active" },
+            {
+              $set: { status: "expired" },
+              $push: {
+                activityLog: {
+                  action: "Status Changed",
+                  details: "Auto-expired by click gate: endDate passed.",
+                  timestamp: now,
+                },
+              },
+            },
+            { session }
+          );
+
+          await deactivateCampaignPromotions({ campaignId: campaign._id, session });
+
+          txResult = {
+            success: false,
+            httpStatus: 410,
+            message: "Campaign has expired",
+            redirectUrl: buildCampaignUnavailableUrl({
+              campaign,
+              marketer,
+              reason: "expired",
+            }),
+            data: { clickId: click._id, status: "invalid", charged: false },
           };
           return;
         }
@@ -451,8 +825,20 @@ export const trackCampaignClick = async (req, res) => {
           referrer,
           source,
           ipHash,
+          // Persist a canonical IP string for analytics (grouping) and fraud review.
+          // (The raw IP form can vary: IPv4 vs IPv4-mapped IPv6, etc.)
+          ip: normalizedIp || clientIp,
           userAgentHash,
           deviceType,
+          geo: geo
+            ? {
+                country: geo.country || "",
+                region: geo.region || "",
+                city: geo.city || "",
+                timezone: geo.timezone || "",
+                ll: Array.isArray(geo.ll) ? geo.ll : undefined,
+              }
+            : undefined,
           dedupeKey,
         };
 
@@ -480,7 +866,15 @@ export const trackCampaignClick = async (req, res) => {
           txResult = {
             success: true,
             message: "Non-billable request recorded without charge",
-            redirectUrl: destinationUrl,
+            // For link preview / crawler fetches, don't redirect to the destination.
+            // This prevents external crawlers from artificially inflating destination analytics
+            // and avoids triggering downstream side effects.
+            httpStatus: 200,
+            html: buildPreviewHtml({
+              title: campaign.title || "MarketSpase Promotion",
+              description: "Open this link to view the offer.",
+              canonicalUrl: destinationUrl,
+            }),
             data: { clickId: click._id, status: "duplicate", charged: false },
           };
           return;

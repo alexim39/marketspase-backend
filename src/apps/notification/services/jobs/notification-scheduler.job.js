@@ -8,16 +8,14 @@ import { NotificationModel } from "../../models/index.js";
 // import { sendEmail } from "../../../../services/email.service.js";
 // import { promotionExpiringTemplate } from "../../../promotion/services/email/promotionExpiringTemplate.js";
 import { promotionAutoRejection } from "../../services/promotion-auto-reject.service.js";
-import { promotionSubmissionReminder } from "../../services/promotion-submission-reminder.service.js";
 import { userBirthdayService } from '../user-birthday.service.js';
 import { activityLogCleaner } from './activity-log-cleaner.job.js'
 import { campaignAvailabilityNotification } from '../../../campaign/services/jobs/campaign-notification.job.js'; // do not remove this import as it will be needed for the job to run when resources are upgraded later
 import { promotionAutoPayService } from "../../services/promotion-auto-pay.service.js";
-
-
-// 1. 20-HOUR SUBMISSION REMINDER - Every hour
-cron.schedule("0 * * * *", promotionSubmissionReminder, { timezone: "Africa/Lagos" })
-//cron.schedule('*/2 * * * *', promotionSubmissionReminder)
+ 
+ 
+// 1. Legacy "proof submission" reminder job (download/upload lifecycle)
+// Disabled: the app has migrated to PPC and promoters no longer submit proof media.
 
 // 2. BUDGET ALERTS - Every hour
 cron.schedule("0 * * * *", async () => {

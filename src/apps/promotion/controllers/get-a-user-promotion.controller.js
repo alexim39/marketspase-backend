@@ -4,7 +4,7 @@ import { PromotionModel } from "../../promotion/models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { isPromotionExpired, calculateTimeRemaining, calculateProgressPercentage } from './../services/utils.js';
 import { normalizePromotionTrackingFields } from "../utils/promotion-url.js";
-import { normalizeLegacyPpcPromotionStatus } from "../../campaign/services/campaign-runtime.service.js";
+import { LEGACY_PPC_PROMOTION_STATUSES, normalizeLegacyPpcPromotionStatus } from "../../campaign/services/campaign-runtime.service.js";
 import { restoreExpiredPromotionFraudLinks } from "../services/fraud/promotion-fraud.service.js";
 
 const MAX_PAGE_SIZE = 100;
@@ -52,7 +52,10 @@ const ALLOWED_SORT_FIELDS = new Set([
   "paidAt",
 ]);
 
-const ACTIVE_PROMOTION_STATUSES = ["accepted"];
+const ACCEPTED_PROMOTION_STATUS_SET = new Set([
+  "accepted",
+  ...Array.from(LEGACY_PPC_PROMOTION_STATUSES || []),
+]);
 
 
 // Get all promotions for a user with filtering and pagination
@@ -120,11 +123,18 @@ export const GetUserPromotions = async (req, res) => {
     // Build query
     const query = { promoter: userId };
     if (status && status !== 'all') {
-      if (status === 'active') {
-        query.status = { $in: ACTIVE_PROMOTION_STATUSES };
+      const normalizedStatus = String(status || '').trim().toLowerCase();
+
+      if (normalizedStatus === 'active') {
+        // "Active" in the UI means accepted-ish AND currently enabled for PPC tracking.
+        query.status = { $in: Array.from(ACCEPTED_PROMOTION_STATUS_SET) };
         query.isActive = true;
+      } else if (normalizedStatus === 'accepted') {
+        // Backward compatible: older PPC records store statuses like downloaded/submitted/validated
+        // but the frontend expects them to be treated as accepted.
+        query.status = { $in: Array.from(ACCEPTED_PROMOTION_STATUS_SET) };
       } else {
-        query.status = status;
+        query.status = normalizedStatus;
       }
     }
 
