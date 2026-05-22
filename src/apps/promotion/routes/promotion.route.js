@@ -6,6 +6,8 @@ import { GetAdminPromotions } from '../controllers/admin/get-promotions.controll
 import { getPromotionFraudSummaryController } from '../controllers/admin/get-promotion-fraud-summary.controller.js';
 import { getPromotionFraudCasesController } from '../controllers/admin/get-promotion-fraud-cases.controller.js';
 import { applyPromotionFraudActionController } from '../controllers/admin/apply-promotion-fraud-action.controller.js';
+import { getPromoterFraudSummaryController } from '../controllers/get-promoter-fraud-summary.controller.js';
+import { getPromoterFraudCasesController } from '../controllers/get-promoter-fraud-cases.controller.js';
 import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 import { requireAdmin } from '../../../shared/middleware/authorization.middleware.js';
 
@@ -22,6 +24,10 @@ PromoterRouter.post('/admin/fraud/cases/:caseId/action', requireAdmin, applyProm
 // Get a user promotions with filtering and pagination
 PromoterRouter.get('/analytics/promoter/:userId', getPromoterAnalytics);
 PromoterRouter.get('/user/:userId', GetUserPromotions);
+
+// Promoter compliance / fraud history (self + admin access only)
+PromoterRouter.get('/fraud/promoter/:userId/summary', getPromoterFraudSummaryController);
+PromoterRouter.get('/fraud/promoter/:userId/cases', getPromoterFraudCasesController);
 
 // get promotion
 PromoterRouter.get('/:id/:userId', GetPromotionById);
