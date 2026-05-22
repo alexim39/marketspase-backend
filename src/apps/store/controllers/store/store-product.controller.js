@@ -1,7 +1,7 @@
 // store-products.controller.js
 import { ProductModel } from '../../models/promotion/index.js';
-import { StoreModel } from '../../models/store/index.js';
 import mongoose from "mongoose";
+import { ensureStoreWriteAccess } from '../../services/store-authorization.service.js';
 
 export const getStoreProduct = async (req, res) => {
   try {
@@ -23,12 +23,14 @@ export const getStoreProduct = async (req, res) => {
       });
     }
 
-    // Check if store exists
-    const storeExists = await StoreModel.findById(storeId);
-    if (!storeExists) {
-      return res.status(404).json({
+    // This endpoint is used for dashboard store management; only the store owner (or admin) should see it.
+    try {
+      await ensureStoreWriteAccess({ storeId, req, allowAdmin: true });
+    } catch (authError) {
+      const status = authError.status || 403;
+      return res.status(status).json({
         success: false,
-        message: 'Store not found'
+        message: status === 404 ? 'Store not found' : 'You do not have permission to view this product',
       });
     }
 

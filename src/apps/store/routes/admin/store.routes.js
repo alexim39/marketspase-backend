@@ -48,7 +48,7 @@ router.get('/:id/products',  StoreController.getStoreProducts);
 // Store owner routes (for marketers/admins)
 router.get('/stores/my-stores',  async (req, res) => {
   // Redirect to controller method for user's stores
-  req.query.owner = req.user.id;
+  req.query.owner = req.userId;
   await StoreController.getStores(req, res);
 });
 
@@ -60,7 +60,7 @@ router.put('/stores/:id',  async (req, res) => {
     return res.status(404).json({ success: false, message: 'Store not found' });
   }
   
-  if (store.owner.toString() !== req.user.id && req.user.role !== 'admin') {
+  if (store.owner.toString() !== String(req.userId || '') && req.user.role !== 'admin') {
     return res.status(403).json({ 
       success: false, 
       message: 'You do not have permission to update this store' 

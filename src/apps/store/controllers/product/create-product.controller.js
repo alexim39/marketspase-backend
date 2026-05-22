@@ -3,6 +3,7 @@ import { ProductModel, InventoryHistoryModel } from '../../models/promotion/inde
 import { StoreModel } from '../../models/store/index.js';
 import { uploadToCloudinary } from '../../utils/cloudinary.js';
 import mongoose from 'mongoose';
+import { ensureStoreWriteAccess } from '../../services/store-authorization.service.js';
 import {
   calculateCommissionForAmount,
   extractAffiliateSettingsFromBody,
@@ -37,18 +38,17 @@ export const createProduct = async (req, res) => {
       });
     }
 
-    // Verify store ownership
-    const store = await StoreModel.findOne({
-      _id: storeId,
-      owner: userId
-    }).session(session);
-
-    if (!store) {
+    // Verify store ownership (supports legacy ownership formats)
+    let store;
+    try {
+      ({ store } = await ensureStoreWriteAccess({ storeId, req, session }));
+    } catch (authError) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(403).json({
+      const status = authError.status || 403;
+      return res.status(status).json({
         success: false,
-        message: 'You do not have permission to add products to this store'
+        message: status === 404 ? 'Store not found' : 'You do not have permission to add products to this store',
       });
     }
 

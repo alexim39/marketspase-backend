@@ -5,6 +5,7 @@ import { WhatsAppIntegrationModel } from '../../models/whatsapp-integration/inde
 import { ProductModel, PromotionTrackingModel, InventoryHistoryModel } from '../../models/promotion/index.js';
 import { deleteMultipleFromCloudinary } from '../../utils/cloudinary.js';
 import mongoose from 'mongoose';
+import { ensureStoreWriteAccess } from '../../services/store-authorization.service.js';
 
 
 /**
@@ -28,18 +29,17 @@ export const permanentDeleteStore = async (req, res) => {
       });
     }
 
-    // Verify store ownership
-    const store = await StoreModel.findOne({
-      _id: storeId,
-      owner: userId
-    }).session(session);
-
-    if (!store) {
+    // Verify store ownership (supports legacy ownership formats)
+    let store;
+    try {
+      ({ store } = await ensureStoreWriteAccess({ storeId, req, session }));
+    } catch (authError) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json({
+      const status = authError.status || 404;
+      return res.status(status).json({
         success: false,
-        message: 'Store not found or you do not have permission'
+        message: status === 404 ? 'Store not found' : 'Store not found or you do not have permission',
       });
     }
 

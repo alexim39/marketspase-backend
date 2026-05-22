@@ -1,5 +1,6 @@
 import { StoreModel } from "../../models/store/index.js";
 import mongoose from "mongoose";
+import { ensureStoreWriteAccess } from "../../services/store-authorization.service.js";
 
 export const setDefaultStore = async (req, res) => {
   const session = await mongoose.startSession();
@@ -8,20 +9,10 @@ export const setDefaultStore = async (req, res) => {
   try {
     const { storeId } = req.params;
     const userId = req.userId;
+    const uid = typeof req.user?.uid === "string" ? req.user.uid : null;
 
-    // 1. Validate the store exists and belongs to the user
-    const store = await StoreModel.findOne({
-      _id: storeId,
-      owner: userId
-    }).session(session);
-
-    if (!store) {
-      await session.abortTransaction();
-      return res.status(404).json({
-        success: false,
-        message: "Store not found or you don't have permission"
-      });
-    }
+    // 1. Validate the store exists and belongs to the user (supports legacy ownership formats).
+    const { store } = await ensureStoreWriteAccess({ storeId, req, session });
 
     // 2. Check if store is already default (optimization)
     if (store.isDefaultStore) {
@@ -44,6 +35,22 @@ export const setDefaultStore = async (req, res) => {
       { session }
     );
 
+    // Legacy support: if any stores still have owner stored as UID string, migrate + unset defaults for them too.
+    if (uid) {
+      const legacyRows = await StoreModel.collection
+        .find({ owner: uid }, { projection: { _id: 1 } })
+        .toArray();
+      const legacyIds = legacyRows.map((row) => row?._id).filter(Boolean);
+
+      if (legacyIds.length) {
+        await StoreModel.updateMany(
+          { _id: { $in: legacyIds, $ne: store._id } },
+          { $set: { owner: new mongoose.Types.ObjectId(userId), isDefaultStore: false } },
+          { session }
+        );
+      }
+    }
+
     // 4. Set the selected store as default
     const updatedStore = await StoreModel.findByIdAndUpdate(
       storeId,
@@ -65,6 +72,13 @@ export const setDefaultStore = async (req, res) => {
 
   } catch (error) {
     await session.abortTransaction();
+
+    if (error?.status) {
+      return res.status(error.status).json({
+        success: false,
+        message: error.status === 404 ? 'Store not found' : 'Store not found or you don\'t have permission',
+      });
+    }
     
     // Handle unique constraint violation
     if (error.code === 11000 || error.message.includes("duplicate key")) {
