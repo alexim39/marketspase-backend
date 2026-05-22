@@ -1,6 +1,7 @@
 // update-store.controller.js
 import { StoreModel } from '../../models/store/index.js';
 import { uploadToCloudinary } from '../../utils/cloudinary.js';
+import { ensureStoreWriteAccess } from '../../services/store-authorization.service.js';
 
 export const updateStore = async (req, res) => {
   try {
@@ -18,23 +19,8 @@ export const updateStore = async (req, res) => {
       });
     }
 
-    // Find the store
-    const store = await StoreModel.findById(storeId);
-    
-    if (!store) {
-      return res.status(404).json({
-        success: false,
-        message: 'Store not found'
-      });
-    }
-
-    // Check if user owns the store
-    if (store.owner.toString() !== userId.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not authorized to update this store'
-      });
-    }
+    // Find the store and confirm write access (supports legacy ownership formats and migrates if needed).
+    const { store } = await ensureStoreWriteAccess({ storeId, req });
 
     const { name, description, category } = req.body;
     const logoFile = req.file;
@@ -144,6 +130,13 @@ export const updateStore = async (req, res) => {
 
   } catch (error) {
     console.error('Store update error:', error);
+
+    if (error?.status) {
+      return res.status(error.status).json({
+        success: false,
+        message: error.message || 'Request not allowed',
+      });
+    }
     
     // Handle duplicate key errors (unique constraints)
     if (error.code === 11000) {

@@ -3,6 +3,7 @@ import { ProductModel, PromotionTrackingModel, InventoryHistoryModel } from '../
 import { StoreModel } from '../../models/store/index.js';
 import { deleteFromCloudinary } from '../../utils/cloudinary.js';
 import mongoose from 'mongoose';
+import { ensureStoreWriteAccess } from '../../services/store-authorization.service.js';
 
 export const deleteProduct = async (req, res) => {
   const session = await mongoose.startSession();
@@ -33,18 +34,16 @@ export const deleteProduct = async (req, res) => {
       });
     }
 
-    // Verify store ownership
-    const store = await StoreModel.findOne({
-      _id: storeId,
-      owner: userId
-    }).session(session);
-
-    if (!store) {
+    // Verify store ownership (supports legacy ownership formats)
+    try {
+      await ensureStoreWriteAccess({ storeId, req, session });
+    } catch (authError) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(403).json({
+      const status = authError.status || 403;
+      return res.status(status).json({
         success: false,
-        message: 'You do not have permission to delete products in this store'
+        message: status === 404 ? 'Store not found' : 'You do not have permission to delete products in this store',
       });
     }
 
@@ -175,7 +174,36 @@ export const permanentDeleteProduct = async (req, res) => {
 
     //console.log('userId', userId, 'storeId', storeId, ' productId', productId);
 
-    // Similar verification as above...
+    if (!userId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    if (!storeId || !productId) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        success: false,
+        message: 'Store ID and Product ID are required',
+      });
+    }
+
+    // Verify store ownership (supports legacy ownership formats)
+    try {
+      await ensureStoreWriteAccess({ storeId, req, session });
+    } catch (authError) {
+      await session.abortTransaction();
+      session.endSession();
+      const status = authError.status || 403;
+      return res.status(status).json({
+        success: false,
+        message: status === 404 ? 'Store not found' : 'You do not have permission to delete products in this store',
+      });
+    }
 
     const existingProduct = await ProductModel.findOne({
       _id: productId,

@@ -27,6 +27,7 @@ import {
   getProductAffiliateSettings,
   roundMoney
 } from "../../services/storefront-affiliate.service.js";
+import { ensureStoreWriteAccess } from "../../services/store-authorization.service.js";
 
 const PAYSTACK_VERIFY_URL = "https://api.paystack.co/transaction/verify/";
 const WALLET_TRANSACTION_LIMIT = 500;
@@ -765,14 +766,16 @@ export const getStoreOrders = async (req, res) => {
   try {
     const { storeId } = req.params;
     const { status, limit = 20, skip = 0 } = req.query;
-    const userId = req.userId;
 
-    const store = await StoreModel.findById(storeId);
-    if (!store) {
-      return res.status(404).json({ success: false, message: "Store not found" });
-    }
-    if (req.user.role !== 'admin' && userId && store.owner.toString() !== userId.toString()) {
-      return res.status(403).json({ success: false, message: "You are not allowed to view these orders" });
+    // Allow store owner (including legacy ownership formats) or admin to view store orders.
+    try {
+      await ensureStoreWriteAccess({ storeId, req, allowAdmin: true });
+    } catch (authError) {
+      const statusCode = authError.status || 403;
+      return res.status(statusCode).json({
+        success: false,
+        message: statusCode === 404 ? "Store not found" : "You are not allowed to view these orders",
+      });
     }
 
     const result = await OrderModel.findByStore(storeId, {
