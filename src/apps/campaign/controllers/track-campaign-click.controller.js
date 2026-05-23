@@ -183,6 +183,9 @@ const buildTrackingLandingHtml = ({ title, description, imageUrl, canonicalUrl, 
   const ogUrl = safe(canonicalUrl || "https://marketspase.com");
   const next = safe(nextUrl || ogUrl);
   const fallback = safe(fallbackUrl || ogUrl);
+  // Served by this API under Helmet's default CSP (`script-src 'self'`).
+  // Keep it same-origin so we don't need to loosen CSP.
+  const redirectScriptSrc = "/api/v1/campaign/track-redirect.js";
 
   return `<!doctype html>
 <html lang="en">
@@ -200,20 +203,10 @@ const buildTrackingLandingHtml = ({ title, description, imageUrl, canonicalUrl, 
   <meta name="twitter:title" content="${ogTitle}" />
   <meta name="twitter:description" content="${ogDescription}" />
   <meta name="twitter:image" content="${ogImage}" />
-  <script>
-    (function () {
-      try {
-        window.location.replace(${JSON.stringify(next)});
-      } catch (e) {
-        window.location.href = ${JSON.stringify(next)};
-      }
-    })();
-  </script>
+  <script src="${redirectScriptSrc}" data-next="${next}"></script>
 </head>
 <body>
-  <noscript>
-    <a href="${fallback}">Open</a>
-  </noscript>
+  <a href="${fallback}" rel="nofollow noopener">Open</a>
 </body>
 </html>`;
 };

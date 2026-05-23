@@ -3,6 +3,7 @@ import { cloudinaryMediaUpload } from "../../../core/cloudinary.service.js";
 
 import { acceptCampaign } from '../controllers/accept-campaign.controller.js'
 import { trackCampaignClick } from '../controllers/track-campaign-click.controller.js'
+import { serveTrackingRedirectScript } from '../controllers/track-redirect-script.controller.js'
 import { createCampaign } from '../controllers/create-campaign.controller.js'
 import { saveCampaign } from '../controllers/save-campaign.controller.js'
 import { uploadCampaignMedia } from '../controllers/upload-campaign-media.controller.js'
@@ -22,6 +23,7 @@ const router = express.Router();
 
 
 // Public tracking endpoint
+router.get('/track-redirect.js', serveTrackingRedirectScript);
 router.head('/track/:upi', (_req, res) => res.sendStatus(204));
 router.get('/track/:upi', trackCampaignClick);
 
