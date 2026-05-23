@@ -1,6 +1,6 @@
 // controllers/product/product-promotion.controller.js
 import ProductPromotionService from "../../services/product-promotion.service.js";
-import { StoreModel } from "../../models/store/index.js";
+import { ensureStoreWriteAccess } from "../../services/store-authorization.service.js";
 
 export class ProductPromotionController {
   constructor() {
@@ -11,24 +11,49 @@ export class ProductPromotionController {
   }
 
   async ensureStoreOwnership(storeId, req, res) {
-    const store = await StoreModel.findById(storeId).select('owner');
-    if (!store) {
-      res.status(404).json({
+    try {
+      // Reuse the shared store authorization logic so all store mutations behave consistently.
+      // This also fixes legacy stores where `owner` was stored as a UID or embedded object.
+      const { store } = await ensureStoreWriteAccess({
+        storeId,
+        req,
+        allowAdmin: true,
+      });
+      return store;
+    } catch (error) {
+      const status = error?.status || 500;
+
+      if (status === 403) {
+        // Keep the existing UI-friendly message for promotion controls.
+        res.status(403).json({
+          success: false,
+          message: 'You are not allowed to manage promotion settings for this store'
+        });
+        return null;
+      }
+
+      if (status === 401) {
+        res.status(401).json({
+          success: false,
+          message: 'Authentication required'
+        });
+        return null;
+      }
+
+      if (status === 404) {
+        res.status(404).json({
+          success: false,
+          message: 'Store not found'
+        });
+        return null;
+      }
+
+      res.status(status).json({
         success: false,
-        message: 'Store not found'
+        message: error?.message || 'Request failed'
       });
       return null;
     }
-
-    if (req.user?.role !== 'admin' && store.owner?.toString() !== req.userId) {
-      res.status(403).json({
-        success: false,
-        message: 'You are not allowed to manage promotion settings for this store'
-      });
-      return null;
-    }
-
-    return store;
   }
 
   /**
