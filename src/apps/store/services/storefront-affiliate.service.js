@@ -123,8 +123,12 @@ export const calculateCommissionForAmount = (amount, settings = {}) => {
   return roundMoney(Math.min(saleAmount, commission));
 };
 
+const DEFAULT_FRONTEND_URL = "https://marketspase.com";
+
 export const getFrontendBaseUrl = () => {
-  return (process.env.FRONTEND_URL || "http://localhost:4200").replace(/\/+$/, "");
+  // In production, redirecting users to localhost breaks affiliate links.
+  // Prefer explicit configuration, otherwise fall back to the public web app.
+  return (process.env.FRONTEND_URL || DEFAULT_FRONTEND_URL).replace(/\/+$/, "");
 };
 
 export const getRequestBaseUrl = (req) => {
