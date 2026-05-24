@@ -35,6 +35,7 @@ import { aiAssistantRoutes } from './src/apps/ai-assistant/index.js';
 import CollaborationRouter from './src/apps/collaboration/index.js';
 import SearchRouter from './src/apps/search/index.js';
 import { ensureGlobalSearchBootstrap } from './src/apps/search/services/search-index.service.js';
+import { trackClick as trackStoreAffiliateClick } from './src/apps/store/controllers/promotion/product-tracking.controller.js';
 
 // paystack transaction webhook imports
 import handlePaystackWithdrawalWebhook from './src/apps/wallet/services/paystack-webhook-wthdrawal-approval.service.js';
@@ -118,6 +119,9 @@ const io = new Server(httpServer, {
 // FIXED: Setup socket handlers and attach io to app
 setupSocketHandlers(io);
 app.set('io', io);
+// Make Socket.IO available to background jobs/services (same process) without threading `app` everywhere.
+// This mirrors the existing SSE implementation which stores clients on `global`.
+global.realtimeIo = io;
 
 // Single webhook endpoint that routes internally
 app.post('/api/webhook/paystack', (req, res, next) => {
@@ -161,6 +165,12 @@ app.options('*', cors(corsOptions));
 
 /* Routes */
 app.get('/', (req, res) => res.send('Node server is up and running'));
+
+// Backward-compatible affiliate tracking URLs (older builds generated links without `/api/v1`).
+// Keep these working because promoters may have already shared them.
+app.get('/stores/product/promotions/track-click/:uniqueCode', trackStoreAffiliateClick);
+app.post('/stores/product/promotions/track-click/:uniqueCode', trackStoreAffiliateClick);
+
 app.use('/api/v1/auth', AuthRouter);
 app.use('/api/v1/user', UserRouter);
 app.use('/api/v1/wallet', WalletRouter);

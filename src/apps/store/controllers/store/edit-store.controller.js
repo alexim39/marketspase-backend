@@ -1,6 +1,6 @@
 // update-store.controller.js
 import { StoreModel } from '../../models/store/index.js';
-import { uploadToCloudinary } from '../../utils/cloudinary.js';
+import { logoUploadToCloudinary } from '../../utils/cloudinary.js';
 import { ensureStoreWriteAccess } from '../../services/store-authorization.service.js';
 
 export const updateStore = async (req, res) => {
@@ -73,7 +73,8 @@ export const updateStore = async (req, res) => {
     } else if (logoFile) {
       // Client uploaded a new logo
       try {
-        const uploadResult = await uploadToCloudinary(logoFile.buffer, 'store-logos');
+        // `upload` middleware uses memoryStorage, so we receive `req.file.buffer` (not a disk path).
+        const uploadResult = await logoUploadToCloudinary(logoFile.buffer, 'store-logos');
         logoUrl = uploadResult.secure_url;
         updates.logo = logoUrl;
       } catch (uploadError) {

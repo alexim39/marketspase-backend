@@ -134,7 +134,10 @@ export const getRequestBaseUrl = (req) => {
 };
 
 export const buildAffiliateUrl = (req, uniqueCode) => {
-  return `${getRequestBaseUrl(req)}/stores/product/promotions/track-click/${encodeURIComponent(uniqueCode)}`;
+  // Public affiliate/tracking links should hit the API (not the SPA),
+  // so the click is recorded server-side and we can safely 302 redirect
+  // to the product landing page.
+  return `${getRequestBaseUrl(req)}/api/v1/stores/product/promotions/track-click/${encodeURIComponent(uniqueCode)}`;
 };
 
 export const buildProductLandingUrl = ({ productId, uniqueCode, uniqueId, promoterId, clicked = true }) => {
