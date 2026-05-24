@@ -118,6 +118,9 @@ const io = new Server(httpServer, {
 // FIXED: Setup socket handlers and attach io to app
 setupSocketHandlers(io);
 app.set('io', io);
+// Make Socket.IO available to background jobs/services (same process) without threading `app` everywhere.
+// This mirrors the existing SSE implementation which stores clients on `global`.
+global.realtimeIo = io;
 
 // Single webhook endpoint that routes internally
 app.post('/api/webhook/paystack', (req, res, next) => {

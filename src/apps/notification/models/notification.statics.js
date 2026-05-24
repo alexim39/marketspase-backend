@@ -1,4 +1,5 @@
 import { DEFAULTS, NOTIFICATION_STATUS } from "./notification.constants.js";
+import mongoose from "mongoose";
 
 export const setupNotificationStatics = (schema) => {
   // Create a new notification
@@ -43,6 +44,85 @@ export const setupNotificationStatics = (schema) => {
       .populate({ path: 'data.campaignId', select: 'title status', options: { lean: true } })
       .populate({ path: 'data.promotionId', select: 'upi status', options: { lean: true } })
       .lean();
+  };
+
+  // Cursor pagination (preferred): pass `cursor` as base64url-encoded JSON { createdAt, id }.
+  // Sort order: newest first (createdAt desc, _id desc).
+  schema.statics.getUserNotificationsCursor = async function(userId, options = {}) {
+    const {
+      limit = 20,
+      cursor,
+      status,
+      priority,
+      type,
+      includeExpired = false,
+    } = options;
+
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 20, 100));
+    const query = { recipient: userId };
+
+    if (status) query.status = status;
+    if (priority) query.priority = priority;
+    if (type) query.type = type;
+
+    if (!includeExpired) {
+      query.$or = [
+        { expiresAt: { $gt: new Date() } },
+        { expiresAt: { $exists: false } },
+      ];
+    }
+
+    if (cursor) {
+      let decoded;
+      try {
+        decoded = JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'));
+      } catch (e) {
+        const err = new Error('Invalid cursor');
+        err.status = 400;
+        throw err;
+      }
+
+      const cursorCreatedAt = decoded?.createdAt ? new Date(decoded.createdAt) : null;
+      const cursorId = decoded?.id ? new mongoose.Types.ObjectId(String(decoded.id)) : null;
+
+      if (!cursorCreatedAt || Number.isNaN(cursorCreatedAt.getTime()) || !cursorId) {
+        const err = new Error('Invalid cursor payload');
+        err.status = 400;
+        throw err;
+      }
+
+      // Fetch items strictly "older" than the cursor in (createdAt, _id) order.
+      query.$and = (query.$and || []).concat([{
+        $or: [
+          { createdAt: { $lt: cursorCreatedAt } },
+          { createdAt: cursorCreatedAt, _id: { $lt: cursorId } },
+        ],
+      }]);
+    }
+
+    const docs = await this.find(query)
+      .select('type title message data status priority createdAt readAt expiresAt')
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(safeLimit + 1)
+      .populate({ path: 'data.campaignId', select: 'title status', options: { lean: true } })
+      .populate({ path: 'data.promotionId', select: 'upi status', options: { lean: true } })
+      .lean();
+
+    const hasNextPage = docs.length > safeLimit;
+    const items = hasNextPage ? docs.slice(0, safeLimit) : docs;
+
+    const last = items[items.length - 1];
+    const nextCursor = last
+      ? Buffer.from(JSON.stringify({ createdAt: last.createdAt, id: last._id }), 'utf8').toString('base64url')
+      : null;
+
+    return {
+      items,
+      pageInfo: {
+        hasNextPage,
+        nextCursor,
+      },
+    };
   };
 
   // Get unread count for user

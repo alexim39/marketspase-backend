@@ -13,6 +13,18 @@ export class NotificationService {
         type: 'new-notification',
         notification
       });
+
+      // Also broadcast via Socket.IO when available (preferred for real-time + reconnection).
+      // `server.js` sets up socket rooms as `user:{userId}`.
+      const io = global.realtimeIo;
+      if (io) {
+        // Unread count can be derived client-side for a new unread notification, but we send it to keep devices in sync.
+        const unreadCount = await NotificationModel.getUnreadCount(notificationData.recipient);
+        io.to(`user:${notificationData.recipient.toString()}`).emit('notification:new', {
+          notification,
+          unreadCount,
+        });
+      }
       
       return notification;
     } catch (error) {
@@ -331,7 +343,7 @@ export class NotificationService {
   }
 
   static async markAsRead(notificationId, userId) {
-    return NotificationModel.findOneAndUpdate(
+    const notification = await NotificationModel.findOneAndUpdate(
       { _id: notificationId, recipient: userId },
       { 
         status: 'read',
@@ -339,22 +351,99 @@ export class NotificationService {
       },
       { new: true }
     );
+
+    const io = global.realtimeIo;
+    if (io && notification) {
+      const unreadCount = await NotificationModel.getUnreadCount(userId);
+      io.to(`user:${userId.toString()}`).emit('notification:updated', {
+        notificationId: notification._id,
+        status: notification.status,
+        unreadCount,
+      });
+    }
+
+    return notification;
   }
 
   static async markAllAsRead(userId) {
-    return NotificationModel.updateMany(
+    const result = await NotificationModel.updateMany(
       { recipient: userId, status: 'unread' },
       { 
         status: 'read',
         readAt: new Date()
       }
     );
+
+    const io = global.realtimeIo;
+    if (io) {
+      const unreadCount = await NotificationModel.getUnreadCount(userId);
+      io.to(`user:${userId.toString()}`).emit('notification:bulkUpdated', {
+        action: 'markAllAsRead',
+        unreadCount,
+      });
+    }
+
+    return result;
   }
 
   static async getUserNotificationCount(userId) {
-    return NotificationModel.countDocuments({
+    // Use the model helper so we consistently ignore expired notifications.
+    return NotificationModel.getUnreadCount(userId);
+  }
+
+  static async deleteNotification(notificationId, userId) {
+    const notification = await NotificationModel.findOneAndDelete({
+      _id: notificationId,
       recipient: userId,
-      status: 'unread'
     });
+
+    if (!notification) return null;
+
+    const unreadCount = await NotificationModel.getUnreadCount(userId);
+
+    // Best-effort realtime sync
+    sendSSEToUser(userId, {
+      type: 'notification-deleted',
+      notificationId,
+      unreadCount,
+    });
+
+    const io = global.realtimeIo;
+    if (io) {
+      io.to(`user:${userId.toString()}`).emit('notification:deleted', {
+        notificationId,
+        unreadCount,
+      });
+    }
+
+    return { unreadCount };
+  }
+
+  static async bulkDeleteNotifications(notificationIds, userId) {
+    const ids = Array.isArray(notificationIds)
+      ? notificationIds.map((x) => String(x)).filter(Boolean)
+      : [];
+
+    const result = await NotificationModel.deleteByUser(userId, ids);
+    const unreadCount = await NotificationModel.getUnreadCount(userId);
+
+    sendSSEToUser(userId, {
+      type: 'notifications-bulk-deleted',
+      notificationIds: ids,
+      unreadCount,
+    });
+
+    const io = global.realtimeIo;
+    if (io) {
+      io.to(`user:${userId.toString()}`).emit('notification:bulkDeleted', {
+        notificationIds: ids,
+        unreadCount,
+      });
+    }
+
+    return {
+      deletedCount: result?.deletedCount || 0,
+      unreadCount,
+    };
   }
 }

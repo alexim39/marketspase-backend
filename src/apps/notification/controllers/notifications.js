@@ -2,18 +2,45 @@
 import { NotificationService } from '../services/notification.service.js';
 import { NotificationModel } from '../models/notification.model.js';
 import { getAuthenticatedUserId } from '../../../shared/utils/request-auth.util.js';
+import mongoose from 'mongoose';
 
 const getNotificationUserId = (req) => getAuthenticatedUserId(req);
 
 // Get user notifications
 export const getNotifications = async (req, res) => {
    try {
-    const { limit = 20, skip = 0, status } = req.query;
+    const { limit = 20, skip = 0, status, cursor, type, priority, includeExpired } = req.query;
     const userId = getNotificationUserId(req);
-    const notifications = await NotificationModel.getUserNotifications(
-      userId, 
-      { limit: parseInt(limit), skip: parseInt(skip), status }
-    );
+
+    const hasCursorParam = Object.prototype.hasOwnProperty.call(req.query, 'cursor');
+    if (hasCursorParam) {
+      const cursorValueRaw = Array.isArray(cursor) ? cursor[0] : cursor;
+      const cursorValue = typeof cursorValueRaw === 'string' ? cursorValueRaw.trim() : '';
+
+      const result = await NotificationModel.getUserNotificationsCursor(userId, {
+        limit: parseInt(limit),
+        cursor: cursorValue || undefined,
+        status,
+        type,
+        priority,
+        includeExpired: includeExpired === 'true',
+      });
+
+      return res.json({
+        success: true,
+        data: result.items,
+        pageInfo: result.pageInfo,
+      });
+    }
+
+    const notifications = await NotificationModel.getUserNotifications(userId, {
+      limit: parseInt(limit),
+      skip: parseInt(skip),
+      status,
+      type,
+      priority,
+      includeExpired: includeExpired === 'true',
+    });
     
     res.json({
       success: true,
@@ -25,9 +52,9 @@ export const getNotifications = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching notifications:', error);
-    res.status(500).json({
+    res.status(error?.status || 500).json({
       success: false,
-      message: 'Failed to fetch notifications'
+      message: error?.status === 400 ? (error.message || 'Invalid request') : 'Failed to fetch notifications'
     });
   }
 }
@@ -97,6 +124,61 @@ export const markAllAsRead = async (req, res) => {
     });
   }
 }
+
+// Delete a single notification (hard delete for this user)
+export const deleteNotification = async (req, res) => {
+  try {
+    const userId = getNotificationUserId(req);
+    const id = String(req.params.id || '').trim();
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid notification id' });
+    }
+
+    const result = await NotificationService.deleteNotification(id, userId);
+    if (!result) {
+      return res.status(404).json({ success: false, message: 'Notification not found' });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        notificationId: id,
+        unreadCount: result.unreadCount,
+      },
+    });
+  } catch (error) {
+    console.error('Error deleting notification:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete notification' });
+  }
+};
+
+// Bulk delete (hard delete) notifications for a user
+export const bulkDeleteNotifications = async (req, res) => {
+  try {
+    const userId = getNotificationUserId(req);
+    const idsRaw = req?.body?.ids;
+    const ids = Array.isArray(idsRaw) ? idsRaw.map((x) => String(x)).filter(Boolean) : [];
+
+    const validIds = ids.filter((id) => mongoose.Types.ObjectId.isValid(id));
+    if (validIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid notification ids provided' });
+    }
+
+    const result = await NotificationService.bulkDeleteNotifications(validIds, userId);
+    return res.json({
+      success: true,
+      data: {
+        deletedCount: result.deletedCount,
+        notificationIds: validIds,
+        unreadCount: result.unreadCount,
+      },
+    });
+  } catch (error) {
+    console.error('Error bulk deleting notifications:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete notifications' });
+  }
+};
 
 
 // Add SSE endpoint
