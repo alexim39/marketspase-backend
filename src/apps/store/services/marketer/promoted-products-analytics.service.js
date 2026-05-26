@@ -57,28 +57,45 @@ const filterNonEmptyStringsExpr = (arrayExpr) => ({
 });
 
 async function resolveOwnedStoreIds({ userId, uid } = {}) {
-  const ors = [];
+  const storeIds = [];
 
   const userObjectId = toObjectId(userId);
-  if (userObjectId) ors.push({ owner: userObjectId });
-
-  // Migration edge case: multiple Mongo user records might share same uid.
-  if (uid) {
-    const users = await UserModel.find({ uid: String(uid) }).select("_id").lean();
-    const ids = (users || []).map((u) => u?._id).filter(Boolean);
-    if (ids.length) ors.push({ owner: { $in: ids } });
+  if (userObjectId) {
+    const stores = await StoreModel.find({ owner: userObjectId, isDeleted: { $ne: true } }).select("_id").lean();
+    storeIds.push(...(stores || []).map((s) => s?._id).filter(Boolean));
   }
 
-  if (!ors.length) return [];
+  const uidStr = String(uid || "").trim();
+  if (uidStr) {
+    // Backward compatibility: some legacy stores stored "owner" as Firebase UID (string).
+    // We must use the native driver to avoid Mongoose casting "owner" to ObjectId.
+    const cursor = StoreModel.collection.find(
+      { owner: uidStr, isDeleted: { $ne: true } },
+      { projection: { _id: 1 } }
+    );
+    const legacyIds = (await cursor.toArray()).map((row) => row?._id).filter(Boolean);
+    storeIds.push(...legacyIds);
 
-  const stores = await StoreModel.find({
-    isDeleted: { $ne: true },
-    $or: ors,
-  })
-    .select("_id")
-    .lean();
+    // Migration edge case: multiple Mongo user records might share same uid.
+    const users = await UserModel.find({ uid: uidStr }).select("_id").lean();
+    const ids = (users || []).map((u) => u?._id).filter(Boolean);
+    if (ids.length) {
+      const stores = await StoreModel.find({ owner: { $in: ids }, isDeleted: { $ne: true } }).select("_id").lean();
+      storeIds.push(...(stores || []).map((s) => s?._id).filter(Boolean));
+    }
 
-  return (stores || []).map((s) => s?._id).filter(Boolean);
+    // Opportunistic migration: convert legacy owner uid -> canonical ObjectId (best-effort).
+    if (userObjectId && legacyIds.length) {
+      setImmediate(() => {
+        StoreModel.updateMany(
+          { _id: { $in: legacyIds } },
+          { $set: { owner: userObjectId } }
+        ).catch(() => {});
+      });
+    }
+  }
+
+  return normalizeIdStrings(storeIds).map((id) => new mongoose.Types.ObjectId(id));
 }
 
 async function resolveProductIdsFilter({ storeIds, storeId, category, search, productId } = {}) {
