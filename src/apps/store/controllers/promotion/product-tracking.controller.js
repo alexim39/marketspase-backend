@@ -1,6 +1,7 @@
 // controllers/product/product-tracking.controller.js
 import { PromotionTrackingModel } from '../../models/promotion/index.js';
 import { AffiliateClickModel } from '../../models/affiliate-click/index.js';
+import { AffiliateViewModel } from '../../models/affiliate-view/index.js';
 import {
   buildProductLandingUrl,
   detectDeviceType,
@@ -63,6 +64,25 @@ export const trackProductView = async (req, res) => {
     }
 
     await promotion.save();
+
+    // Best-effort: persist an event-level view record for time-series analytics.
+    // Do not fail the request if logging fails (we still count the view in PromotionTracking).
+    try {
+      await AffiliateViewModel.create({
+        promotionTracking: promotion._id,
+        product: promotion.product,
+        store: promotion.store,
+        promoter: promotion.promoter,
+        viewedAt: new Date(),
+        deviceType,
+        source: source || req.headers.referer || 'direct',
+        referrer: req.headers.referer || '',
+        ipHash: hashIp(getClientIp(req)),
+        userAgent: req.headers['user-agent'] || '',
+      });
+    } catch (logError) {
+      console.error('Failed to log affiliate view event:', logError);
+    }
 
     res.status(200).json({
       success: true,

@@ -2,8 +2,17 @@ import express from 'express';
 import { StoreController } from '../../controllers/admin/store.controller.js';
 import { StoreReviewAdminController } from '../../controllers/admin/review.controller.js';
 import { StoreModel } from '../../models/store/index.js';
+import { deleteAdminSubscriberHandler, getAdminSubscribers } from '../../controllers/admin/store-subscriber.controller.js';
 import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 import { requireAdmin } from '../../../../shared/middleware/authorization.middleware.js';
+import {
+  getStorefrontAnalyticsCategoriesHandler,
+  getStorefrontAnalyticsOverviewHandler,
+  getStorefrontProductPromoterBreakdownHandler,
+  getStorefrontPromoterProductBreakdownHandler,
+  searchStorefrontAnalyticsProductsHandler,
+  searchStorefrontAnalyticsStoresHandler,
+} from '../../controllers/admin/storefront-analytics.controller.js';
 import {
   getAdminBuyerDetail,
   getAdminBuyers,
@@ -27,10 +36,20 @@ router.get('/owners',  StoreController.getStoreOwners);
 router.get('/buyers', getAdminBuyers);
 router.get('/buyers/detail', getAdminBuyerDetail);
 router.patch('/buyers/meta', updateAdminBuyerMeta);
+router.get('/subscribers', getAdminSubscribers);
+router.delete('/subscribers/:subscriberId', deleteAdminSubscriberHandler);
 router.post('/export/:format',  StoreController.exportStores);
 router.post('/bulk-update',  StoreController.bulkUpdateStores);
 router.get('/reviews', StoreReviewAdminController.getReviews);
 router.patch('/reviews/:reviewId/moderate', StoreReviewAdminController.moderateReview);
+
+// Storefront analytics (holistic, cross-store)
+router.get('/analytics/overview', getStorefrontAnalyticsOverviewHandler);
+router.get('/analytics/products', searchStorefrontAnalyticsProductsHandler);
+router.get('/analytics/categories', getStorefrontAnalyticsCategoriesHandler);
+router.get('/analytics/stores', searchStorefrontAnalyticsStoresHandler);
+router.get('/analytics/product-promoters', getStorefrontProductPromoterBreakdownHandler);
+router.get('/analytics/promoter-products', getStorefrontPromoterProductBreakdownHandler);
 
 // Store-specific routes
 router.get('/:id',  StoreController.getStoreById);
