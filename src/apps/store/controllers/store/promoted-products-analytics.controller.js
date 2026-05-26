@@ -118,16 +118,38 @@ export const searchMarketerPromotedProductsProductOptionsHandler = async (req, r
     }
 
     const storeFilter = { isDeleted: { $ne: true }, $or: ors };
-    if (!ors.length) return res.status(200).json({ success: true, data: [] });
-    if (storeId) storeFilter._id = new mongoose.Types.ObjectId(storeId);
+    if (!ors.length && !uid) return res.status(200).json({ success: true, data: [] });
 
-    const stores = await StoreModel.find(storeFilter).select("_id").lean();
-    const storeIds = (stores || []).map((s) => s._id).filter(Boolean);
-    if (!storeIds.length) return res.status(200).json({ success: true, data: [] });
+    const storeIds = new Set();
+
+    if (ors.length) {
+      if (storeId) storeFilter._id = new mongoose.Types.ObjectId(storeId);
+      const stores = await StoreModel.find(storeFilter).select("_id").lean();
+      for (const s of stores || []) {
+        if (s?._id) storeIds.add(String(s._id));
+      }
+    }
+
+    // Legacy stores where owner is stored as Firebase UID string.
+    if (uid) {
+      const cursor = StoreModel.collection.find(
+        { owner: uid, isDeleted: { $ne: true } },
+        { projection: { _id: 1 } }
+      );
+      const legacyIds = (await cursor.toArray()).map((row) => row?._id).filter(Boolean);
+      for (const id of legacyIds) {
+        const sid = String(id);
+        if (storeId && sid !== String(storeId)) continue;
+        storeIds.add(sid);
+      }
+    }
+
+    const storeIdList = Array.from(storeIds).map((id) => new mongoose.Types.ObjectId(id));
+    if (!storeIdList.length) return res.status(200).json({ success: true, data: [] });
 
     const productQuery = {
       isDeleted: { $ne: true },
-      store: { $in: storeIds },
+      store: { $in: storeIdList },
     };
     if (category) productQuery.category = category;
     if (q) productQuery.name = new RegExp(escapeRegex(q), "i");
