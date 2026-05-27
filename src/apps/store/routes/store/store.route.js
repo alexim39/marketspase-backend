@@ -9,6 +9,13 @@ import { setDefaultStore } from '../../controllers/store/set-default-store.contr
 import { getStoreProducts } from '../../controllers/store/store-products.controller.js'
 import { getStoreProduct } from '../../controllers/store/store-product.controller.js'
 import { permanentDeleteStore } from '../../controllers/store/delete-store.controller.js'
+import { getOwnerSubscribers } from '../../controllers/store/store-subscriber.controller.js';
+import {
+  getMarketerProductPromoterBreakdownHandler,
+  getMarketerPromotedProductsAnalyticsOverviewHandler,
+  searchMarketerPromotedProductsProductOptionsHandler,
+  searchMarketerPromotedProductsPromoterOptionsHandler,
+} from '../../controllers/store/promoted-products-analytics.controller.js';
 import PromoterStoreListRouter from './promoter-store-list.route.js';
 import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 
@@ -23,6 +30,15 @@ router.post('/', upload.single('logo'), createStore);
 
 // Get user's stores
 router.get('/', getUserStores);
+
+// Store email subscribers (owner only)
+router.get('/subscribers', getOwnerSubscribers);
+
+// Marketer promoted products analytics (owner scoped)
+router.get('/analytics/promoted-products/overview', getMarketerPromotedProductsAnalyticsOverviewHandler);
+router.get('/analytics/promoted-products/product-promoters', getMarketerProductPromoterBreakdownHandler);
+router.get('/analytics/promoted-products/options/products', searchMarketerPromotedProductsProductOptionsHandler);
+router.get('/analytics/promoted-products/options/promoters', searchMarketerPromotedProductsPromoterOptionsHandler);
 
 // DELETE route - soft delete
 //router.delete('/:storeId/:userId', deleteStore);

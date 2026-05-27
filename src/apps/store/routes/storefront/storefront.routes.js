@@ -26,6 +26,7 @@ import { getRelatedProducts } from '../../controllers/storefront/get-related-pro
 import { getStoreById } from '../../controllers/storefront/get-store-by-id.controller.js'
 import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 import { requireAdmin } from '../../../../shared/middleware/authorization.middleware.js';
+import { apiLimiter } from '../../../../shared/middleware/rate-limit.middleware.js';
 import {
   confirmStorefrontDelivery,
   confirmStorefrontPayment,
@@ -42,6 +43,7 @@ import {
   getMarketerCustomers,
   updateMarketerCustomerMeta,
 } from '../../controllers/storefront/storefront-customer.controller.js';
+import { subscribeStoreSubscriber } from '../../controllers/storefront/store-subscriber.controller.js';
 
 const router = express.Router();
 
@@ -84,6 +86,7 @@ router.get('/:storeId/products', getStorefrontProducts);
 router.get('/:storeId/categories', getStoreCategories);
 router.post('/:storeId/views', incrementStoreViews);
 router.post('/:storeId/interactions', trackStoreInteraction);
+router.post('/:storeId/subscribers', apiLimiter, subscribeStoreSubscriber);
 router.get('/:storeId/verification-status', getStoreVerificationStatus);
 router.get('/:storeId/analytics', getStoreAnalytics);
 

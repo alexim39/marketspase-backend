@@ -128,7 +128,15 @@ const DEFAULT_FRONTEND_URL = "https://marketspase.com";
 export const getFrontendBaseUrl = () => {
   // In production, redirecting users to localhost breaks affiliate links.
   // Prefer explicit configuration, otherwise fall back to the public web app.
-  return (process.env.FRONTEND_URL || DEFAULT_FRONTEND_URL).replace(/\/+$/, "");
+  const configured = String(process.env.FRONTEND_URL || "").trim();
+  const isProd = String(process.env.NODE_ENV || "").toLowerCase() === "production";
+  const looksLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(configured.replace(/\/+$/, ""));
+
+  if (configured && !(isProd && looksLocalhost)) {
+    return configured.replace(/\/+$/, "");
+  }
+
+  return DEFAULT_FRONTEND_URL.replace(/\/+$/, "");
 };
 
 export const getRequestBaseUrl = (req) => {
