@@ -6,6 +6,7 @@ import { UpdatePromotionStatus } from '../../controllers/update-promotion-status
 import {
   getAdminPpcAnalyticsOverviewController,
   getAdminPpcAnalyticsPromotersController,
+  getAdminPpcPromoterPromotionLinksController,
   flagPpcPromoterController,
   warnPpcPromoterController,
   suspendPpcPromoterController,
@@ -30,6 +31,7 @@ AdminRouter.patch('/promotion/:id/status/:performedBy', UpdatePromotionStatus);
 // Admin - PPC analytics (click + conversion intelligence)
 AdminRouter.get('/ppc/overview', getAdminPpcAnalyticsOverviewController);
 AdminRouter.get('/ppc/promoters', getAdminPpcAnalyticsPromotersController);
+AdminRouter.get('/ppc/promoters/:promoterId/promotion-links', getAdminPpcPromoterPromotionLinksController);
 
 // Admin - PPC promoter actions
 AdminRouter.post('/ppc/promoters/:promoterId/flag', flagPpcPromoterController);
