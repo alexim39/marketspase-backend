@@ -18,6 +18,7 @@ import {
   buildCampaignUnavailableUrl,
   deactivateCampaignPromotions,
 } from "../services/campaign-runtime.service.js";
+import { resolvePromoterPpcPayout } from "../services/promoter-ppc-payout-policy.service.js";
 
 const MAX_TX_RETRIES = 5;
 const DEDUPE_WINDOW_MINUTES = Number(process.env.PPC_CLICK_DEDUPE_WINDOW_MINUTES ?? 30);
@@ -1039,6 +1040,17 @@ export const trackCampaignClick = async (req, res) => {
           return;
         }
 
+        const payoutResolution = await resolvePromoterPpcPayout({
+          promoterId: promotion.promoter,
+          chargeAmount: costPerClick,
+          currency: campaign.currency || "NGN",
+          now,
+          session,
+        });
+        const promoterPayoutAmount = payoutResolution.promoterPayoutAmount;
+        const platformRetainedAmount = payoutResolution.platformRetainedAmount;
+        const payoutPolicy = payoutResolution.payoutPolicy;
+
         const walletDebit = await UserModel.updateOne(
           {
             _id: campaign.owner,
@@ -1130,7 +1142,7 @@ export const trackCampaignClick = async (req, res) => {
               spentBudget: costPerClick,
               totalClicks: 1,
               billableClicks: 1,
-              totalPayouts: costPerClick,
+              totalPayouts: promoterPayoutAmount,
             },
             $set: {
               lastClickAt: now,
@@ -1178,6 +1190,9 @@ export const trackCampaignClick = async (req, res) => {
           click: {
             ...baseClick,
             cost: costPerClick,
+            promoterPayoutAmount,
+            platformRetainedAmount,
+            payoutPolicy,
             status: "billable",
             chargeStatus: "charged",
             billableKey,
@@ -1190,10 +1205,10 @@ export const trackCampaignClick = async (req, res) => {
             { _id: promotion._id },
             {
               $inc: {
-                payoutAmount: costPerClick,
+                payoutAmount: promoterPayoutAmount,
                 "clickStats.totalClicks": 1,
                 "clickStats.billableClicks": 1,
-                "clickStats.earnedAmount": costPerClick,
+                "clickStats.earnedAmount": promoterPayoutAmount,
               },
               $set: { "clickStats.lastClickAt": now },
             },
@@ -1202,18 +1217,27 @@ export const trackCampaignClick = async (req, res) => {
           UserModel.updateOne(
             { _id: promotion.promoter },
             {
-              $inc: { "wallets.promoter.balance": costPerClick },
+              $inc: { "wallets.promoter.balance": promoterPayoutAmount },
               $push: {
                 "wallets.promoter.transactions": {
                   $each: [{
-                    amount: costPerClick,
+                    amount: promoterPayoutAmount,
                     type: "credit",
                     category: "promotion",
-                    description: `PPC earning from campaign "${campaign.title}"`,
+                    description: payoutPolicy
+                      ? `Reduced PPC earning from campaign "${campaign.title}" (policy adjustment)`
+                      : `PPC earning from campaign "${campaign.title}"`,
                     relatedCampaign: campaign._id,
                     relatedPromotion: promotion._id,
                     status: "completed",
                     createdAt: now,
+                    meta: payoutPolicy
+                      ? {
+                          originalCostPerClick: costPerClick,
+                          platformRetainedAmount,
+                          payoutPolicyId: payoutPolicy.policyId,
+                        }
+                      : undefined,
                   }],
                   $position: 0,
                   $slice: 500,

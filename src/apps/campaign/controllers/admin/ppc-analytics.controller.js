@@ -4,6 +4,11 @@ import { PromotionModel } from "../../../promotion/models/index.js";
 import { UserModel } from "../../../user/models/user/index.js";
 import { OrderModel } from "../../../store/models/order/index.js";
 import { NotificationService } from "../../../notification/services/notification.service.js";
+import {
+  clearPromoterPpcPayoutPolicy,
+  getPromoterPpcPayoutPoliciesByPromoterIds,
+  setPromoterPpcPayoutPolicy,
+} from "../../services/promoter-ppc-payout-policy.service.js";
 
 const DEFAULT_RANGE_DAYS = 7;
 
@@ -263,6 +268,24 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
             invalidClicks: { $sum: { $cond: [{ $eq: ["$status", "invalid"] }, 1, 0] } },
             duplicateClicks: { $sum: { $cond: [{ $eq: ["$status", "duplicate"] }, 1, 0] } },
             spend: { $sum: { $cond: [{ $eq: ["$status", "billable"] }, "$cost", 0] } },
+            promoterEarnings: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$promoterPayoutAmount", "$cost"] },
+                  0,
+                ],
+              },
+            },
+            platformRetainedAmount: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$platformRetainedAmount", 0] },
+                  0,
+                ],
+              },
+            },
             lastClickAt: { $max: "$clickedAt" },
           },
         },
@@ -288,7 +311,7 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
       });
     }
 
-    const [uniqueRows, promoterProfiles, topPromotionRows, ipPatternRows, deviceRows, countryRows, conversionRows] = await Promise.all([
+    const [uniqueRows, promoterProfiles, payoutPoliciesByPromoter, topPromotionRows, ipPatternRows, deviceRows, countryRows, conversionRows] = await Promise.all([
       CampaignClickModel.aggregate([
         { $match: { ...match, promoter: { $in: promoterIds } } },
         { $group: { _id: { promoter: "$promoter", dedupeKey: "$dedupeKey" } } },
@@ -297,6 +320,7 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
       UserModel.find({ _id: { $in: promoterIds } })
         .select("_id displayName username email isActive personalInfo.phone personalInfo.phoneDetails fraudProfile")
         .lean(),
+      getPromoterPpcPayoutPoliciesByPromoterIds(promoterIds),
       CampaignClickModel.aggregate([
         { $match: { ...match, promoter: { $in: promoterIds }, status: "billable" } },
         {
@@ -304,6 +328,8 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
             _id: { promoter: "$promoter", promotion: "$promotion", campaign: "$campaign", marketer: "$marketer" },
             billableClicks: { $sum: 1 },
             spend: { $sum: "$cost" },
+            promoterEarnings: { $sum: { $ifNull: ["$promoterPayoutAmount", "$cost"] } },
+            platformRetainedAmount: { $sum: { $ifNull: ["$platformRetainedAmount", 0] } },
             lastClickAt: { $max: "$clickedAt" },
           },
         },
@@ -318,6 +344,8 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
             marketerId: "$top._id.marketer",
             billableClicks: "$top.billableClicks",
             spend: "$top.spend",
+            promoterEarnings: "$top.promoterEarnings",
+            platformRetainedAmount: "$top.platformRetainedAmount",
             lastClickAt: "$top.lastClickAt",
           },
         },
@@ -428,6 +456,7 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
     const promoters = promoterRows.map((row) => {
       const promoterIdString = String(row._id);
       const profile = profileByPromoter.get(promoterIdString) || {};
+      const payoutPolicy = payoutPoliciesByPromoter.get(promoterIdString) || null;
       const uniqueClicks = uniqueByPromoter.get(promoterIdString) || 0;
       const conversions = conversionsByPromoter.get(promoterIdString) || { conversions: 0, conversionRevenue: 0 };
       const rates = computeRates(row);
@@ -451,6 +480,8 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
           invalidClicks: safeNumber(row.invalidClicks),
           duplicateClicks: safeNumber(row.duplicateClicks),
           spend: safeNumber(row.spend),
+          promoterEarnings: safeNumber(row.promoterEarnings ?? row.spend),
+          platformRetainedAmount: safeNumber(row.platformRetainedAmount),
           conversions: conversions.conversions,
           conversionRevenue: conversions.conversionRevenue,
           lastClickAt: row.lastClickAt || null,
@@ -462,6 +493,7 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
           countries: countriesByPromoter.get(promoterIdString) || [],
         },
         primaryAttribution: topPromotionByPromoter.get(promoterIdString) || null,
+        payoutPolicy,
       };
 
       return {
@@ -551,6 +583,24 @@ export const getAdminPpcPromoterPromotionLinksController = async (req, res) => {
             duplicateClicks: { $sum: { $cond: [{ $eq: ["$status", "duplicate"] }, 1, 0] } },
             exhaustedClicks: { $sum: { $cond: [{ $eq: ["$status", "exhausted"] }, 1, 0] } },
             spend: { $sum: { $cond: [{ $eq: ["$status", "billable"] }, "$cost", 0] } },
+            promoterEarnings: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$promoterPayoutAmount", "$cost"] },
+                  0,
+                ],
+              },
+            },
+            platformRetainedAmount: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$platformRetainedAmount", 0] },
+                  0,
+                ],
+              },
+            },
             promotions: { $addToSet: "$promotion" },
             dedupeKeys: { $addToSet: "$dedupeKey" },
           },
@@ -572,7 +622,26 @@ export const getAdminPpcPromoterPromotionLinksController = async (req, res) => {
             duplicateClicks: { $sum: { $cond: [{ $eq: ["$status", "duplicate"] }, 1, 0] } },
             exhaustedClicks: { $sum: { $cond: [{ $eq: ["$status", "exhausted"] }, 1, 0] } },
             spend: { $sum: { $cond: [{ $eq: ["$status", "billable"] }, "$cost", 0] } },
+            promoterEarnings: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$promoterPayoutAmount", "$cost"] },
+                  0,
+                ],
+              },
+            },
+            platformRetainedAmount: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$platformRetainedAmount", 0] },
+                  0,
+                ],
+              },
+            },
             unitCost: { $max: "$unitCost" },
+            promoterPayoutAmount: { $max: { $ifNull: ["$promoterPayoutAmount", "$cost"] } },
             firstClickAt: { $min: "$clickedAt" },
             lastClickAt: { $max: "$clickedAt" },
             destinationUrl: { $first: "$destinationUrl" },
@@ -629,6 +698,8 @@ export const getAdminPpcPromoterPromotionLinksController = async (req, res) => {
                   status: "$status",
                   chargeStatus: "$chargeStatus",
                   cost: "$cost",
+                  promoterPayoutAmount: { $ifNull: ["$promoterPayoutAmount", "$cost"] },
+                  platformRetainedAmount: { $ifNull: ["$platformRetainedAmount", 0] },
                   deviceType: "$deviceType",
                   ip: "$ip",
                   country: "$geo.country",
@@ -691,7 +762,10 @@ export const getAdminPpcPromoterPromotionLinksController = async (req, res) => {
         duplicateClicks: safeNumber(row.duplicateClicks),
         exhaustedClicks: safeNumber(row.exhaustedClicks),
         spend: safeNumber(row.spend),
+        promoterEarnings: safeNumber(row.promoterEarnings ?? row.spend),
+        platformRetainedAmount: safeNumber(row.platformRetainedAmount),
         unitCost: safeNumber(row.unitCost),
+        promoterPayoutAmount: safeNumber(row.promoterPayoutAmount ?? row.unitCost),
         conversions: conversion.conversions,
         conversionRevenue: conversion.conversionRevenue,
         commissionEarned: conversion.commissionEarned,
@@ -752,6 +826,8 @@ export const getAdminPpcPromoterPromotionLinksController = async (req, res) => {
       duplicateClicks: safeNumber(summary.duplicateClicks),
       exhaustedClicks: safeNumber(summary.exhaustedClicks),
       spend: safeNumber(summary.spend),
+      promoterEarnings: safeNumber(summary.promoterEarnings ?? summary.spend),
+      platformRetainedAmount: safeNumber(summary.platformRetainedAmount),
       promotionLinks: Array.isArray(summary.promotions) ? summary.promotions.length : 0,
     };
 
@@ -944,5 +1020,57 @@ export const suspendPpcPromoterController = async (req, res) => {
   } catch (error) {
     console.error("Suspend PPC promoter error:", error);
     return res.status(500).json({ success: false, message: "Failed to suspend account" });
+  }
+};
+
+export const setPpcPromoterCpcPolicyController = async (req, res) => {
+  try {
+    const promoterId = req.params.promoterId || req.body?.promoterId;
+    const adminUserId = req.user?._id || req.userId || null;
+
+    const policy = await setPromoterPpcPayoutPolicy({
+      promoterId,
+      fixedPayoutPerClick: req.body?.fixedPayoutPerClick,
+      reason: req.body?.reason,
+      endsAt: req.body?.endsAt,
+      adminUserId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Promoter CPC punishment policy enabled",
+      data: { policy },
+    });
+  } catch (error) {
+    console.error("Set PPC promoter CPC policy error:", error);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error?.message || "Failed to set promoter CPC policy",
+    });
+  }
+};
+
+export const clearPpcPromoterCpcPolicyController = async (req, res) => {
+  try {
+    const promoterId = req.params.promoterId || req.body?.promoterId;
+    const adminUserId = req.user?._id || req.userId || null;
+
+    const policy = await clearPromoterPpcPayoutPolicy({
+      promoterId,
+      adminUserId,
+      reason: req.body?.reason || req.query?.reason,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Promoter CPC policy cleared",
+      data: { policy },
+    });
+  } catch (error) {
+    console.error("Clear PPC promoter CPC policy error:", error);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error?.message || "Failed to clear promoter CPC policy",
+    });
   }
 };

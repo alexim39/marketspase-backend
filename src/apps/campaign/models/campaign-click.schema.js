@@ -47,6 +47,16 @@ const campaignClickSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    promoterPayoutAmount: {
+      type: Number,
+      min: 0,
+      default: undefined,
+    },
+    platformRetainedAmount: {
+      type: Number,
+      min: 0,
+      default: undefined,
+    },
     currency: {
       type: String,
       default: "NGN",
@@ -117,6 +127,30 @@ const campaignClickSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: {},
     },
+    payoutPolicy: {
+      policyId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "PromoterPpcPayoutPolicy",
+        default: null,
+      },
+      payoutMode: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      fixedPayoutPerClick: {
+        type: Number,
+        min: 0,
+        default: undefined,
+      },
+      reason: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      startsAt: Date,
+      endsAt: Date,
+    },
   },
   {
     timestamps: true,
@@ -131,5 +165,6 @@ campaignClickSchema.index({ campaign: 1, status: 1, clickedAt: -1 });
 campaignClickSchema.index({ promotion: 1, status: 1, clickedAt: -1 });
 campaignClickSchema.index({ ip: 1, clickedAt: -1 });
 campaignClickSchema.index({ "geo.country": 1, clickedAt: -1 });
+campaignClickSchema.index({ "payoutPolicy.policyId": 1, clickedAt: -1 });
 
 export default campaignClickSchema;

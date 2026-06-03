@@ -3,7 +3,7 @@ import { evaluateUserBadges } from "../../badges/service/badge.service.js";
 import { awardGamificationProgress } from "../../gamification/service/gamification.service.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { adminCampaignApprovalTemplate } from "./email/adminCampaignApprovalTemplate.js";
-import { resolveCampaignCostPerClick } from "./campaign-pricing.service.js";
+import { resolveConfiguredCampaignCostPerClick } from "./campaign-pricing.service.js";
 import { buildVideoThumbnailUrl } from "./thumbnail-generator.service.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 
@@ -216,7 +216,7 @@ export const buildCampaignDraftInput = async ({
 
   const mediaAsset = await resolveCampaignMediaAsset({ req, owner });
   const normalizedCampaignGoal = normalizeCampaignGoal(campaignGoal);
-  const numericCostPerClick = resolveCampaignCostPerClick(
+  const numericCostPerClick = await resolveConfiguredCampaignCostPerClick(
     costPerClick,
     req.body?.payoutPerPromotion
   );
