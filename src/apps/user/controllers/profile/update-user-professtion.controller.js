@@ -1,5 +1,12 @@
 import mongoose from 'mongoose';
 import { UserModel } from '../../models/user/index.js';
+import { UpdateProfessionalProfileDto } from '../../application/dto/update-professional-profile.dto.js';
+import { UpdateProfessionalProfileUseCase } from '../../application/use-cases/update-professional-profile.use-case.js';
+import { MongooseProfessionalProfileGateway } from '../../infrastructure/gateways/mongoose-professional-profile.gateway.js';
+
+const isUserProfileDddEnabled = () => process.env.USER_PROFILE_DDD_ENABLED !== 'false';
+const professionalProfileGateway = new MongooseProfessionalProfileGateway();
+const updateProfessionalProfileUseCase = new UpdateProfessionalProfileUseCase({ professionalProfileGateway });
 
 const normalizeString = (value, maxLength = null) => {
   if (value === undefined) {
@@ -40,6 +47,25 @@ const normalizeStringArray = (value, maxItems = 10, maxLength = 160) => {
  * @access  Private
  */
 export const UpdateProfessionalInfo = async (req, res) => {
+  if (isUserProfileDddEnabled()) {
+    try {
+      const response = await updateProfessionalProfileUseCase.execute(
+        UpdateProfessionalProfileDto.fromRequest({
+          userId: req.userId || null,
+          body: req.body || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error updating professional information:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(400).json({ success: false, message: error.message });
+      }
+      return res.status(500).json({ success: false, message: 'Internal server error. Please try again later.' });
+    }
+  }
+
   try {
     const targetUserId = req.userId;
 

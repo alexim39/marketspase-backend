@@ -1,4 +1,11 @@
 import { UserModel } from '../../models/user/index.js';
+import { UpdatePublicIdentityDto } from '../../application/dto/update-public-identity.dto.js';
+import { UpdatePublicIdentityUseCase } from '../../application/use-cases/update-public-identity.use-case.js';
+import { MongoosePublicIdentityGateway } from '../../infrastructure/gateways/mongoose-public-identity.gateway.js';
+
+const isUserProfileDddEnabled = () => process.env.USER_PROFILE_DDD_ENABLED !== 'false';
+const publicIdentityGateway = new MongoosePublicIdentityGateway();
+const updatePublicIdentityUseCase = new UpdatePublicIdentityUseCase({ publicIdentityGateway });
 
 const normalizeString = (value, maxLength = null) => {
   if (value === undefined) {
@@ -18,6 +25,40 @@ const normalizeString = (value, maxLength = null) => {
 };
 
 export const UpdatePublicIdentity = async (req, res) => {
+  if (isUserProfileDddEnabled()) {
+    try {
+      const response = await updatePublicIdentityUseCase.execute(
+        UpdatePublicIdentityDto.fromRequest({
+          userId: req.userId || null,
+          body: req.body || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error updating public identity:', error);
+
+      if (error?.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          message: 'Username is already in use by another user.',
+        });
+      }
+
+      if (error?.name === 'ValidationError') {
+        return res.status(400).json({
+          success: false,
+          message: error.message,
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error. Please try again later.',
+      });
+    }
+  }
+
   try {
     const targetUserId = req.userId;
     const {

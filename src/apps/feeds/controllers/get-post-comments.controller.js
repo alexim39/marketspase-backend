@@ -2,9 +2,32 @@ import { FeedPostModel } from '../models/feed/index.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { GetPostCommentsDto } from '../application/dto/get-post-comments.dto.js';
+import { GetPostCommentsUseCase } from '../application/use-cases/get-post-comments.use-case.js';
+import { MongooseFeedCommentsGateway } from '../infrastructure/gateways/mongoose-feed-comments.gateway.js';
+
+const isFeedsDddEnabled = () => process.env.FEEDS_DDD_ENABLED !== 'false';
+const feedCommentsGateway = new MongooseFeedCommentsGateway();
+const getPostCommentsUseCase = new GetPostCommentsUseCase({ feedCommentsGateway });
 
 // Get comments for a post with pagination
 export const getPostComments = asyncHandler(async (req, res) => {
+  if (isFeedsDddEnabled()) {
+    const response = await getPostCommentsUseCase.execute(
+      GetPostCommentsDto.fromRequest({
+        params: req.params || {},
+        query: req.query || {},
+        userId: req.userId || null,
+      }),
+    );
+
+    if (response.statusCode === 404) {
+      throw new ApiError(404, response.errorMessage);
+    }
+
+    return res.status(response.statusCode).json(response.body);
+  }
+
   const { postId } = req.params;
   let { page = 1, limit = 20 } = req.query;
   const userId = req.userId || null;

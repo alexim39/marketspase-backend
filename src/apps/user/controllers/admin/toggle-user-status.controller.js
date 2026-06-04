@@ -1,5 +1,12 @@
 import { UserModel } from '../../models/user/index.js';
 import mongoose from 'mongoose';
+import { UpdateUserActiveStatusDto } from '../../application/dto/update-user-active-status.dto.js';
+import { UpdateUserActiveStatusUseCase } from '../../application/use-cases/update-user-active-status.use-case.js';
+import { MongooseAdminUserStatusGateway } from '../../infrastructure/gateways/mongoose-admin-user-status.gateway.js';
+
+const isUserAdminDddEnabled = () => process.env.USER_ADMIN_DDD_ENABLED !== 'false';
+const adminUserStatusGateway = new MongooseAdminUserStatusGateway();
+const updateUserActiveStatusUseCase = new UpdateUserActiveStatusUseCase({ adminUserStatusGateway });
 
 // Helper function to build query from filters
 const buildUserQuery = (filters = {}) => {
@@ -63,6 +70,26 @@ const buildUserProjection = () => ({
  * PATCH /api/user/admin/:id/status
  */
 export const toggleUserActiveStatus = async (req, res) => {
+  if (isUserAdminDddEnabled()) {
+    try {
+      const response = await updateUserActiveStatusUseCase.execute(
+        UpdateUserActiveStatusDto.fromRequest({
+          params: req.params || {},
+          body: req.body || {},
+          user: req.user || null,
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error updating user status:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'An error occurred while updating user status.'
+      });
+    }
+  }
+
   try {
     const { id } = req.params;
     const { isActive } = req.body;

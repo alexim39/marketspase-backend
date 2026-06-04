@@ -1,5 +1,11 @@
 import { UserModel } from '../../models/user/index.js';
-import mongoose from 'mongoose';
+import { GetAdminUsersByRoleDto } from '../../application/dto/get-admin-users-by-role.dto.js';
+import { GetAdminUsersByRoleUseCase } from '../../application/use-cases/get-admin-users-by-role.use-case.js';
+import { MongooseAdminUserListGateway } from '../../infrastructure/gateways/mongoose-admin-user-list.gateway.js';
+
+const isUserAdminDddEnabled = () => process.env.USER_ADMIN_DDD_ENABLED !== 'false';
+const adminUserListGateway = new MongooseAdminUserListGateway();
+const getAdminUsersByRoleUseCase = new GetAdminUsersByRoleUseCase({ adminUserListGateway });
 
 // Helper function to build query from filters
 const buildUserQuery = (filters = {}) => {
@@ -63,6 +69,25 @@ const buildUserProjection = () => ({
  * GET /api/user/admin/users/role/:role
  */
 export const getUsersByRole = async (req, res) => {
+  if (isUserAdminDddEnabled()) {
+    try {
+      const response = await getAdminUsersByRoleUseCase.execute(
+        GetAdminUsersByRoleDto.fromRequest({
+          params: req.params || {},
+          query: req.query || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error(`Error fetching ${req.params.role} users:`, error);
+      return res.status(500).json({
+        success: false,
+        message: `An error occurred while fetching ${req.params.role} users.`
+      });
+    }
+  }
+
   try {
     const { role } = req.params;
     const {

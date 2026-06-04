@@ -7,11 +7,56 @@ import {
   getForumThreadHighlights,
   shapeForumThread,
 } from '../services/forum-social.service.js';
+import {
+  GetActiveUsersDto,
+  GetCommunityStatsDto,
+  GetHotTopicsDto,
+  GetPinnedThreadsDto,
+  GetPopularTagsDto,
+  GetTrendingThreadsDto,
+} from '../application/dto/forum-stats-query.dto.js';
+import { GetActiveUsersUseCase } from '../application/use-cases/get-active-users.use-case.js';
+import { GetCommunityStatsUseCase } from '../application/use-cases/get-community-stats.use-case.js';
+import { GetHotTopicsUseCase } from '../application/use-cases/get-hot-topics.use-case.js';
+import { GetPinnedThreadsUseCase } from '../application/use-cases/get-pinned-threads.use-case.js';
+import { GetPopularTagsUseCase } from '../application/use-cases/get-popular-tags.use-case.js';
+import { GetTrendingThreadsUseCase } from '../application/use-cases/get-trending-threads.use-case.js';
+import { MongooseForumStatsGateway } from '../infrastructure/gateways/mongoose-forum-stats.gateway.js';
 
 const getViewerId = (req) => req.userId || req.user?._id?.toString?.() || null;
 const clampLimit = (value, fallback = 5) => Math.max(1, Math.min(20, Number(value || fallback)));
+const isForumDddEnabled = () => process.env.FORUM_DDD_ENABLED !== 'false';
 
-export const getCommunityStats = async (_req, res) => {
+const forumStatsGateway = new MongooseForumStatsGateway();
+const getCommunityStatsUseCase = new GetCommunityStatsUseCase({ forumStatsGateway });
+const getPinnedThreadsUseCase = new GetPinnedThreadsUseCase({ forumStatsGateway });
+const getTrendingThreadsUseCase = new GetTrendingThreadsUseCase({ forumStatsGateway });
+const getActiveUsersUseCase = new GetActiveUsersUseCase({ forumStatsGateway });
+const getPopularTagsUseCase = new GetPopularTagsUseCase({ forumStatsGateway });
+const getHotTopicsUseCase = new GetHotTopicsUseCase({ forumStatsGateway });
+
+export const getCommunityStats = async (req, res) => {
+  if (isForumDddEnabled()) {
+    try {
+      const response = await getCommunityStatsUseCase.execute(
+        GetCommunityStatsDto.fromRequest({
+          user: req.user || null,
+          userId: req.userId || null,
+          query: req.query || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error fetching community stats:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch community statistics',
+        error: error.message,
+      });
+    }
+  }
+
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -46,6 +91,27 @@ export const getCommunityStats = async (_req, res) => {
 };
 
 export const getPinnedThreads = async (req, res) => {
+  if (isForumDddEnabled()) {
+    try {
+      const response = await getPinnedThreadsUseCase.execute(
+        GetPinnedThreadsDto.fromRequest({
+          user: req.user || null,
+          userId: req.userId || null,
+          query: req.query || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error fetching pinned threads:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch pinned threads',
+        error: error.message,
+      });
+    }
+  }
+
   try {
     const limit = clampLimit(req.query.limit, 5);
     const viewerId = getViewerId(req);
@@ -78,6 +144,27 @@ export const getPinnedThreads = async (req, res) => {
 };
 
 export const getTrendingThreads = async (req, res) => {
+  if (isForumDddEnabled()) {
+    try {
+      const response = await getTrendingThreadsUseCase.execute(
+        GetTrendingThreadsDto.fromRequest({
+          user: req.user || null,
+          userId: req.userId || null,
+          query: req.query || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error fetching trending threads:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch trending threads',
+        error: error.message,
+      });
+    }
+  }
+
   try {
     const limit = clampLimit(req.query.limit, 5);
     const timeframe = req.query.timeframe || 'week';
@@ -114,6 +201,27 @@ export const getTrendingThreads = async (req, res) => {
 };
 
 export const getActiveUsers = async (req, res) => {
+  if (isForumDddEnabled()) {
+    try {
+      const response = await getActiveUsersUseCase.execute(
+        GetActiveUsersDto.fromRequest({
+          user: req.user || null,
+          userId: req.userId || null,
+          query: req.query || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error fetching active users:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch active users',
+        error: error.message,
+      });
+    }
+  }
+
   try {
     const limit = clampLimit(req.query.limit, 5);
     const timeframe = req.query.timeframe || 'month';
@@ -147,6 +255,27 @@ export const getActiveUsers = async (req, res) => {
 };
 
 export const getPopularTags = async (req, res) => {
+  if (isForumDddEnabled()) {
+    try {
+      const response = await getPopularTagsUseCase.execute(
+        GetPopularTagsDto.fromRequest({
+          user: req.user || null,
+          userId: req.userId || null,
+          query: req.query || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error fetching popular tags:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch popular tags',
+        error: error.message,
+      });
+    }
+  }
+
   try {
     const limit = clampLimit(req.query.limit, 10);
     const timeframe = req.query.timeframe || 'month';
@@ -169,6 +298,27 @@ export const getPopularTags = async (req, res) => {
 };
 
 export const getHotTopics = async (req, res) => {
+  if (isForumDddEnabled()) {
+    try {
+      const response = await getHotTopicsUseCase.execute(
+        GetHotTopicsDto.fromRequest({
+          user: req.user || null,
+          userId: req.userId || null,
+          query: req.query || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error fetching hot topics:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch hot topics',
+        error: error.message,
+      });
+    }
+  }
+
   try {
     const limit = clampLimit(req.query.limit, 8);
     const timeframe = req.query.timeframe || 'week';

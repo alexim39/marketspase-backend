@@ -1,8 +1,14 @@
 import mongoose from "mongoose";
-import { CampaignClickModel } from "../../models/index.js";
+import { CampaignClickModel, CampaignModel } from "../../models/index.js";
+import { PromotionModel } from "../../../promotion/models/index.js";
 import { UserModel } from "../../../user/models/user/index.js";
 import { OrderModel } from "../../../store/models/order/index.js";
 import { NotificationService } from "../../../notification/services/notification.service.js";
+import {
+  clearPromoterPpcPayoutPolicy,
+  getPromoterPpcPayoutPoliciesByPromoterIds,
+  setPromoterPpcPayoutPolicy,
+} from "../../services/promoter-ppc-payout-policy.service.js";
 
 const DEFAULT_RANGE_DAYS = 7;
 
@@ -41,6 +47,17 @@ const computeRates = (row) => {
     duplicateRate: Number(duplicateRate.toFixed(2)),
     clickToConversionRate: Number(clickToConversionRate.toFixed(2)),
   };
+};
+
+const buildFallbackPromotionUrl = (req, upi) => {
+  const normalizedUpi = String(upi || "").trim();
+  if (!normalizedUpi) return "";
+
+  const configuredApiUrl = String(process.env.API_URL || process.env.BASE_URL || "").replace(/\/+$/, "");
+  const requestBaseUrl = `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
+  const baseUrl = configuredApiUrl || requestBaseUrl;
+
+  return `${baseUrl}/api/v1/campaign/track/${encodeURIComponent(normalizedUpi)}`;
 };
 
 const detectAnomalies = (row) => {
@@ -251,6 +268,24 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
             invalidClicks: { $sum: { $cond: [{ $eq: ["$status", "invalid"] }, 1, 0] } },
             duplicateClicks: { $sum: { $cond: [{ $eq: ["$status", "duplicate"] }, 1, 0] } },
             spend: { $sum: { $cond: [{ $eq: ["$status", "billable"] }, "$cost", 0] } },
+            promoterEarnings: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$promoterPayoutAmount", "$cost"] },
+                  0,
+                ],
+              },
+            },
+            platformRetainedAmount: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$platformRetainedAmount", 0] },
+                  0,
+                ],
+              },
+            },
             lastClickAt: { $max: "$clickedAt" },
           },
         },
@@ -276,7 +311,7 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
       });
     }
 
-    const [uniqueRows, promoterProfiles, topPromotionRows, ipPatternRows, deviceRows, countryRows, conversionRows] = await Promise.all([
+    const [uniqueRows, promoterProfiles, payoutPoliciesByPromoter, topPromotionRows, ipPatternRows, deviceRows, countryRows, conversionRows] = await Promise.all([
       CampaignClickModel.aggregate([
         { $match: { ...match, promoter: { $in: promoterIds } } },
         { $group: { _id: { promoter: "$promoter", dedupeKey: "$dedupeKey" } } },
@@ -285,6 +320,7 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
       UserModel.find({ _id: { $in: promoterIds } })
         .select("_id displayName username email isActive personalInfo.phone personalInfo.phoneDetails fraudProfile")
         .lean(),
+      getPromoterPpcPayoutPoliciesByPromoterIds(promoterIds),
       CampaignClickModel.aggregate([
         { $match: { ...match, promoter: { $in: promoterIds }, status: "billable" } },
         {
@@ -292,6 +328,8 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
             _id: { promoter: "$promoter", promotion: "$promotion", campaign: "$campaign", marketer: "$marketer" },
             billableClicks: { $sum: 1 },
             spend: { $sum: "$cost" },
+            promoterEarnings: { $sum: { $ifNull: ["$promoterPayoutAmount", "$cost"] } },
+            platformRetainedAmount: { $sum: { $ifNull: ["$platformRetainedAmount", 0] } },
             lastClickAt: { $max: "$clickedAt" },
           },
         },
@@ -306,6 +344,8 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
             marketerId: "$top._id.marketer",
             billableClicks: "$top.billableClicks",
             spend: "$top.spend",
+            promoterEarnings: "$top.promoterEarnings",
+            platformRetainedAmount: "$top.platformRetainedAmount",
             lastClickAt: "$top.lastClickAt",
           },
         },
@@ -416,6 +456,7 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
     const promoters = promoterRows.map((row) => {
       const promoterIdString = String(row._id);
       const profile = profileByPromoter.get(promoterIdString) || {};
+      const payoutPolicy = payoutPoliciesByPromoter.get(promoterIdString) || null;
       const uniqueClicks = uniqueByPromoter.get(promoterIdString) || 0;
       const conversions = conversionsByPromoter.get(promoterIdString) || { conversions: 0, conversionRevenue: 0 };
       const rates = computeRates(row);
@@ -439,6 +480,8 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
           invalidClicks: safeNumber(row.invalidClicks),
           duplicateClicks: safeNumber(row.duplicateClicks),
           spend: safeNumber(row.spend),
+          promoterEarnings: safeNumber(row.promoterEarnings ?? row.spend),
+          platformRetainedAmount: safeNumber(row.platformRetainedAmount),
           conversions: conversions.conversions,
           conversionRevenue: conversions.conversionRevenue,
           lastClickAt: row.lastClickAt || null,
@@ -450,6 +493,7 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
           countries: countriesByPromoter.get(promoterIdString) || [],
         },
         primaryAttribution: topPromotionByPromoter.get(promoterIdString) || null,
+        payoutPolicy,
       };
 
       return {
@@ -482,6 +526,334 @@ export const getAdminPpcAnalyticsPromotersController = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error?.message || "Failed to load promoter PPC analytics",
+    });
+  }
+};
+
+export const getAdminPpcPromoterPromotionLinksController = async (req, res) => {
+  try {
+    const promoterId = req.params.promoterId || req.query?.promoterId;
+
+    if (!isValidObjectId(promoterId)) {
+      return res.status(400).json({ success: false, message: "Invalid promoter id" });
+    }
+
+    const {
+      startDate,
+      endDate,
+      range,
+      country,
+      page = 1,
+      limit = 20,
+      sortBy = "spend",
+      sortOrder = "desc",
+    } = req.query || {};
+
+    const match = buildClickMatch({ startDate, endDate, range, promoterId, country });
+    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+    const limitNum = Math.min(50, Math.max(5, Number.parseInt(limit, 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    const sortDirection = String(sortOrder).toLowerCase() === "asc" ? 1 : -1;
+    const allowedSorts = new Set([
+      "spend",
+      "billableClicks",
+      "totalClicks",
+      "invalidClicks",
+      "duplicateClicks",
+      "lastClickAt",
+    ]);
+    const sortField = allowedSorts.has(String(sortBy)) ? String(sortBy) : "spend";
+    const sortStage = { [sortField]: sortDirection, totalClicks: -1, lastClickAt: -1 };
+
+    const [totalRows, summaryRows, linkRows] = await Promise.all([
+      CampaignClickModel.aggregate([
+        { $match: match },
+        { $group: { _id: "$promotion" } },
+        { $count: "total" },
+      ], { allowDiskUse: true }),
+      CampaignClickModel.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: null,
+            totalClicks: { $sum: 1 },
+            billableClicks: { $sum: { $cond: [{ $eq: ["$status", "billable"] }, 1, 0] } },
+            invalidClicks: { $sum: { $cond: [{ $eq: ["$status", "invalid"] }, 1, 0] } },
+            duplicateClicks: { $sum: { $cond: [{ $eq: ["$status", "duplicate"] }, 1, 0] } },
+            exhaustedClicks: { $sum: { $cond: [{ $eq: ["$status", "exhausted"] }, 1, 0] } },
+            spend: { $sum: { $cond: [{ $eq: ["$status", "billable"] }, "$cost", 0] } },
+            promoterEarnings: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$promoterPayoutAmount", "$cost"] },
+                  0,
+                ],
+              },
+            },
+            platformRetainedAmount: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$platformRetainedAmount", 0] },
+                  0,
+                ],
+              },
+            },
+            promotions: { $addToSet: "$promotion" },
+            dedupeKeys: { $addToSet: "$dedupeKey" },
+          },
+        },
+      ], { allowDiskUse: true }),
+      CampaignClickModel.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: {
+              promotion: "$promotion",
+              campaign: "$campaign",
+              marketer: "$marketer",
+              upi: "$upi",
+            },
+            totalClicks: { $sum: 1 },
+            billableClicks: { $sum: { $cond: [{ $eq: ["$status", "billable"] }, 1, 0] } },
+            invalidClicks: { $sum: { $cond: [{ $eq: ["$status", "invalid"] }, 1, 0] } },
+            duplicateClicks: { $sum: { $cond: [{ $eq: ["$status", "duplicate"] }, 1, 0] } },
+            exhaustedClicks: { $sum: { $cond: [{ $eq: ["$status", "exhausted"] }, 1, 0] } },
+            spend: { $sum: { $cond: [{ $eq: ["$status", "billable"] }, "$cost", 0] } },
+            promoterEarnings: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$promoterPayoutAmount", "$cost"] },
+                  0,
+                ],
+              },
+            },
+            platformRetainedAmount: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "billable"] },
+                  { $ifNull: ["$platformRetainedAmount", 0] },
+                  0,
+                ],
+              },
+            },
+            unitCost: { $max: "$unitCost" },
+            promoterPayoutAmount: { $max: { $ifNull: ["$promoterPayoutAmount", "$cost"] } },
+            firstClickAt: { $min: "$clickedAt" },
+            lastClickAt: { $max: "$clickedAt" },
+            destinationUrl: { $first: "$destinationUrl" },
+            sources: { $addToSet: "$source" },
+            countries: { $addToSet: "$geo.country" },
+            devices: { $addToSet: "$deviceType" },
+            dedupeKeys: { $addToSet: "$dedupeKey" },
+          },
+        },
+        {
+          $addFields: {
+            uniqueClicks: {
+              $size: {
+                $filter: {
+                  input: "$dedupeKeys",
+                  as: "key",
+                  cond: { $and: [{ $ne: ["$$key", null] }, { $ne: ["$$key", ""] }] },
+                },
+              },
+            },
+          },
+        },
+        { $sort: sortStage },
+        { $skip: skip },
+        { $limit: limitNum },
+      ], { allowDiskUse: true }),
+    ]);
+
+    const promotionIds = linkRows.map((row) => row._id?.promotion).filter(Boolean);
+    const campaignIds = linkRows.map((row) => row._id?.campaign).filter(Boolean);
+    const upis = linkRows.map((row) => String(row._id?.upi || "").trim()).filter(Boolean);
+
+    const [promotions, campaigns, recentClickRows, conversionRows] = await Promise.all([
+      promotionIds.length
+        ? PromotionModel.find({ _id: { $in: promotionIds } })
+          .select("_id campaign promoter status isActive upi promotionUrl destinationUrl clickStats fraudStatus acceptedAt createdAt updatedAt")
+          .lean()
+        : [],
+      campaignIds.length
+        ? CampaignModel.find({ _id: { $in: campaignIds } })
+          .select("_id title status category mediaType link costPerClick budget spentBudget currency owner startDate endDate")
+          .lean()
+        : [],
+      promotionIds.length
+        ? CampaignClickModel.aggregate([
+          { $match: { ...match, promotion: { $in: promotionIds } } },
+          { $sort: { clickedAt: -1 } },
+          {
+            $group: {
+              _id: "$promotion",
+              recentClicks: {
+                $push: {
+                  clickedAt: "$clickedAt",
+                  status: "$status",
+                  chargeStatus: "$chargeStatus",
+                  cost: "$cost",
+                  promoterPayoutAmount: { $ifNull: ["$promoterPayoutAmount", "$cost"] },
+                  platformRetainedAmount: { $ifNull: ["$platformRetainedAmount", 0] },
+                  deviceType: "$deviceType",
+                  ip: "$ip",
+                  country: "$geo.country",
+                  region: "$geo.region",
+                  city: "$geo.city",
+                  source: "$source",
+                  referrer: "$referrer",
+                },
+              },
+            },
+          },
+          { $project: { _id: 1, recentClicks: { $slice: ["$recentClicks", 5] } } },
+        ], { allowDiskUse: true })
+        : [],
+      upis.length
+        ? OrderModel.aggregate([
+          { $match: buildOrderMatch({ startDate, endDate, range, promoterId }) },
+          { $unwind: "$items" },
+          {
+            $match: {
+              "items.promoterId": toObjectId(promoterId),
+              "items.trackingCode": { $in: upis },
+            },
+          },
+          {
+            $group: {
+              _id: "$items.trackingCode",
+              conversions: { $sum: 1 },
+              conversionRevenue: { $sum: "$items.totalPrice" },
+              commissionEarned: { $sum: "$items.commissionEarned" },
+            },
+          },
+        ], { allowDiskUse: true })
+        : [],
+    ]);
+
+    const promotionById = new Map(promotions.map((promotion) => [String(promotion._id), promotion]));
+    const campaignById = new Map(campaigns.map((campaign) => [String(campaign._id), campaign]));
+    const recentClicksByPromotion = new Map(recentClickRows.map((row) => [String(row._id), row.recentClicks || []]));
+    const conversionsByUpi = new Map(conversionRows.map((row) => [String(row._id), {
+      conversions: safeNumber(row.conversions),
+      conversionRevenue: safeNumber(row.conversionRevenue),
+      commissionEarned: safeNumber(row.commissionEarned),
+    }]));
+
+    const links = linkRows.map((row) => {
+      const promotionId = String(row._id?.promotion || "");
+      const campaignId = String(row._id?.campaign || "");
+      const upi = String(row._id?.upi || "").trim();
+      const promotion = promotionById.get(promotionId) || {};
+      const campaign = campaignById.get(campaignId) || {};
+      const conversion = conversionsByUpi.get(upi) || { conversions: 0, conversionRevenue: 0, commissionEarned: 0 };
+      const promotionUrl = promotion.promotionUrl || buildFallbackPromotionUrl(req, upi);
+      const destinationUrl = promotion.destinationUrl || row.destinationUrl || campaign.link || "";
+      const metrics = {
+        totalClicks: safeNumber(row.totalClicks),
+        uniqueClicks: safeNumber(row.uniqueClicks),
+        billableClicks: safeNumber(row.billableClicks),
+        invalidClicks: safeNumber(row.invalidClicks),
+        duplicateClicks: safeNumber(row.duplicateClicks),
+        exhaustedClicks: safeNumber(row.exhaustedClicks),
+        spend: safeNumber(row.spend),
+        promoterEarnings: safeNumber(row.promoterEarnings ?? row.spend),
+        platformRetainedAmount: safeNumber(row.platformRetainedAmount),
+        unitCost: safeNumber(row.unitCost),
+        promoterPayoutAmount: safeNumber(row.promoterPayoutAmount ?? row.unitCost),
+        conversions: conversion.conversions,
+        conversionRevenue: conversion.conversionRevenue,
+        commissionEarned: conversion.commissionEarned,
+        firstClickAt: row.firstClickAt || null,
+        lastClickAt: row.lastClickAt || null,
+      };
+
+      return {
+        promotionId,
+        campaignId,
+        marketerId: String(row._id?.marketer || campaign.owner || ""),
+        upi,
+        promotionUrl,
+        destinationUrl,
+        campaign: {
+          _id: campaignId,
+          title: campaign.title || "Untitled campaign",
+          status: campaign.status || "",
+          category: campaign.category || "",
+          mediaType: campaign.mediaType || "",
+          costPerClick: safeNumber(campaign.costPerClick),
+          budget: safeNumber(campaign.budget),
+          spentBudget: safeNumber(campaign.spentBudget),
+          currency: campaign.currency || "NGN",
+        },
+        promotion: {
+          _id: promotionId,
+          status: promotion.status || "",
+          isActive: promotion.isActive !== false,
+          acceptedAt: promotion.acceptedAt || null,
+          fraudStatus: promotion.fraudStatus || {},
+        },
+        metrics: {
+          ...metrics,
+          ...computeRates(metrics),
+        },
+        patterns: {
+          sources: (row.sources || []).filter(Boolean).slice(0, 8),
+          countries: (row.countries || []).filter(Boolean).slice(0, 8),
+          devices: (row.devices || []).filter(Boolean).slice(0, 8),
+        },
+        recentClicks: recentClicksByPromotion.get(promotionId) || [],
+        anomalies: detectAnomalies(metrics),
+      };
+    });
+
+    const summary = summaryRows?.[0] || {};
+    const cleanDedupeKeys = Array.isArray(summary.dedupeKeys)
+      ? summary.dedupeKeys.filter((key) => key !== null && key !== "")
+      : [];
+    const total = safeNumber(totalRows?.[0]?.total);
+    const totalPages = total > 0 ? Math.ceil(total / limitNum) : 0;
+    const summaryMetrics = {
+      totalClicks: safeNumber(summary.totalClicks),
+      uniqueClicks: cleanDedupeKeys.length,
+      billableClicks: safeNumber(summary.billableClicks),
+      invalidClicks: safeNumber(summary.invalidClicks),
+      duplicateClicks: safeNumber(summary.duplicateClicks),
+      exhaustedClicks: safeNumber(summary.exhaustedClicks),
+      spend: safeNumber(summary.spend),
+      promoterEarnings: safeNumber(summary.promoterEarnings ?? summary.spend),
+      platformRetainedAmount: safeNumber(summary.platformRetainedAmount),
+      promotionLinks: Array.isArray(summary.promotions) ? summary.promotions.length : 0,
+    };
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        promoterId: String(promoterId),
+        range: getDateRange({ startDate, endDate, range }),
+        summary: {
+          ...summaryMetrics,
+          ...computeRates(summaryMetrics),
+        },
+        links,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Admin PPC promoter promotion links error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || "Failed to load promoter promotion link attribution",
     });
   }
 };
@@ -648,5 +1020,57 @@ export const suspendPpcPromoterController = async (req, res) => {
   } catch (error) {
     console.error("Suspend PPC promoter error:", error);
     return res.status(500).json({ success: false, message: "Failed to suspend account" });
+  }
+};
+
+export const setPpcPromoterCpcPolicyController = async (req, res) => {
+  try {
+    const promoterId = req.params.promoterId || req.body?.promoterId;
+    const adminUserId = req.user?._id || req.userId || null;
+
+    const policy = await setPromoterPpcPayoutPolicy({
+      promoterId,
+      fixedPayoutPerClick: req.body?.fixedPayoutPerClick,
+      reason: req.body?.reason,
+      endsAt: req.body?.endsAt,
+      adminUserId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Promoter CPC punishment policy enabled",
+      data: { policy },
+    });
+  } catch (error) {
+    console.error("Set PPC promoter CPC policy error:", error);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error?.message || "Failed to set promoter CPC policy",
+    });
+  }
+};
+
+export const clearPpcPromoterCpcPolicyController = async (req, res) => {
+  try {
+    const promoterId = req.params.promoterId || req.body?.promoterId;
+    const adminUserId = req.user?._id || req.userId || null;
+
+    const policy = await clearPromoterPpcPayoutPolicy({
+      promoterId,
+      adminUserId,
+      reason: req.body?.reason || req.query?.reason,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Promoter CPC policy cleared",
+      data: { policy },
+    });
+  } catch (error) {
+    console.error("Clear PPC promoter CPC policy error:", error);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error?.message || "Failed to clear promoter CPC policy",
+    });
   }
 };

@@ -11,6 +11,7 @@ import { EditCampaign, UpdateCampaignPartial  } from '../controllers/edit-campai
 import { getCampaignsByStatusAndUserId } from '../controllers/get-by-status-and-userid.controller.js'
 import { GetAMarketerCampaigns } from '../controllers/get-marketer-campaign.controller.js'
 import { getMarketerAnalytics } from '../controllers/get-marketer-analytics.controller.js';
+import { getCampaignPpcPricingConfigController } from '../controllers/ppc-pricing-config.controller.js';
 
 import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
 import { UpdateCampaignStatus } from '../controllers/update-campaign.controller.js';
@@ -33,6 +34,7 @@ router.use(authenticate);
 // GET routes in order of specificity - FIXED ORDER
 router.get('/user/:userId', GetAMarketerCampaigns);
 router.get('/analytics/marketer/:userId', getMarketerAnalytics);
+router.get('/pricing/config', getCampaignPpcPricingConfigController);
 router.get('/', getCampaignsByStatusAndUserId);
 
 // MOST SPECIFIC DYNAMIC ROUTES LAST - FIXED: This should be BEFORE other dynamic routes

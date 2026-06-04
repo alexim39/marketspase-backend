@@ -3,9 +3,34 @@ import { getAuthorPopulation, shapeFeedPost } from '../services/feed-discovery.s
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { GetPostByIdDto } from '../application/dto/get-post-by-id.dto.js';
+import { GetPostByIdUseCase } from '../application/use-cases/get-post-by-id.use-case.js';
+import { MongooseFeedPostDetailGateway } from '../infrastructure/gateways/mongoose-feed-post-detail.gateway.js';
+
+const isFeedsDddEnabled = () => process.env.FEEDS_DDD_ENABLED !== 'false';
+const feedPostDetailGateway = new MongooseFeedPostDetailGateway();
+const getPostByIdUseCase = new GetPostByIdUseCase({
+  feedPostDetailGateway,
+  shapePost: shapeFeedPost,
+});
 
 // Get single post
 export const getPostById = asyncHandler(async (req, res) => {
+  if (isFeedsDddEnabled()) {
+    const response = await getPostByIdUseCase.execute(
+      GetPostByIdDto.fromRequest({
+        params: req.params || {},
+        userId: req.userId || null,
+      }),
+    );
+
+    if (response.statusCode === 404) {
+      throw new ApiError(404, response.errorMessage);
+    }
+
+    return res.status(response.statusCode).json(response.body);
+  }
+
   const { postId } = req.params;
   const userId = req.userId || null;
 

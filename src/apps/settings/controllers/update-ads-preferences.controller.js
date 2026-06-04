@@ -1,9 +1,20 @@
+import { UpdateAdPreferenceDto } from '../application/dto/update-ad-preference.dto.js';
+import { UpdateAdPreferenceUseCase } from '../application/use-cases/update-ad-preference.use-case.js';
+import {
+  SettingsUserNotFoundError,
+  SettingsValidationError,
+} from '../domain/errors/settings.errors.js';
+import { MongooseSettingsUserRepository } from '../infrastructure/repositories/mongoose-settings-user.repository.js';
 import { UserModel } from '../../user/models/user/index.js';
 import { AD_PREFERENCE_CATEGORIES } from '../../user/models/user/schemas/preferences.schema.js';
 import {
   ensureSelfOrAdmin,
   getAuthenticatedUserId,
 } from '../../../shared/utils/request-auth.util.js';
+
+const updateAdPreferenceUseCase = new UpdateAdPreferenceUseCase({
+  settingsUserRepository: new MongooseSettingsUserRepository(),
+});
 
 const ALLOWED_AD_CATEGORIES = new Set(AD_PREFERENCE_CATEGORIES);
 const MAX_AD_CATEGORIES = 6;
@@ -32,7 +43,7 @@ const normalizeCategoryInput = (categories) => {
   return { normalized, invalid };
 };
 
-export const UpdateAdPreferences = async (req, res) => {
+export const legacyUpdateAdPreferences = async (req, res) => {
   try {
     const { userId, preferences } = req.body || {};
     const targetUserId = userId || getAuthenticatedUserId(req);
@@ -135,6 +146,69 @@ export const UpdateAdPreferences = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('Error updating ad preferences:', error);
+
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map((entry) => entry.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while updating preferences',
+      error: process.env.NODE_ENV === 'production' ? undefined : error.message,
+    });
+  }
+};
+
+export const UpdateAdPreferences = async (req, res) => {
+  if (process.env.SETTINGS_DDD_ENABLED === 'false') {
+    return legacyUpdateAdPreferences(req, res);
+  }
+
+  try {
+    const { userId } = req.body || {};
+    const targetUserId = userId || getAuthenticatedUserId(req);
+
+    if (!targetUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required',
+      });
+    }
+
+    if (!ensureSelfOrAdmin(req, targetUserId, res, 'Not authorized to update these preferences')) {
+      return;
+    }
+
+    const result = await updateAdPreferenceUseCase.execute(
+      UpdateAdPreferenceDto.fromRequest({
+        body: req.body,
+        targetUserId,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof SettingsValidationError) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+        ...(error.details || {}),
+      });
+    }
+
+    if (error instanceof SettingsUserNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
     console.error('Error updating ad preferences:', error);
 
     if (error.name === 'ValidationError') {

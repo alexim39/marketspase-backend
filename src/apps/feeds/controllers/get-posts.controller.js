@@ -2,9 +2,30 @@ import { FeedPostModel } from '../models/feed/index.js';
 import { getAuthorPopulation, shapeFeedPost, trackFeedImpressions } from '../services/feed-discovery.service.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { GetFeedPostsDto } from '../application/dto/get-feed-posts.dto.js';
+import { GetFeedPostsUseCase } from '../application/use-cases/get-feed-posts.use-case.js';
+import { MongooseFeedListGateway } from '../infrastructure/gateways/mongoose-feed-list.gateway.js';
+
+const isFeedsDddEnabled = () => process.env.FEEDS_DDD_ENABLED !== 'false';
+const feedListGateway = new MongooseFeedListGateway();
+const getFeedPostsUseCase = new GetFeedPostsUseCase({
+  feedListGateway,
+  shapePost: shapeFeedPost,
+});
 
 // Get feed posts (with pagination)
 export const getFeedPosts = asyncHandler(async (req, res) => {
+  if (isFeedsDddEnabled()) {
+    const response = await getFeedPostsUseCase.execute(
+      GetFeedPostsDto.fromRequest({
+        query: req.query || {},
+        userId: req.userId || null,
+      }),
+    );
+
+    return res.status(response.statusCode).json(response.body);
+  }
+
   const {
     page = 1,
     limit = 20,

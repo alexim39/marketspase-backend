@@ -1,5 +1,11 @@
 import { UserModel } from '../../models/user/index.js';
-import mongoose from 'mongoose';
+import { StreamAdminUsersDto } from '../../application/dto/stream-admin-users.dto.js';
+import { StreamAdminUsersUseCase } from '../../application/use-cases/stream-admin-users.use-case.js';
+import { MongooseAdminUserListGateway } from '../../infrastructure/gateways/mongoose-admin-user-list.gateway.js';
+
+const isUserAdminDddEnabled = () => process.env.USER_ADMIN_DDD_ENABLED !== 'false';
+const adminUserListGateway = new MongooseAdminUserListGateway();
+const streamAdminUsersUseCase = new StreamAdminUsersUseCase({ adminUserListGateway });
 
 // Helper function to build query from filters
 const buildUserQuery = (filters = {}) => {
@@ -63,6 +69,62 @@ const buildUserProjection = () => ({
  * GET /api/user/admin/users/stream
  */
 export const streamUsers = async (req, res) => {
+  if (isUserAdminDddEnabled()) {
+    try {
+      const stream = streamAdminUsersUseCase.execute(
+        StreamAdminUsersDto.fromRequest({
+          query: req.query || {},
+        })
+      );
+
+      for (const [name, value] of Object.entries(stream.headers)) {
+        res.setHeader(name, value);
+      }
+
+      let isFirst = true;
+      res.write(stream.openingChunk);
+
+      stream.cursor.on('data', (user) => {
+        const userJson = JSON.stringify(stream.formatRecord(user));
+
+        if (isFirst) {
+          res.write(userJson);
+          isFirst = false;
+        } else {
+          res.write(',' + userJson);
+        }
+      });
+
+      stream.cursor.on('end', () => {
+        res.write(stream.closingChunk);
+        res.end();
+      });
+
+      stream.cursor.on('error', (error) => {
+        console.error('Stream error:', error);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: 'Error during user export'
+          });
+        } else {
+          res.end();
+        }
+      });
+
+      return;
+    } catch (error) {
+      console.error('Error starting user stream:', error);
+      if (!res.headersSent) {
+        return res.status(500).json({
+          success: false,
+          message: 'An error occurred while exporting users.'
+        });
+      }
+      return;
+    }
+  }
+
   try {
     const { 
       search = '',

@@ -12,9 +12,30 @@ import { normalizePromotionTrackingFields } from '../../promotion/utils/promotio
 import { ThreadModel } from '../../forum/models/thread/thread.model.js';
 import { CommentModel } from '../../forum/models/comment/comment.model.js';
 import { refreshUserReputation } from '../../user/services/user-reputation.service.js';
+import {
+  GetProfileDto,
+  GetUserPostsDto,
+  ListFollowersDto,
+  ListFollowingDto,
+  ToggleFollowDto,
+} from '../application/dto/profile-social-query.dto.js';
+import { GetProfileUseCase } from '../application/use-cases/get-profile.use-case.js';
+import { GetUserPostsUseCase } from '../application/use-cases/get-user-posts.use-case.js';
+import { ListFollowersUseCase } from '../application/use-cases/list-followers.use-case.js';
+import { ListFollowingUseCase } from '../application/use-cases/list-following.use-case.js';
+import { ToggleFollowUseCase } from '../application/use-cases/toggle-follow.use-case.js';
+import { MongooseProfileSocialGateway } from '../infrastructure/gateways/mongoose-profile-social.gateway.js';
 
 const PROFILE_WINDOW_DAYS = 30;
 const PROFILE_TOP_LIMIT = 4;
+const isProfileDddEnabled = () => process.env.PROFILE_DDD_ENABLED !== 'false';
+
+const profileSocialGateway = new MongooseProfileSocialGateway();
+const getProfileUseCase = new GetProfileUseCase({ profileSocialGateway });
+const getUserPostsUseCase = new GetUserPostsUseCase({ profileSocialGateway });
+const listFollowersUseCase = new ListFollowersUseCase({ profileSocialGateway });
+const listFollowingUseCase = new ListFollowingUseCase({ profileSocialGateway });
+const toggleFollowUseCase = new ToggleFollowUseCase({ profileSocialGateway });
 
 const toObjectId = (value) => (
   mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : null
@@ -454,6 +475,24 @@ const buildPromoterProfile = async (userObjectId, sinceDate) => {
 
 // Get public profile of a user
 export const getProfile = async (req, res) => {
+  if (isProfileDddEnabled()) {
+    try {
+      const response = await getProfileUseCase.execute(
+        GetProfileDto.fromRequest({
+          user: req.user || null,
+          userId: req.userId || null,
+          params: req.params || {},
+          query: req.query || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error in getProfile:', error);
+      return res.status(500).json({ message: 'Internal server error' });
+    }
+  }
+
   try {
     const { userId } = req.params;
     const requestedCurrentUserId = req.query.currentUserId;
@@ -677,6 +716,25 @@ export const getProfile = async (req, res) => {
 
 // Get user's posts (paginated)
 export const getUserPosts = async (req, res) => {
+  if (isProfileDddEnabled()) {
+    try {
+      const response = await getUserPostsUseCase.execute(
+        GetUserPostsDto.fromRequest({
+          user: req.user || null,
+          params: req.params || {},
+          query: {
+            ...(req.query || {}),
+            currentUserId: req.userId || req.query?.currentUserId,
+          },
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      return res.status(error.status || 500).json({ message: error.message });
+    }
+  }
+
   try {
     const { userId } = req.params;
     const { page = 1, limit = 10, currentUserId } = req.query;
@@ -751,6 +809,21 @@ export const getUserPosts = async (req, res) => {
 
 // Get followers list (paginated)
 export const getFollowers = async (req, res) => {
+  if (isProfileDddEnabled()) {
+    try {
+      const response = await listFollowersUseCase.execute(
+        ListFollowersDto.fromRequest({
+          params: req.params || {},
+          query: req.query || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      return res.status(error.status || 500).json({ message: error.message });
+    }
+  }
+
   try {
     const { userId } = req.params;
     const { page = 1, limit = 20 } = req.query;
@@ -778,6 +851,21 @@ export const getFollowers = async (req, res) => {
 
 // Get following list (paginated)
 export const getFollowing = async (req, res) => {
+  if (isProfileDddEnabled()) {
+    try {
+      const response = await listFollowingUseCase.execute(
+        ListFollowingDto.fromRequest({
+          params: req.params || {},
+          query: req.query || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      return res.status(error.status || 500).json({ message: error.message });
+    }
+  }
+
   try {
     const { userId } = req.params;
     const { page = 1, limit = 20 } = req.query;
@@ -805,6 +893,23 @@ export const getFollowing = async (req, res) => {
 
 // Toggle follow/unfollow
 export const toggleFollow = async (req, res) => {
+  if (isProfileDddEnabled()) {
+    try {
+      const response = await toggleFollowUseCase.execute(
+        ToggleFollowDto.fromRequest({
+          user: req.user || null,
+          userId: req.userId || null,
+          params: req.params || {},
+          body: req.body || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      return res.status(error.status || 500).json({ message: error.message });
+    }
+  }
+
   try {
     const { userId } = req.params;
     const currentUserId = req.userId || req.body.currentUserId;

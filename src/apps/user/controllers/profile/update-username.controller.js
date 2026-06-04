@@ -1,6 +1,12 @@
 import { UserModel } from '../../models/user/index.js';
 import mongoose from 'mongoose';
+import { UpdateUsernameDto } from '../../application/dto/update-username.dto.js';
+import { UpdateUsernameUseCase } from '../../application/use-cases/update-username.use-case.js';
+import { MongooseUsernameGateway } from '../../infrastructure/gateways/mongoose-username.gateway.js';
 
+const isUserProfileDddEnabled = () => process.env.USER_PROFILE_DDD_ENABLED !== 'false';
+const usernameGateway = new MongooseUsernameGateway();
+const updateUsernameUseCase = new UpdateUsernameUseCase({ usernameGateway });
 
 /**
  * @desc    Handle the update of a user's username information
@@ -8,6 +14,25 @@ import mongoose from 'mongoose';
  * @access  Private (Authentication Middleware should be applied before this)
  */
 export const UpdateUsername = async (req, res) => {
+  if (isUserProfileDddEnabled()) {
+    try {
+      const response = await updateUsernameUseCase.execute(
+        UpdateUsernameDto.fromRequest({
+          userId: req.userId || null,
+          body: req.body || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error during username update:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'An internal server error occurred. Please try again later.',
+      });
+    }
+  }
+
   const session = await mongoose.startSession();
   session.startTransaction();
 

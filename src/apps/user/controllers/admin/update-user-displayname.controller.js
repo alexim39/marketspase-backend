@@ -1,8 +1,36 @@
 import { UserModel } from '../../models/user/index.js';
-import mongoose from 'mongoose';
+import { UpdateAdminUserDisplayNameDto } from '../../application/dto/update-admin-user-display-name.dto.js';
+import { UpdateAdminUserDisplayNameUseCase } from '../../application/use-cases/update-admin-user-display-name.use-case.js';
+import { MongooseAdminUserDisplayNameGateway } from '../../infrastructure/gateways/mongoose-admin-user-display-name.gateway.js';
+
+const isUserAdminDddEnabled = () => process.env.USER_ADMIN_DDD_ENABLED !== 'false';
+const adminUserDisplayNameGateway = new MongooseAdminUserDisplayNameGateway();
+const updateAdminUserDisplayNameUseCase = new UpdateAdminUserDisplayNameUseCase({ adminUserDisplayNameGateway });
 
 // controllers/user.controller.js - Fix for the display name update
-export const updateUserDisplayName = (req, res) => {
+export const updateUserDisplayName = async (req, res) => {
+  if (isUserAdminDddEnabled()) {
+    try {
+      const response = await updateAdminUserDisplayNameUseCase.execute(
+        UpdateAdminUserDisplayNameDto.fromRequest({
+          params: req.params || {},
+          body: req.body || {},
+          user: req.user || null,
+          ip: req.ip || null,
+          getHeader: typeof req.get === 'function' ? req.get.bind(req) : null,
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error updating display name:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'An error occurred while updating display name'
+      });
+    }
+  }
+
   const { userId } = req.params;
   const { displayName } = req.body;
 

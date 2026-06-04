@@ -1,5 +1,12 @@
 import { UserModel } from '../../models/user/index.js';
 import mongoose from 'mongoose';
+import { RestoreAdminUserDto } from '../../application/dto/restore-admin-user.dto.js';
+import { RestoreAdminUserUseCase } from '../../application/use-cases/restore-admin-user.use-case.js';
+import { MongooseAdminUserLifecycleGateway } from '../../infrastructure/gateways/mongoose-admin-user-lifecycle.gateway.js';
+
+const isUserAdminDddEnabled = () => process.env.USER_ADMIN_DDD_ENABLED !== 'false';
+const adminUserLifecycleGateway = new MongooseAdminUserLifecycleGateway();
+const restoreAdminUserUseCase = new RestoreAdminUserUseCase({ adminUserLifecycleGateway });
 
 // Helper function to build query from filters
 const buildUserQuery = (filters = {}) => {
@@ -63,6 +70,25 @@ const buildUserProjection = () => ({
  * PATCH /api/user/admin/:id/restore
  */
 export const restoreUser = async (req, res) => {
+  if (isUserAdminDddEnabled()) {
+    try {
+      const response = await restoreAdminUserUseCase.execute(
+        RestoreAdminUserDto.fromRequest({
+          params: req.params || {},
+          user: req.user || null,
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error restoring user:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'An error occurred while restoring user.'
+      });
+    }
+  }
+
   try {
     const { id } = req.params;
 

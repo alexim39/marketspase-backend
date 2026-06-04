@@ -1,10 +1,39 @@
 // controllers/promo.controller.js
 import { PromoModel, PromoClaimModel } from './../../models/promo/index.js';
 import { UserModel } from '../../models/user/index.js';
+import { CheckPromoEligibilityDto } from '../../application/dto/check-promo-eligibility.dto.js';
+import { CheckPromoEligibilityUseCase } from '../../application/use-cases/check-promo-eligibility.use-case.js';
+import { ClaimPromoCreditDto } from '../../application/dto/claim-promo-credit.dto.js';
+import { ClaimPromoCreditUseCase } from '../../application/use-cases/claim-promo-credit.use-case.js';
+import { GetActivePromoDto } from '../../application/dto/get-active-promo.dto.js';
+import { GetActivePromoUseCase } from '../../application/use-cases/get-active-promo.use-case.js';
+import { GetMyPromoClaimsDto } from '../../application/dto/get-my-promo-claims.dto.js';
+import { GetMyPromoClaimsUseCase } from '../../application/use-cases/get-my-promo-claims.use-case.js';
+import { MongoosePromoOfferGateway } from '../../infrastructure/gateways/mongoose-promo-offer.gateway.js';
+
+const isUserPromoDddEnabled = () => process.env.USER_PROMO_DDD_ENABLED !== 'false';
+const promoOfferGateway = new MongoosePromoOfferGateway();
+const checkPromoEligibilityUseCase = new CheckPromoEligibilityUseCase({ promoOfferGateway });
+const claimPromoCreditUseCase = new ClaimPromoCreditUseCase({ promoOfferGateway });
+const getActivePromoUseCase = new GetActivePromoUseCase({ promoOfferGateway });
+const getMyPromoClaimsUseCase = new GetMyPromoClaimsUseCase({ promoOfferGateway });
 
 export const PromoController = {
   // Get active promo for marketer dashboard
   async getActivePromo(req, res) {
+    if (isUserPromoDddEnabled()) {
+      try {
+        const response = await getActivePromoUseCase.execute(GetActivePromoDto.fromRequest());
+        return res.status(response.statusCode).json(response.body);
+      } catch (error) {
+        console.error('Get active promo error:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to fetch promotional offer'
+        });
+      }
+    }
+
     try {
       //const { role } = req.body;
       const role = 'marketer';
@@ -66,6 +95,21 @@ export const PromoController = {
 
   // Check user eligibility for promo
   async checkEligibility(req, res) {
+    if (isUserPromoDddEnabled()) {
+      try {
+        const response = await checkPromoEligibilityUseCase.execute(
+          CheckPromoEligibilityDto.fromRequest({ params: req.params || {} }),
+        );
+        return res.status(response.statusCode).json(response.body);
+      } catch (error) {
+        console.error('Check eligibility error:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to check eligibility'
+        });
+      }
+    }
+
     try {
       const { promoId, userId } = req.params;
       //const userId = req.body
@@ -103,6 +147,29 @@ export const PromoController = {
 
  // Claim promo credit - Simplified version with inline processing
   async claimPromoCredit(req, res) {
+    if (isUserPromoDddEnabled()) {
+      try {
+        const response = await claimPromoCreditUseCase.execute(
+          ClaimPromoCreditDto.fromRequest({ body: req.body || {} }),
+        );
+        return res.status(response.statusCode).json(response.body);
+      } catch (error) {
+        console.error('Claim promo credit error:', error);
+
+        if (error.code === 11000) {
+          return res.status(400).json({
+            success: false,
+            message: 'You have already claimed this promotional offer'
+          });
+        }
+
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to claim promotional credit'
+        });
+      }
+    }
+
     try {
       const { promoId, userId } = req.body;
 
@@ -282,6 +349,21 @@ export const PromoController = {
 
   // Get user's promo claims history
   async getMyPromoClaims(req, res) {
+    if (isUserPromoDddEnabled()) {
+      try {
+        const response = await getMyPromoClaimsUseCase.execute(
+          GetMyPromoClaimsDto.fromRequest({ user: req.user }),
+        );
+        return res.status(response.statusCode).json(response.body);
+      } catch (error) {
+        console.error('Get promo claims error:', error);
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to fetch promo claims'
+        });
+      }
+    }
+
     try {
       const userId = req.user._id;
       

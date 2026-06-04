@@ -1,10 +1,21 @@
 import { FeedPostModel } from '../models/feed/index.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { GetTrendingHashtagsDto } from '../application/dto/get-trending-hashtags.dto.js';
+import { GetTrendingHashtagsUseCase } from '../application/use-cases/get-trending-hashtags.use-case.js';
+import { MongooseFeedTrendingGateway } from '../infrastructure/gateways/mongoose-feed-trending.gateway.js';
 
+const isFeedsDddEnabled = () => process.env.FEEDS_DDD_ENABLED !== 'false';
+const feedTrendingGateway = new MongooseFeedTrendingGateway();
+const getTrendingHashtagsUseCase = new GetTrendingHashtagsUseCase({ feedTrendingGateway });
 
 // Get trending hashtags
 export const getTrendingHashtags = asyncHandler(async (req, res) => {
+  if (isFeedsDddEnabled()) {
+    const response = await getTrendingHashtagsUseCase.execute(GetTrendingHashtagsDto.fromRequest());
+    return res.status(response.statusCode).json(response.body);
+  }
+
   const hashtags = await FeedPostModel.aggregate([
     { $unwind: '$hashtags' },
     { $match: { status: 'published' } },

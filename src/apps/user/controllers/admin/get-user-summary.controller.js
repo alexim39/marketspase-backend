@@ -1,5 +1,12 @@
 import { UserModel } from '../../models/user/index.js';
 import mongoose from 'mongoose';
+import { GetAdminUserSummaryDto } from '../../application/dto/get-admin-user-summary.dto.js';
+import { GetAdminUserSummaryUseCase } from '../../application/use-cases/get-admin-user-summary.use-case.js';
+import { MongooseAdminUserSummaryGateway } from '../../infrastructure/gateways/mongoose-admin-user-summary.gateway.js';
+
+const isUserAdminDddEnabled = () => process.env.USER_ADMIN_DDD_ENABLED !== 'false';
+const adminUserSummaryGateway = new MongooseAdminUserSummaryGateway();
+const getAdminUserSummaryUseCase = new GetAdminUserSummaryUseCase({ adminUserSummaryGateway });
 
 // Helper function to build query from filters
 const buildUserQuery = (filters = {}) => {
@@ -63,6 +70,24 @@ const buildUserProjection = () => ({
  * GET /api/user/admin/users/summary
  */
 export const getUserSummary = async (req, res) => {
+  if (isUserAdminDddEnabled()) {
+    try {
+      const response = await getAdminUserSummaryUseCase.execute(
+        GetAdminUserSummaryDto.fromRequest({
+          query: req.query || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error fetching user summary:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'An error occurred while fetching user summary.'
+      });
+    }
+  }
+
   try {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);

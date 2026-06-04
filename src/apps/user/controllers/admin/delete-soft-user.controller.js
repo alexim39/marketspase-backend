@@ -1,5 +1,12 @@
 import { UserModel } from '../../models/user/index.js';
 import mongoose from 'mongoose';
+import { SoftDeleteAdminUserDto } from '../../application/dto/soft-delete-admin-user.dto.js';
+import { SoftDeleteAdminUserUseCase } from '../../application/use-cases/soft-delete-admin-user.use-case.js';
+import { MongooseAdminUserLifecycleGateway } from '../../infrastructure/gateways/mongoose-admin-user-lifecycle.gateway.js';
+
+const isUserAdminDddEnabled = () => process.env.USER_ADMIN_DDD_ENABLED !== 'false';
+const adminUserLifecycleGateway = new MongooseAdminUserLifecycleGateway();
+const softDeleteAdminUserUseCase = new SoftDeleteAdminUserUseCase({ adminUserLifecycleGateway });
 
 // Helper function to build query from filters
 const buildUserQuery = (filters = {}) => {
@@ -63,6 +70,25 @@ const buildUserProjection = () => ({
  * DELETE /api/user/admin/:id
  */
 export const deleteUser = async (req, res) => {
+  if (isUserAdminDddEnabled()) {
+    try {
+      const response = await softDeleteAdminUserUseCase.execute(
+        SoftDeleteAdminUserDto.fromRequest({
+          params: req.params || {},
+          user: req.user || null,
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'An error occurred while deleting user.'
+      });
+    }
+  }
+
   try {
     const { id } = req.params;
 

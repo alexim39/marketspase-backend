@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import { NotificationService } from "../../notification/services/notification.service.js";
 import { CollaborationConversationModel, CollaborationMessageModel } from "../models/index.js";
 import {
@@ -12,9 +11,43 @@ import {
   notifyCollaborationConversationUpdate,
   notifyCollaborationMessage,
 } from "../../ai-assistant/socket.handler.js";
+import { CreateDirectConversationDto } from "../application/dto/create-direct-conversation.dto.js";
+import { GetConversationMessagesDto } from "../application/dto/get-conversation-messages.dto.js";
+import { ListConversationsDto } from "../application/dto/list-conversations.dto.js";
+import { MarkConversationReadDto } from "../application/dto/mark-conversation-read.dto.js";
+import { OpenCampaignConversationDto } from "../application/dto/open-campaign-conversation.dto.js";
+import { OpenPromotionConversationDto } from "../application/dto/open-promotion-conversation.dto.js";
+import { SendConversationMessageDto } from "../application/dto/send-conversation-message.dto.js";
+import { CreateDirectConversationUseCase } from "../application/use-cases/create-direct-conversation.use-case.js";
+import { GetConversationMessagesUseCase } from "../application/use-cases/get-conversation-messages.use-case.js";
+import { ListConversationsUseCase } from "../application/use-cases/list-conversations.use-case.js";
+import { MarkConversationReadUseCase } from "../application/use-cases/mark-conversation-read.use-case.js";
+import { OpenCampaignConversationUseCase } from "../application/use-cases/open-campaign-conversation.use-case.js";
+import { OpenPromotionConversationUseCase } from "../application/use-cases/open-promotion-conversation.use-case.js";
+import { SendConversationMessageUseCase } from "../application/use-cases/send-conversation-message.use-case.js";
+import { MongooseCollaborationConversationGateway } from "../infrastructure/gateways/mongoose-collaboration-conversation.gateway.js";
+import { NotificationServiceCollaborationNotificationGateway } from "../infrastructure/gateways/notification-service-collaboration-notification.gateway.js";
+import { SocketCollaborationRealtimeGateway } from "../infrastructure/gateways/socket-collaboration-realtime.gateway.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
+
+const collaborationConversationGateway = new MongooseCollaborationConversationGateway();
+const collaborationNotificationGateway = new NotificationServiceCollaborationNotificationGateway();
+const collaborationRealtimeGateway = new SocketCollaborationRealtimeGateway();
+const listConversationsUseCase = new ListConversationsUseCase({ collaborationConversationGateway });
+const getConversationMessagesUseCase = new GetConversationMessagesUseCase({ collaborationConversationGateway });
+const markConversationReadUseCase = new MarkConversationReadUseCase({ collaborationConversationGateway });
+const createDirectConversationUseCase = new CreateDirectConversationUseCase({ collaborationConversationGateway });
+const openCampaignConversationUseCase = new OpenCampaignConversationUseCase({ collaborationConversationGateway });
+const openPromotionConversationUseCase = new OpenPromotionConversationUseCase({ collaborationConversationGateway });
+const sendConversationMessageUseCase = new SendConversationMessageUseCase({
+  collaborationConversationGateway,
+  collaborationNotificationGateway,
+  collaborationRealtimeGateway,
+});
+
+const isCollaborationDddEnabled = () => process.env.COLLABORATION_DDD_ENABLED !== "false";
 
 const parseLimit = (value, fallback = DEFAULT_LIMIT) => {
   const parsed = Number.parseInt(value, 10);
@@ -84,6 +117,29 @@ const serializeConversation = (conversation, currentUserId, unreadCount = 0) => 
 };
 
 export const listConversations = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await listConversationsUseCase.execute(
+        ListConversationsDto.fromRequest({
+          user: req.user || null,
+          query: req.query || {},
+        })
+      );
+
+      if (response.headers?.["Cache-Control"]) {
+        res.set("Cache-Control", response.headers["Cache-Control"]);
+      }
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("List collaboration conversations error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to load collaboration conversations.",
+      });
+    }
+  }
+
   try {
     const currentUserId = req.user?._id;
     const kind = String(req.query.kind || "all");
@@ -181,6 +237,25 @@ export const listConversations = async (req, res) => {
 };
 
 export const createDirectConversation = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await createDirectConversationUseCase.execute(
+        CreateDirectConversationDto.fromRequest({
+          user: req.user || null,
+          body: req.body || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Create direct collaboration conversation error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to start this conversation.",
+      });
+    }
+  }
+
   try {
     const { targetUserId, campaignId = null, promotionId = null } = req.body || {};
     const conversation = await getOrCreateDirectConversation({
@@ -204,6 +279,25 @@ export const createDirectConversation = async (req, res) => {
 };
 
 export const openCampaignConversation = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await openCampaignConversationUseCase.execute(
+        OpenCampaignConversationDto.fromRequest({
+          user: req.user || null,
+          params: req.params || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Open campaign collaboration room error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to open this campaign room.",
+      });
+    }
+  }
+
   try {
     const conversation = await getOrCreateCampaignConversation({
       campaignId: req.params.campaignId,
@@ -224,6 +318,25 @@ export const openCampaignConversation = async (req, res) => {
 };
 
 export const openPromotionConversation = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await openPromotionConversationUseCase.execute(
+        OpenPromotionConversationDto.fromRequest({
+          user: req.user || null,
+          params: req.params || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Open promotion collaboration room error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to open this promotion room.",
+      });
+    }
+  }
+
   try {
     const conversation = await getOrCreatePromotionConversation({
       promotionId: req.params.promotionId,
@@ -244,6 +357,26 @@ export const openPromotionConversation = async (req, res) => {
 };
 
 export const getConversationMessages = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await getConversationMessagesUseCase.execute(
+        GetConversationMessagesDto.fromRequest({
+          user: req.user || null,
+          params: req.params || {},
+          query: req.query || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Get collaboration messages error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to load messages.",
+      });
+    }
+  }
+
   try {
     const conversation = await loadConversationForUser(req.params.conversationId, req.user);
     const limit = parseLimit(req.query.limit, DEFAULT_LIMIT);
@@ -289,6 +422,27 @@ export const getConversationMessages = async (req, res) => {
 };
 
 export const sendConversationMessage = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await sendConversationMessageUseCase.execute(
+        SendConversationMessageDto.fromRequest({
+          user: req.user || null,
+          params: req.params || {},
+          body: req.body || {},
+          io: req.app?.get?.("io") || null,
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Send collaboration message error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to send this message.",
+      });
+    }
+  }
+
   try {
     const content = String(req.body?.content || "").trim();
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
@@ -369,6 +523,25 @@ export const sendConversationMessage = async (req, res) => {
 };
 
 export const markConversationRead = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await markConversationReadUseCase.execute(
+        MarkConversationReadDto.fromRequest({
+          user: req.user || null,
+          params: req.params || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Mark collaboration conversation read error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to mark this conversation as read.",
+      });
+    }
+  }
+
   try {
     const conversation = await loadConversationForUser(req.params.conversationId, req.user);
 

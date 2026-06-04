@@ -1,5 +1,11 @@
 import { UserModel } from '../../models/user/index.js';
-import mongoose from 'mongoose';
+import { GetAdminUsersDto } from '../../application/dto/get-admin-users.dto.js';
+import { GetAdminUsersUseCase } from '../../application/use-cases/get-admin-users.use-case.js';
+import { MongooseAdminUserListGateway } from '../../infrastructure/gateways/mongoose-admin-user-list.gateway.js';
+
+const isUserAdminDddEnabled = () => process.env.USER_ADMIN_DDD_ENABLED !== 'false';
+const adminUserListGateway = new MongooseAdminUserListGateway();
+const getAdminUsersUseCase = new GetAdminUsersUseCase({ adminUserListGateway });
 
 // Helper function to build query from filters
 const buildUserQuery = (filters = {}) => {
@@ -63,6 +69,25 @@ const buildUserProjection = () => ({
  * GET /api/user/admin/users
  */
 export const getUsers = async (req, res) => {
+  if (isUserAdminDddEnabled()) {
+    try {
+      const response = await getAdminUsersUseCase.execute(
+        GetAdminUsersDto.fromRequest({
+          query: req.query || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'An error occurred while fetching users.',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
   try {
     // Extract query parameters
     const {

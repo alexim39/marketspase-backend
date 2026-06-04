@@ -2,8 +2,31 @@ import { FeedPostModel } from '../models/feed/index.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { TrackPostChatClickDto } from '../application/dto/track-post-chat-click.dto.js';
+import { TrackPostChatClickUseCase } from '../application/use-cases/track-post-chat-click.use-case.js';
+import { MongooseFeedChatClickGateway } from '../infrastructure/gateways/mongoose-feed-chat-click.gateway.js';
+
+const isFeedsDddEnabled = () => process.env.FEEDS_DDD_ENABLED !== 'false';
+const feedChatClickGateway = new MongooseFeedChatClickGateway();
+const trackPostChatClickUseCase = new TrackPostChatClickUseCase({
+  feedChatClickGateway,
+});
 
 export const trackPostChatClick = asyncHandler(async (req, res) => {
+  if (isFeedsDddEnabled()) {
+    const response = await trackPostChatClickUseCase.execute(
+      TrackPostChatClickDto.fromRequest({
+        params: req.params || {},
+      }),
+    );
+
+    if (response.errorMessage) {
+      throw new ApiError(response.statusCode, response.errorMessage);
+    }
+
+    return res.status(response.statusCode).json(response.body);
+  }
+
   const { postId } = req.params;
 
   const post = await FeedPostModel.findByIdAndUpdate(

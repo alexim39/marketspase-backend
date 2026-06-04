@@ -1,9 +1,58 @@
 // controllers/tutorial.controller.js
 import TutorialSection from '../models/tutorial.schema.js';
 import axios from 'axios';
+import { GetTutorialsDto } from '../application/dto/get-tutorials.dto.js';
+import { GetTutorialsUseCase } from '../application/use-cases/get-tutorials.use-case.js';
+import { AddTutorialVideoDto } from '../application/dto/add-tutorial-video.dto.js';
+import { AddTutorialVideoUseCase } from '../application/use-cases/add-tutorial-video.use-case.js';
+import { UpdateTutorialVideoDto } from '../application/dto/update-tutorial-video.dto.js';
+import { UpdateTutorialVideoUseCase } from '../application/use-cases/update-tutorial-video.use-case.js';
+import { RemoveTutorialVideoDto } from '../application/dto/remove-tutorial-video.dto.js';
+import { RemoveTutorialVideoUseCase } from '../application/use-cases/remove-tutorial-video.use-case.js';
+import { SyncTutorialPlaylistDto } from '../application/dto/sync-tutorial-playlist.dto.js';
+import { SyncTutorialPlaylistUseCase } from '../application/use-cases/sync-tutorial-playlist.use-case.js';
+import { UpdateAllTutorialVideoViewsDto } from '../application/dto/update-all-tutorial-video-views.dto.js';
+import { UpdateAllTutorialVideoViewsUseCase } from '../application/use-cases/update-all-tutorial-video-views.use-case.js';
+import { UpdateSectionTutorialVideoViewsDto } from '../application/dto/update-section-tutorial-video-views.dto.js';
+import { UpdateSectionTutorialVideoViewsUseCase } from '../application/use-cases/update-section-tutorial-video-views.use-case.js';
+import {
+  TutorialSectionNotFoundError,
+  TutorialValidationError,
+  TutorialVideoAlreadyExistsError,
+  TutorialVideoNotFoundError,
+} from '../domain/errors/tutorial.errors.js';
+import { MongooseTutorialRepository } from '../infrastructure/repositories/mongoose-tutorial.repository.js';
+import { YoutubeTutorialVideoMetadataGateway } from '../infrastructure/gateways/youtube-tutorial-video-metadata.gateway.js';
 
 const YOUTUBE_API_KEY = 'AIzaSyAkXv9Lk93BRadrv2NgX53_FiDWYN2EZWY';
 const CHANNEL_ID = 'UC1E9WcNpP_3A0ZqMI3a_wtw';
+const tutorialRepository = new MongooseTutorialRepository();
+const videoMetadataGateway = new YoutubeTutorialVideoMetadataGateway();
+const getTutorialsUseCase = new GetTutorialsUseCase({
+  tutorialRepository,
+});
+const addTutorialVideoUseCase = new AddTutorialVideoUseCase({
+  tutorialRepository,
+  videoMetadataGateway,
+});
+const updateTutorialVideoUseCase = new UpdateTutorialVideoUseCase({
+  tutorialRepository,
+});
+const removeTutorialVideoUseCase = new RemoveTutorialVideoUseCase({
+  tutorialRepository,
+});
+const syncTutorialPlaylistUseCase = new SyncTutorialPlaylistUseCase({
+  tutorialRepository,
+  videoMetadataGateway,
+});
+const updateAllTutorialVideoViewsUseCase = new UpdateAllTutorialVideoViewsUseCase({
+  tutorialRepository,
+  videoMetadataGateway,
+});
+const updateSectionTutorialVideoViewsUseCase = new UpdateSectionTutorialVideoViewsUseCase({
+  tutorialRepository,
+  videoMetadataGateway,
+});
 
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value ?? {}, key);
 const getRecentVideoFlag = (video) => Boolean(video?.isRecentlyAdded ?? video?.isNew);
@@ -22,7 +71,7 @@ const normalizeVideoPayload = (payload = {}) => {
 class TutorialController {
   
   // Get tutorials for frontend
-  getTutorials = async (req, res) => {
+  legacyGetTutorials = async (req, res) => {
     try {
       const { role } = req.query;
       
@@ -66,8 +115,27 @@ class TutorialController {
     }
   }
 
+  getTutorials = async (req, res) => {
+    if (process.env.TUTORIAL_DDD_ENABLED === 'false') {
+      return this.legacyGetTutorials(req, res);
+    }
+
+    try {
+      const result = await getTutorialsUseCase.execute(
+        GetTutorialsDto.fromRequest({
+          query: req.query,
+        }),
+      );
+
+      return res.json(result);
+    } catch (error) {
+      console.error('Error in getTutorials:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
   // Add a video to a section (admin use)
-  addVideo = async (req, res) => {
+  legacyAddVideo = async (req, res) => {
     try {
       //console.log('Request body:', req.body);
       //console.log('Request params:', req.params);
@@ -142,8 +210,40 @@ class TutorialController {
     }
   }
 
+  addVideo = async (req, res) => {
+    if (process.env.TUTORIAL_DDD_ENABLED === 'false') {
+      return this.legacyAddVideo(req, res);
+    }
+
+    try {
+      const result = await addTutorialVideoUseCase.execute(
+        AddTutorialVideoDto.fromRequest({
+          params: req.params,
+          body: req.body,
+        }),
+      );
+
+      return res.json(result);
+    } catch (error) {
+      if (error instanceof TutorialValidationError) {
+        return res.status(400).json({ success: false, error: error.message });
+      }
+
+      if (error instanceof TutorialVideoAlreadyExistsError) {
+        return res.status(400).json({ success: false, error: 'Video already exists in this section' });
+      }
+
+      if (error instanceof TutorialSectionNotFoundError) {
+        return res.status(404).json({ success: false, error: 'Section not found' });
+      }
+
+      console.error('Error in addVideo:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
   // Bulk sync from YouTube playlist (admin use)
-  syncFromPlaylist = async (req, res) => {
+  legacySyncFromPlaylist = async (req, res) => {
     try {
       const { sectionId, playlistId } = req.body;
 
@@ -194,7 +294,7 @@ class TutorialController {
   }
 
   // Update video settings
-  updateVideo = async (req, res) => {
+  legacyUpdateVideo = async (req, res) => {
     try {
       const { sectionId, videoId } = req.params;
       const updates = normalizeVideoPayload(req.body);
@@ -219,8 +319,63 @@ class TutorialController {
     }
   }
 
+  syncFromPlaylist = async (req, res) => {
+    if (process.env.TUTORIAL_DDD_ENABLED === 'false') {
+      return this.legacySyncFromPlaylist(req, res);
+    }
+
+    try {
+      const result = await syncTutorialPlaylistUseCase.execute(
+        SyncTutorialPlaylistDto.fromRequest({
+          body: req.body,
+        }),
+      );
+
+      return res.json(result);
+    } catch (error) {
+      if (error instanceof TutorialValidationError) {
+        return res.status(400).json({ success: false, error: error.message });
+      }
+
+      if (error instanceof TutorialSectionNotFoundError) {
+        return res.status(404).json({ error: 'Section not found' });
+      }
+
+      console.error('Error in syncFromPlaylist:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  updateVideo = async (req, res) => {
+    if (process.env.TUTORIAL_DDD_ENABLED === 'false') {
+      return this.legacyUpdateVideo(req, res);
+    }
+
+    try {
+      const result = await updateTutorialVideoUseCase.execute(
+        UpdateTutorialVideoDto.fromRequest({
+          params: req.params,
+          body: req.body,
+        }),
+      );
+
+      return res.json(result);
+    } catch (error) {
+      if (error instanceof TutorialSectionNotFoundError) {
+        return res.status(404).json({ error: 'Section not found' });
+      }
+
+      if (error instanceof TutorialVideoNotFoundError) {
+        return res.status(404).json({ error: 'Video not found' });
+      }
+
+      console.error('Error in updateVideo:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
   // Delete video from section
-  removeVideo = async (req, res) => {
+  legacyRemoveVideo = async (req, res) => {
     try {
       const { sectionId, videoId } = req.params;
 
@@ -238,6 +393,29 @@ class TutorialController {
     } catch (error) {
       console.error('Error in removeVideo:', error);
       res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  removeVideo = async (req, res) => {
+    if (process.env.TUTORIAL_DDD_ENABLED === 'false') {
+      return this.legacyRemoveVideo(req, res);
+    }
+
+    try {
+      const result = await removeTutorialVideoUseCase.execute(
+        RemoveTutorialVideoDto.fromRequest({
+          params: req.params,
+        }),
+      );
+
+      return res.json(result);
+    } catch (error) {
+      if (error instanceof TutorialSectionNotFoundError) {
+        return res.status(404).json({ error: 'Section not found' });
+      }
+
+      console.error('Error in removeVideo:', error);
+      return res.status(500).json({ success: false, error: error.message });
     }
   }
 
@@ -398,7 +576,7 @@ class TutorialController {
 
 
   // Add this new method to your controller
-  updateAllVideoViews = async (req, res) => {
+  legacyUpdateAllVideoViews = async (req, res) => {
     try {
       const sections = await TutorialSection.find({ isActive: true });
       let totalUpdated = 0;
@@ -435,8 +613,29 @@ class TutorialController {
     }
   }
 
+  updateAllVideoViews = async (req, res) => {
+    if (process.env.TUTORIAL_DDD_ENABLED === 'false') {
+      return this.legacyUpdateAllVideoViews(req, res);
+    }
+
+    try {
+      const result = await updateAllTutorialVideoViewsUseCase.execute(
+        UpdateAllTutorialVideoViewsDto.fromRequest(),
+      );
+
+      return res.json({
+        success: true,
+        message: result.message,
+        totalUpdated: result.totalUpdated,
+      });
+    } catch (error) {
+      console.error('Error updating video views:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
   // Add a method to update views for a single section
-  updateSectionVideoViews = async (req, res) => {
+  legacyUpdateSectionVideoViews = async (req, res) => {
     try {
       const { sectionId } = req.params;
       const section = await TutorialSection.findById(sectionId);
@@ -472,6 +671,33 @@ class TutorialController {
     } catch (error) {
       console.error('Error updating section video views:', error);
       res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  updateSectionVideoViews = async (req, res) => {
+    if (process.env.TUTORIAL_DDD_ENABLED === 'false') {
+      return this.legacyUpdateSectionVideoViews(req, res);
+    }
+
+    try {
+      const result = await updateSectionTutorialVideoViewsUseCase.execute(
+        UpdateSectionTutorialVideoViewsDto.fromRequest({
+          params: req.params,
+        }),
+      );
+
+      return res.json({
+        success: true,
+        message: result.message,
+        data: result.data,
+      });
+    } catch (error) {
+      if (error instanceof TutorialSectionNotFoundError) {
+        return res.status(404).json({ error: 'Section not found' });
+      }
+
+      console.error('Error updating section video views:', error);
+      return res.status(500).json({ success: false, error: error.message });
     }
   }
 }

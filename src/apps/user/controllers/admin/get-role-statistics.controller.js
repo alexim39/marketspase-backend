@@ -1,5 +1,12 @@
 import { UserModel } from '../../models/user/index.js';
 import mongoose from 'mongoose';
+import { GetAdminRoleStatisticsDto } from '../../application/dto/get-admin-role-statistics.dto.js';
+import { GetAdminRoleStatisticsUseCase } from '../../application/use-cases/get-admin-role-statistics.use-case.js';
+import { MongooseAdminRoleStatisticsGateway } from '../../infrastructure/gateways/mongoose-admin-role-statistics.gateway.js';
+
+const isUserAdminDddEnabled = () => process.env.USER_ADMIN_DDD_ENABLED !== 'false';
+const adminRoleStatisticsGateway = new MongooseAdminRoleStatisticsGateway();
+const getAdminRoleStatisticsUseCase = new GetAdminRoleStatisticsUseCase({ adminRoleStatisticsGateway });
 
 // Helper function to build query from filters
 const buildUserQuery = (filters = {}) => {
@@ -63,6 +70,24 @@ const buildUserProjection = () => ({
  * GET /api/user/admin/users/role/:role/stats
  */
 export const getRoleStatistics = async (req, res) => {
+  if (isUserAdminDddEnabled()) {
+    try {
+      const response = await getAdminRoleStatisticsUseCase.execute(
+        GetAdminRoleStatisticsDto.fromRequest({
+          params: req.params || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error(`Error fetching ${req.params.role} statistics:`, error);
+      return res.status(500).json({
+        success: false,
+        message: `An error occurred while fetching ${req.params.role} statistics.`
+      });
+    }
+  }
+
   try {
     const { role } = req.params;
     

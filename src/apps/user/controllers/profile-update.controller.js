@@ -3,9 +3,16 @@
 
 import mongoose from 'mongoose';
 import { UserModel } from './../models/user/index.js';
+import { UpdatePersonalProfileDto } from '../application/dto/update-personal-profile.dto.js';
+import { UpdatePersonalProfileUseCase } from '../application/use-cases/update-personal-profile.use-case.js';
+import { MongoosePersonalProfileGateway } from '../infrastructure/gateways/mongoose-personal-profile.gateway.js';
 
 // Country phone list (ADJUST this path to your backend location)
 import { COUNTRY_PHONE_MAP } from '../utils/country-phones.js';
+
+const isUserProfileDddEnabled = () => process.env.USER_PROFILE_DDD_ENABLED !== 'false';
+const personalProfileGateway = new MongoosePersonalProfileGateway();
+const updatePersonalProfileUseCase = new UpdatePersonalProfileUseCase({ personalProfileGateway });
 
 /**
  * We store phone as digits-only E.164 (no '+'), e.g.:
@@ -356,6 +363,47 @@ function normalizePhoneWithoutLib(rawPhone, phoneDetails, addressCountryName) {
  * @access Private
  */
 export const UpdateProfile = async (req, res) => {
+  if (isUserProfileDddEnabled()) {
+    try {
+      const response = await updatePersonalProfileUseCase.execute(
+        UpdatePersonalProfileDto.fromRequest({
+          userId: req.userId || null,
+          body: req.body || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error updating user profile:', error);
+
+      if (error && error.code === 11000) {
+        const field = Object.keys(error.keyValue ?? {})[0] ?? '';
+        const fieldName = field.replace('personalInfo.', '');
+        const fieldMessages = {
+          email: 'email address',
+          phone: 'phone number',
+          username: 'username',
+          uid: 'user ID',
+        };
+        return res.status(409).json({
+          success: false,
+          message: `This ${fieldMessages[fieldName] ?? fieldName} is already registered.`,
+        });
+      }
+
+      if (error?.name === 'ValidationError') {
+        const messages = Object.values(error.errors).map((val) => val.message);
+        return res.status(400).json({ success: false, message: `Validation error: ${messages.join(', ')}` });
+      }
+
+      if (error?.name === 'CastError') {
+        return res.status(400).json({ success: false, message: 'Invalid user ID format.' });
+      }
+
+      return res.status(500).json({ success: false, message: 'Server error. Failed to update profile.' });
+    }
+  }
+
   try {
     const {
       email,

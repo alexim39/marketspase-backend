@@ -1,8 +1,18 @@
+import { ToggleNotificationDto } from "../application/dto/toggle-notification.dto.js";
+import { ToggleNotificationUseCase } from "../application/use-cases/toggle-notification.use-case.js";
+import {
+  SettingsUserNotFoundError,
+  SettingsValidationError,
+} from "../domain/errors/settings.errors.js";
+import { MongooseSettingsUserRepository } from "../infrastructure/repositories/mongoose-settings-user.repository.js";
 import { UserModel } from "../../user/models/user/index.js";
 
+const toggleNotificationUseCase = new ToggleNotificationUseCase({
+  settingsUserRepository: new MongooseSettingsUserRepository(),
+});
 
 // Toggle notification
-export const toggleNotification = async (req, res) => {
+export const legacyToggleNotification = async (req, res) => {
   try {
     const { state, userId } = req.body;
 
@@ -43,5 +53,39 @@ export const toggleNotification = async (req, res) => {
   }
 };
 
+export const toggleNotification = async (req, res) => {
+  if (process.env.SETTINGS_DDD_ENABLED === 'false') {
+    return legacyToggleNotification(req, res);
+  }
+
+  try {
+    const result = await toggleNotificationUseCase.execute(
+      ToggleNotificationDto.fromRequest({ body: req.body })
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof SettingsValidationError) {
+      if (error.message === 'State must be a boolean') {
+        return res.status(400).json({ message: 'State must be a boolean' });
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error instanceof SettingsUserNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    console.error('Error updating notification setting:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
 
 
