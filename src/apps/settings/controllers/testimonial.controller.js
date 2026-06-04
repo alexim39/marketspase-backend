@@ -1,13 +1,51 @@
+import { GetTestimonialsDto } from '../application/dto/get-testimonials.dto.js';
+import { GetTestimonialsUseCase } from '../application/use-cases/get-testimonials.use-case.js';
+import { GetUserTestimonialDto } from '../application/dto/get-user-testimonial.dto.js';
+import { GetUserTestimonialUseCase } from '../application/use-cases/get-user-testimonial.use-case.js';
+import { GetRandomDashboardTestimonialsDto } from '../application/dto/get-random-dashboard-testimonials.dto.js';
+import { GetRandomDashboardTestimonialsUseCase } from '../application/use-cases/get-random-dashboard-testimonials.use-case.js';
+import { ReactToTestimonialDto } from '../application/dto/react-to-testimonial.dto.js';
+import { ReactToTestimonialUseCase } from '../application/use-cases/react-to-testimonial.use-case.js';
+import { CreateOrUpdateTestimonialDto } from '../application/dto/create-or-update-testimonial.dto.js';
+import { CreateOrUpdateTestimonialUseCase } from '../application/use-cases/create-or-update-testimonial.use-case.js';
+import {
+  SettingsTestimonialNotFoundError,
+  SettingsUserNotFoundError,
+  SettingsValidationError,
+} from '../domain/errors/settings.errors.js';
+import { MongooseSettingsTestimonialRepository } from '../infrastructure/repositories/mongoose-settings-testimonial.repository.js';
 import { UserModel } from './../../user/models/user/index.js';
 import { TestimonialModel } from './../models/testimonial/index.js';
 import { ensureSelfOrAdmin, getAuthenticatedUserId } from '../../../shared/utils/request-auth.util.js';
+
+const settingsTestimonialRepository = new MongooseSettingsTestimonialRepository();
+
+const getTestimonialsUseCase = new GetTestimonialsUseCase({
+  settingsTestimonialRepository,
+});
+
+const getUserTestimonialUseCase = new GetUserTestimonialUseCase({
+  settingsTestimonialRepository,
+});
+
+const getRandomDashboardTestimonialsUseCase = new GetRandomDashboardTestimonialsUseCase({
+  settingsTestimonialRepository,
+});
+
+const reactToTestimonialUseCase = new ReactToTestimonialUseCase({
+  settingsTestimonialRepository,
+});
+
+const createOrUpdateTestimonialUseCase = new CreateOrUpdateTestimonialUseCase({
+  settingsTestimonialRepository,
+});
 
 /**
  * Create or update user testimonial
  * @param req Express request
  * @param res Express response
  */
-export const createOrUpdateTestimonial = async (req, res) => {
+export const legacyCreateOrUpdateTestimonial = async (req, res) => {
   try {
     const authenticatedUserId = getAuthenticatedUserId(req);
     const candidateUserId = req.body.userId || authenticatedUserId;
@@ -89,7 +127,7 @@ export const createOrUpdateTestimonial = async (req, res) => {
  * @param req Express request
  * @param res Express response
  */
-export const getTestimonials = async (req, res) => {
+export const legacyGetTestimonials = async (req, res) => {
   try {
     const { status = 'approved', limit = 10, page = 1 } = req.query;
 
@@ -157,12 +195,82 @@ export const getTestimonials = async (req, res) => {
   }
 };
 
+export const createOrUpdateTestimonial = async (req, res) => {
+  if (process.env.SETTINGS_DDD_ENABLED === 'false') {
+    return legacyCreateOrUpdateTestimonial(req, res);
+  }
+
+  try {
+    const authenticatedUserId = getAuthenticatedUserId(req);
+    const candidateUserId = req.body.userId || authenticatedUserId;
+
+    if (!authenticatedUserId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    if (!ensureSelfOrAdmin(req, candidateUserId, res, 'You can only manage your own testimonial')) {
+      return;
+    }
+
+    const result = await createOrUpdateTestimonialUseCase.execute(
+      CreateOrUpdateTestimonialDto.fromRequest({
+        body: req.body,
+        candidateUserId,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof SettingsValidationError) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+
+    if (error instanceof SettingsUserNotFoundError) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    console.error('Error in createOrUpdateTestimonial:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+export const getTestimonials = async (req, res) => {
+  if (process.env.SETTINGS_DDD_ENABLED === 'false') {
+    return legacyGetTestimonials(req, res);
+  }
+
+  try {
+    const result = await getTestimonialsUseCase.execute(
+      GetTestimonialsDto.fromRequest({
+        query: req.query,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof SettingsValidationError) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+
+    console.error('Error in getTestimonials:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
 /**
  * React to testimonial (like/dislike)
  * @param req Express request
  * @param res Express response
  */
-export const reactToTestimonial = async (req, res) => {
+export const legacyReactToTestimonial = async (req, res) => {
   try {
     const userId = getAuthenticatedUserId(req);
     const { testimonialId, reaction } = req.body; // 'like' or 'dislike'
@@ -281,7 +389,7 @@ export const reactToTestimonial = async (req, res) => {
  * @param req Express request
  * @param res Express response
  */
-export const getUserTestimonial = async (req, res) => {
+export const legacyGetUserTestimonial = async (req, res) => {
   try {
     const { userId } = req.params;
     const currentUserId = getAuthenticatedUserId(req);
@@ -347,11 +455,80 @@ export const getUserTestimonial = async (req, res) => {
   }
 };
 
+export const reactToTestimonial = async (req, res) => {
+  if (process.env.SETTINGS_DDD_ENABLED === 'false') {
+    return legacyReactToTestimonial(req, res);
+  }
+
+  try {
+    const userId = getAuthenticatedUserId(req);
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const result = await reactToTestimonialUseCase.execute(
+      ReactToTestimonialDto.fromRequest({
+        body: req.body,
+        userId,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof SettingsValidationError) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+
+    if (error instanceof SettingsTestimonialNotFoundError) {
+      return res.status(404).json({ success: false, message: 'Testimonial not found' });
+    }
+
+    console.error('Error in reactToTestimonial:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+export const getUserTestimonial = async (req, res) => {
+  if (process.env.SETTINGS_DDD_ENABLED === 'false') {
+    return legacyGetUserTestimonial(req, res);
+  }
+
+  try {
+    const { userId } = req.params;
+    const currentUserId = getAuthenticatedUserId(req);
+
+    if (currentUserId && !ensureSelfOrAdmin(req, userId, res, 'You can only access your own testimonial')) {
+      return;
+    }
+
+    const result = await getUserTestimonialUseCase.execute(
+      GetUserTestimonialDto.fromRequest({
+        params: req.params,
+        currentUserId,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in getUserTestimonial:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
 
 /**
  * Controller to fetch a random sample of approved testimonials with user details.
  */
-export const getRandomTestimonials = async (req, res) => {
+export const legacyGetRandomTestimonials = async (req, res) => {
   try {
     const count = parseInt(req.query.count, 10) || 10; // Default to 10 if count is not provided or invalid
 
@@ -416,5 +593,24 @@ export const getRandomTestimonials = async (req, res) => {
   } catch (error) {
     console.error('Error in getRandomTestimonials:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+export const getRandomTestimonials = async (req, res) => {
+  if (process.env.SETTINGS_DDD_ENABLED === 'false') {
+    return legacyGetRandomTestimonials(req, res);
+  }
+
+  try {
+    const result = await getRandomDashboardTestimonialsUseCase.execute(
+      GetRandomDashboardTestimonialsDto.fromRequest({
+        query: req.query,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in getRandomTestimonials:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

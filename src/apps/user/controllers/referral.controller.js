@@ -1,11 +1,45 @@
 import { ReferralService } from '../services/referral.service.js';
 import { UserModel } from '../models/user/index.js';
 import { ensureSelfOrAdmin } from '../../../shared/utils/request-auth.util.js';
+import {
+  GetReferralDetailsDto,
+  GetReferralStatsDto,
+  ValidateReferralCodeDto,
+} from '../application/dto/referral-query.dto.js';
+import { GetReferralDetailsUseCase } from '../application/use-cases/get-referral-details.use-case.js';
+import { GetReferralStatsUseCase } from '../application/use-cases/get-referral-stats.use-case.js';
+import { ValidateReferralCodeUseCase } from '../application/use-cases/validate-referral-code.use-case.js';
+import { MongooseReferralGateway } from '../infrastructure/gateways/mongoose-referral.gateway.js';
 
 const referralService = new ReferralService();
+const isUserReferralDddEnabled = () => process.env.USER_REFERRAL_DDD_ENABLED !== 'false';
+const referralGateway = new MongooseReferralGateway({ referralService });
+const getReferralStatsUseCase = new GetReferralStatsUseCase({ referralGateway });
+const getReferralDetailsUseCase = new GetReferralDetailsUseCase({ referralGateway });
+const validateReferralCodeUseCase = new ValidateReferralCodeUseCase({ referralGateway });
 
 // Get referral stats for a user
 export const ReferralStats = async (req, res) => {
+  if (isUserReferralDddEnabled()) {
+    try {
+      const response = await getReferralStatsUseCase.execute(
+        GetReferralStatsDto.fromRequest({
+          params: req.params || {},
+          user: req.user || null,
+          userId: req.userId || null,
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Get referral stats error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch referral stats'
+      });
+    }
+  }
+
   try {
     const { userId } = req.params;
     //console.log('Fetching referral stats for userId:', userId);
@@ -47,6 +81,27 @@ export const ReferralStats = async (req, res) => {
 
 // Get referral details with pagination
 export const ReferralDetails = async (req, res) => {
+  if (isUserReferralDddEnabled()) {
+    try {
+      const response = await getReferralDetailsUseCase.execute(
+        GetReferralDetailsDto.fromRequest({
+          params: req.params || {},
+          query: req.query || {},
+          user: req.user || null,
+          userId: req.userId || null,
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Get referral details error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch referral details'
+      });
+    }
+  }
+
   try {
     const { userId } = req.params;
 
@@ -116,6 +171,24 @@ export const ReferralDetails = async (req, res) => {
 
 // Validate referral code
 export const ValidateReferralCode = async (req, res) => {
+  if (isUserReferralDddEnabled()) {
+    try {
+      const response = await validateReferralCodeUseCase.execute(
+        ValidateReferralCodeDto.fromRequest({
+          params: req.params || {},
+        }),
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Validate referral code error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to validate referral code'
+      });
+    }
+  }
+
   try {
     const { referralCode } = req.params;
 

@@ -1,5 +1,11 @@
 import { UserModel } from './../models/user/index.js';
+import { SwitchUserRoleDto } from '../application/dto/switch-user-role.dto.js';
+import { SwitchUserRoleUseCase } from '../application/use-cases/switch-user-role.use-case.js';
+import { MongooseUserRoleGateway } from '../infrastructure/gateways/mongoose-user-role.gateway.js';
 
+const isUserRoleDddEnabled = () => process.env.USER_ROLE_DDD_ENABLED !== 'false';
+const userRoleGateway = new MongooseUserRoleGateway();
+const switchUserRoleUseCase = new SwitchUserRoleUseCase({ userRoleGateway });
 
 // @desc    Switch user
 // @route   POST /api/users/switch-user
@@ -7,6 +13,26 @@ import { UserModel } from './../models/user/index.js';
 
 // switch-user.controller.js
 export const SwitchUser = async (req, res) => {
+  if (isUserRoleDddEnabled()) {
+    try {
+      const response = await switchUserRoleUseCase.execute(
+        SwitchUserRoleDto.fromRequest({
+          userId: req.userId || null,
+          body: req.body || {},
+        }),
+      );
+
+      if (response.statusCode === 200) {
+        console.log(`User role switched successfully for user: ${response.meta.username} to role: ${response.meta.role}`);
+      }
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error('Error switching user role:', error);
+      return res.status(500).json({ success: false, message: 'Server error. Failed to switch user role.' });
+    }
+  }
+
   try {
     const userId = req.userId;
     const { role } = req.body;

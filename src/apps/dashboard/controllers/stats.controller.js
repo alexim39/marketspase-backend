@@ -8,8 +8,23 @@ import { OrderModel } from '../../store/models/order/index.js';
 import { FeedPostModel } from '../../feeds/models/feed/index.js';
 import { ThreadModel } from '../../forum/models/thread/index.js';
 import { UserBadgeModel } from '../../badges/models/user-badge.model.js';
+import { GetAdminOverviewStatsUseCase } from '../application/use-cases/get-admin-overview-stats.use-case.js';
+import { GetCampaignStatsUseCase } from '../application/use-cases/get-campaign-stats.use-case.js';
+import { GetEngagementStatsUseCase } from '../application/use-cases/get-engagement-stats.use-case.js';
+import { GetRevenueStatsUseCase } from '../application/use-cases/get-revenue-stats.use-case.js';
+import { GetUserStatsUseCase } from '../application/use-cases/get-user-stats.use-case.js';
+import { MongooseDashboardStatsGateway } from '../infrastructure/gateways/mongoose-dashboard-stats.gateway.js';
 
-export const getCampaignStats = async (req, res) => {
+const dashboardStatsGateway = new MongooseDashboardStatsGateway();
+const getCampaignStatsUseCase = new GetCampaignStatsUseCase({ dashboardStatsGateway });
+const getUserStatsUseCase = new GetUserStatsUseCase({ dashboardStatsGateway });
+const getRevenueStatsUseCase = new GetRevenueStatsUseCase({ dashboardStatsGateway });
+const getEngagementStatsUseCase = new GetEngagementStatsUseCase({ dashboardStatsGateway });
+const getAdminOverviewStatsUseCase = new GetAdminOverviewStatsUseCase({ dashboardStatsGateway });
+
+const isDashboardDddEnabled = () => process.env.DASHBOARD_DDD_ENABLED !== 'false';
+
+const legacyGetCampaignStats = async (req, res) => {
   try {
     const result = await CampaignModel.aggregate([
       {
@@ -51,7 +66,7 @@ export const getCampaignStats = async (req, res) => {
   }
 }
 
-export const getUserStats = async (req, res) => {
+const legacyGetUserStats = async (req, res) => {
   try {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -129,7 +144,7 @@ export const getUserStats = async (req, res) => {
   }
 }
 
-export const getRevenueStats = async (req, res) => {
+const legacyGetRevenueStats = async (req, res) => {
   try {
     const currentMonth = new Date();
     currentMonth.setDate(1);
@@ -227,7 +242,7 @@ export const getRevenueStats = async (req, res) => {
 }
 
 
-export const getEngagementStats = async (req, res) => {
+const legacyGetEngagementStats = async (req, res) => {
   try {
     // Since you don't have an engagement model yet, let's create a basic implementation
     // You'll need to implement this properly based on your business logic
@@ -260,7 +275,7 @@ export const getEngagementStats = async (req, res) => {
   }
 }
 
-export const getAdminOverviewStats = async () => {
+const legacyGetAdminOverviewStats = async () => {
   try {
     const now = new Date();
     const last24Hours = new Date(now.getTime() - (24 * 60 * 60 * 1000));
@@ -362,6 +377,71 @@ export const getAdminOverviewStats = async () => {
         leveledUsers,
       },
     };
+  } catch (error) {
+    console.error('Error fetching admin overview stats:', error);
+    throw error;
+  }
+};
+
+export const getCampaignStats = async (req, res) => {
+  if (!isDashboardDddEnabled()) {
+    return legacyGetCampaignStats(req, res);
+  }
+
+  try {
+    return await getCampaignStatsUseCase.execute();
+  } catch (error) {
+    console.error('Error fetching campaign stats:', error);
+    throw error;
+  }
+};
+
+export const getUserStats = async (req, res) => {
+  if (!isDashboardDddEnabled()) {
+    return legacyGetUserStats(req, res);
+  }
+
+  try {
+    return await getUserStatsUseCase.execute();
+  } catch (error) {
+    console.error('Error fetching user stats:', error);
+    throw error;
+  }
+};
+
+export const getRevenueStats = async (req, res) => {
+  if (!isDashboardDddEnabled()) {
+    return legacyGetRevenueStats(req, res);
+  }
+
+  try {
+    return await getRevenueStatsUseCase.execute();
+  } catch (error) {
+    console.error('Error fetching revenue stats:', error);
+    throw error;
+  }
+};
+
+export const getEngagementStats = async (req, res) => {
+  if (!isDashboardDddEnabled()) {
+    return legacyGetEngagementStats(req, res);
+  }
+
+  try {
+    return await getEngagementStatsUseCase.execute();
+  } catch (error) {
+    console.error('Error fetching engagement stats:', error);
+    throw error;
+  }
+};
+
+export const getAdminOverviewStats = async () => {
+  if (!isDashboardDddEnabled()) {
+    return legacyGetAdminOverviewStats();
+  }
+
+  try {
+    return await getAdminOverviewStatsUseCase.execute();
   } catch (error) {
     console.error('Error fetching admin overview stats:', error);
     throw error;

@@ -1,5 +1,36 @@
+import { GetAdminTestimonialsDto } from '../application/dto/get-admin-testimonials.dto.js';
+import { GetAdminTestimonialsUseCase } from '../application/use-cases/get-admin-testimonials.use-case.js';
+import { UpdateTestimonialStatusDto } from '../application/dto/update-testimonial-status.dto.js';
+import { UpdateTestimonialStatusUseCase } from '../application/use-cases/update-testimonial-status.use-case.js';
+import { UpdateTestimonialFeaturedStateDto } from '../application/dto/update-testimonial-featured-state.dto.js';
+import { UpdateTestimonialFeaturedStateUseCase } from '../application/use-cases/update-testimonial-featured-state.use-case.js';
+import { DeleteTestimonialDto } from '../application/dto/delete-testimonial.dto.js';
+import { DeleteTestimonialUseCase } from '../application/use-cases/delete-testimonial.use-case.js';
+import {
+  SettingsTestimonialNotFoundError,
+  SettingsValidationError,
+} from '../domain/errors/settings.errors.js';
+import { MongooseSettingsTestimonialRepository } from '../infrastructure/repositories/mongoose-settings-testimonial.repository.js';
 import { TestimonialModel } from './../models/testimonial/index.js';
 import { UserModel } from '../../user/models/user/index.js';
+
+const settingsTestimonialRepository = new MongooseSettingsTestimonialRepository();
+
+const getAdminTestimonialsUseCase = new GetAdminTestimonialsUseCase({
+  settingsTestimonialRepository,
+});
+
+const updateTestimonialStatusUseCase = new UpdateTestimonialStatusUseCase({
+  settingsTestimonialRepository,
+});
+
+const updateTestimonialFeaturedStateUseCase = new UpdateTestimonialFeaturedStateUseCase({
+  settingsTestimonialRepository,
+});
+
+const deleteTestimonialUseCase = new DeleteTestimonialUseCase({
+  settingsTestimonialRepository,
+});
 
 const formatAdminTestimonial = (testimonial) => {
   const item = testimonial?.toObject ? testimonial.toObject() : testimonial;
@@ -18,7 +49,7 @@ const formatAdminTestimonial = (testimonial) => {
 };
 
 // Get all testimonials with optional filtering
-export const adminGetTestimonials = async (req, res) => {
+export const legacyAdminGetTestimonials = async (req, res) => {
   try {
     const { status, rating, featured, page = 1, limit = 10 } = req.query;
 
@@ -63,8 +94,27 @@ export const adminGetTestimonials = async (req, res) => {
   }
 };
 
+export const adminGetTestimonials = async (req, res) => {
+  if (process.env.SETTINGS_DDD_ENABLED === 'false') {
+    return legacyAdminGetTestimonials(req, res);
+  }
+
+  try {
+    const result = await getAdminTestimonialsUseCase.execute(
+      GetAdminTestimonialsDto.fromRequest({
+        query: req.query,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Error fetching testimonials:', error);
+    return res.status(500).json({ success: true, message: 'Server error while fetching testimonials' });
+  }
+};
+
 // Update testimonial status
-export const updateTestimonialStatus = async (req, res) => {
+export const legacyUpdateTestimonialStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -98,8 +148,37 @@ export const updateTestimonialStatus = async (req, res) => {
   }
 };
 
+export const updateTestimonialStatus = async (req, res) => {
+  if (process.env.SETTINGS_DDD_ENABLED === 'false') {
+    return legacyUpdateTestimonialStatus(req, res);
+  }
+
+  try {
+    const result = await updateTestimonialStatusUseCase.execute(
+      UpdateTestimonialStatusDto.fromRequest({
+        params: req.params,
+        body: req.body,
+        user: req.user,
+      }),
+    );
+
+    return res.json(result);
+  } catch (error) {
+    if (error instanceof SettingsValidationError) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+
+    if (error instanceof SettingsTestimonialNotFoundError) {
+      return res.status(404).json({ success: false, message: 'Testimonial not found' });
+    }
+
+    console.error('Error updating testimonial status:', error);
+    return res.status(500).json({ success: false, message: 'Server error while updating testimonial status' });
+  }
+};
+
 // Toggle featured status
-export const toggleFeatured = async (req, res) => {
+export const legacyToggleFeatured = async (req, res) => {
   try {
     const { id } = req.params;
     const { isFeatured } = req.body;
@@ -121,8 +200,32 @@ export const toggleFeatured = async (req, res) => {
   }
 };
 
+export const toggleFeatured = async (req, res) => {
+  if (process.env.SETTINGS_DDD_ENABLED === 'false') {
+    return legacyToggleFeatured(req, res);
+  }
+
+  try {
+    const result = await updateTestimonialFeaturedStateUseCase.execute(
+      UpdateTestimonialFeaturedStateDto.fromRequest({
+        params: req.params,
+        body: req.body,
+      }),
+    );
+
+    return res.json(result);
+  } catch (error) {
+    if (error instanceof SettingsTestimonialNotFoundError) {
+      return res.status(404).json({ success: false, message: 'Testimonial not found' });
+    }
+
+    console.error('Error toggling featured status:', error);
+    return res.status(500).json({ success: false, message: 'Server error while toggling featured status' });
+  }
+};
+
 // Delete testimonial
-export const deleteTestimonial = async (req, res) => {
+export const legacyDeleteTestimonial = async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -143,6 +246,29 @@ export const deleteTestimonial = async (req, res) => {
   } catch (error) {
     console.error('Error deleting testimonial:', error);
     res.status(500).json({ success: false, message: 'Server error while deleting testimonial' });
+  }
+};
+
+export const deleteTestimonial = async (req, res) => {
+  if (process.env.SETTINGS_DDD_ENABLED === 'false') {
+    return legacyDeleteTestimonial(req, res);
+  }
+
+  try {
+    const result = await deleteTestimonialUseCase.execute(
+      DeleteTestimonialDto.fromRequest({
+        params: req.params,
+      }),
+    );
+
+    return res.json(result);
+  } catch (error) {
+    if (error instanceof SettingsTestimonialNotFoundError) {
+      return res.status(404).json({ success: false, message: 'Testimonial not found' });
+    }
+
+    console.error('Error deleting testimonial:', error);
+    return res.status(500).json({ success: false, message: 'Server error while deleting testimonial' });
   }
 };
 

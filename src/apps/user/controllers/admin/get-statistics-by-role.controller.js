@@ -1,10 +1,37 @@
 import { UserModel } from '../../models/user/index.js';
 import mongoose from 'mongoose';
+import { GetAdminUserStatsByRoleDto } from '../../application/dto/get-admin-user-stats-by-role.dto.js';
+import { GetAdminUserStatsByRoleUseCase } from '../../application/use-cases/get-admin-user-stats-by-role.use-case.js';
+import { MongooseAdminUserStatsByRoleGateway } from '../../infrastructure/gateways/mongoose-admin-user-stats-by-role.gateway.js';
+
+const isUserAdminDddEnabled = () => process.env.USER_ADMIN_DDD_ENABLED !== 'false';
+const adminUserStatsByRoleGateway = new MongooseAdminUserStatsByRoleGateway();
+const getAdminUserStatsByRoleUseCase = new GetAdminUserStatsByRoleUseCase({ adminUserStatsByRoleGateway });
 
  /**
    * Get user statistics by role
    */
 export const getUserStatsByRole = async (req, res) => {
+    if (isUserAdminDddEnabled()) {
+        try {
+            const response = await getAdminUserStatsByRoleUseCase.execute(
+                GetAdminUserStatsByRoleDto.fromRequest({
+                    params: req.params || {},
+                })
+            );
+
+            return res.status(response.statusCode).json(response.body);
+
+        } catch (error) {
+            console.error('Error fetching user stats by role:', error);
+            return res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+            });
+        }
+    }
+
     try {
         const { role } = req.params;
         

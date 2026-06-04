@@ -4,9 +4,35 @@ import { UserModel } from "../../user/models/user/index.js";
 import { CollaborationReviewModel } from "../models/index.js";
 import { getReviewEligibility, recomputeCollaborationRating } from "../services/collaboration-review.service.js";
 import { toIdString } from "../services/collaboration-access.service.js";
+import { GetReviewEligibilityDto } from "../application/dto/get-review-eligibility.dto.js";
+import { CreateCollaborationReviewDto } from "../application/dto/create-collaboration-review.dto.js";
+import { FlagCollaborationReviewDto } from "../application/dto/flag-collaboration-review.dto.js";
+import { ListAdminReviewsDto } from "../application/dto/list-admin-reviews.dto.js";
+import { ListGivenReviewsDto } from "../application/dto/list-given-reviews.dto.js";
+import { ListReceivedReviewsDto } from "../application/dto/list-received-reviews.dto.js";
+import { ModerateCollaborationReviewDto } from "../application/dto/moderate-collaboration-review.dto.js";
+import { CreateCollaborationReviewUseCase } from "../application/use-cases/create-collaboration-review.use-case.js";
+import { FlagCollaborationReviewUseCase } from "../application/use-cases/flag-collaboration-review.use-case.js";
+import { GetReviewEligibilityUseCase } from "../application/use-cases/get-review-eligibility.use-case.js";
+import { ListAdminReviewsUseCase } from "../application/use-cases/list-admin-reviews.use-case.js";
+import { ListGivenReviewsUseCase } from "../application/use-cases/list-given-reviews.use-case.js";
+import { ListReceivedReviewsUseCase } from "../application/use-cases/list-received-reviews.use-case.js";
+import { ModerateCollaborationReviewUseCase } from "../application/use-cases/moderate-collaboration-review.use-case.js";
+import { MongooseCollaborationReviewGateway } from "../infrastructure/gateways/mongoose-collaboration-review.gateway.js";
 
 const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 50;
+
+const collaborationReviewGateway = new MongooseCollaborationReviewGateway();
+const getReviewEligibilityUseCase = new GetReviewEligibilityUseCase({ collaborationReviewGateway });
+const listReceivedReviewsUseCase = new ListReceivedReviewsUseCase({ collaborationReviewGateway });
+const listGivenReviewsUseCase = new ListGivenReviewsUseCase({ collaborationReviewGateway });
+const listAdminReviewsUseCase = new ListAdminReviewsUseCase({ collaborationReviewGateway });
+const createCollaborationReviewUseCase = new CreateCollaborationReviewUseCase({ collaborationReviewGateway });
+const flagCollaborationReviewUseCase = new FlagCollaborationReviewUseCase({ collaborationReviewGateway });
+const moderateCollaborationReviewUseCase = new ModerateCollaborationReviewUseCase({ collaborationReviewGateway });
+
+const isCollaborationDddEnabled = () => process.env.COLLABORATION_DDD_ENABLED !== "false";
 
 const parseLimit = (value, fallback = DEFAULT_LIMIT) => {
   const parsed = Number.parseInt(value, 10);
@@ -28,6 +54,26 @@ const buildPagination = async ({ query, page, limit }) => {
 };
 
 export const getReviewEligibilityController = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await getReviewEligibilityUseCase.execute(
+        GetReviewEligibilityDto.fromRequest({
+          user: req.user || null,
+          params: req.params || {},
+          query: req.query || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Get collaboration review eligibility error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to check review eligibility.",
+      });
+    }
+  }
+
   try {
     const result = await getReviewEligibility({
       reviewerId: req.user?._id,
@@ -49,6 +95,27 @@ export const getReviewEligibilityController = async (req, res) => {
 };
 
 export const createReview = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await createCollaborationReviewUseCase.execute(
+        CreateCollaborationReviewDto.fromRequest({
+          user: req.user || null,
+          body: req.body || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Create collaboration review error:", error);
+      return res.status(error?.code === 11000 ? 409 : (error.status || 500)).json({
+        success: false,
+        message: error?.code === 11000
+          ? "You have already reviewed this collaboration."
+          : (error.message || "Failed to publish this review."),
+      });
+    }
+  }
+
   try {
     const revieweeId = req.body?.revieweeId;
     const promotionId = req.body?.promotionId;
@@ -131,6 +198,26 @@ export const createReview = async (req, res) => {
 };
 
 export const getReceivedReviews = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await listReceivedReviewsUseCase.execute(
+        ListReceivedReviewsDto.fromRequest({
+          user: req.user || null,
+          params: req.params || {},
+          query: req.query || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Get received collaboration reviews error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to load reviews.",
+      });
+    }
+  }
+
   try {
     const { userId } = req.params;
     if (!mongoose.Types.ObjectId.isValid(userId)) {
@@ -194,6 +281,25 @@ export const getReceivedReviews = async (req, res) => {
 };
 
 export const getGivenReviews = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await listGivenReviewsUseCase.execute(
+        ListGivenReviewsDto.fromRequest({
+          params: req.params || {},
+          query: req.query || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Get given collaboration reviews error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to load authored reviews.",
+      });
+    }
+  }
+
   try {
     const { userId } = req.params;
     if (!mongoose.Types.ObjectId.isValid(userId)) {
@@ -234,6 +340,26 @@ export const getGivenReviews = async (req, res) => {
 };
 
 export const flagReview = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await flagCollaborationReviewUseCase.execute(
+        FlagCollaborationReviewDto.fromRequest({
+          user: req.user || null,
+          params: req.params || {},
+          body: req.body || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Flag collaboration review error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to flag this review.",
+      });
+    }
+  }
+
   try {
     const reviewId = req.params.reviewId;
     const reason = String(req.body?.reason || "").trim();
@@ -315,6 +441,24 @@ export const flagReview = async (req, res) => {
 };
 
 export const getAdminReviews = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await listAdminReviewsUseCase.execute(
+        ListAdminReviewsDto.fromRequest({
+          query: req.query || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Get admin collaboration reviews error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to load moderation reviews.",
+      });
+    }
+  }
+
   try {
     const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
     const limit = parseLimit(req.query.limit, 20);
@@ -393,6 +537,26 @@ export const getAdminReviews = async (req, res) => {
 };
 
 export const moderateReview = async (req, res) => {
+  if (isCollaborationDddEnabled()) {
+    try {
+      const response = await moderateCollaborationReviewUseCase.execute(
+        ModerateCollaborationReviewDto.fromRequest({
+          user: req.user || null,
+          params: req.params || {},
+          body: req.body || {},
+        })
+      );
+
+      return res.status(response.statusCode).json(response.body);
+    } catch (error) {
+      console.error("Moderate collaboration review error:", error);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.message || "Failed to update this review.",
+      });
+    }
+  }
+
   try {
     const review = await CollaborationReviewModel.findById(req.params.reviewId).lean();
     if (!review) {

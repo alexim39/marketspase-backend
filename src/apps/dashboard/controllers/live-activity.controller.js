@@ -2,9 +2,17 @@ import { CampaignModel } from '../../campaign/models/campaign.model.js';
 import { FeedPostModel } from '../../feeds/models/feed/index.js';
 import { ThreadModel } from '../../forum/models/thread/index.js';
 import { ProductModel } from '../../store/models/promotion/product/product.model.js';
+import { GetLiveActivityFeedDto } from '../application/dto/get-live-activity-feed.dto.js';
+import { GetLiveActivityFeedUseCase } from '../application/use-cases/get-live-activity-feed.use-case.js';
+import { MongooseDashboardActivityGateway } from '../infrastructure/gateways/mongoose-dashboard-activity.gateway.js';
 
 const MAX_LIMIT = 25;
 const DEFAULT_LIMIT = 12;
+
+const dashboardActivityGateway = new MongooseDashboardActivityGateway();
+const getLiveActivityFeedUseCase = new GetLiveActivityFeedUseCase({ dashboardActivityGateway });
+
+const isDashboardDddEnabled = () => process.env.DASHBOARD_DDD_ENABLED !== 'false';
 
 const clampLimit = (value) => {
   const parsed = Number(value);
@@ -92,7 +100,7 @@ const buildProductActivity = (product) => {
   };
 };
 
-export const getLiveActivityFeed = async (req, res) => {
+const legacyGetLiveActivityFeed = async (req, res) => {
   const limit = clampLimit(req.query.limit);
   const recentWindowStart = getWindowStart(72);
   const summaryWindowStart = getWindowStart(24);
@@ -173,4 +181,18 @@ export const getLiveActivityFeed = async (req, res) => {
       refreshedAt: new Date().toISOString(),
     },
   });
+};
+
+export const getLiveActivityFeed = async (req, res) => {
+  if (!isDashboardDddEnabled()) {
+    return legacyGetLiveActivityFeed(req, res);
+  }
+
+  const response = await getLiveActivityFeedUseCase.execute(
+    GetLiveActivityFeedDto.fromRequest({
+      query: req.query || {},
+    }),
+  );
+
+  return res.status(200).json(response);
 };

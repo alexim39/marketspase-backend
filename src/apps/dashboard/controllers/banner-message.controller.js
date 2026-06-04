@@ -1,7 +1,30 @@
 // controllers/banner-message.controller.js
 import { BannerMessageModel, UserDismissalModel } from '../models/banner-message/index.js';
+import { CreateBannerMessageDto } from '../application/dto/create-banner-message.dto.js';
+import { DeleteBannerMessageDto } from '../application/dto/delete-banner-message.dto.js';
+import { DismissBannerMessageDto } from '../application/dto/dismiss-banner-message.dto.js';
+import { GetActiveBannerMessagesDto } from '../application/dto/get-active-banner-messages.dto.js';
+import { GetDismissedBannerMessagesDto } from '../application/dto/get-dismissed-banner-messages.dto.js';
+import { UpdateBannerMessageDto } from '../application/dto/update-banner-message.dto.js';
+import { CreateBannerMessageUseCase } from '../application/use-cases/create-banner-message.use-case.js';
+import { DeleteBannerMessageUseCase } from '../application/use-cases/delete-banner-message.use-case.js';
+import { DismissBannerMessageUseCase } from '../application/use-cases/dismiss-banner-message.use-case.js';
+import { GetActiveBannerMessagesUseCase } from '../application/use-cases/get-active-banner-messages.use-case.js';
+import { GetDismissedBannerMessagesUseCase } from '../application/use-cases/get-dismissed-banner-messages.use-case.js';
+import { UpdateBannerMessageUseCase } from '../application/use-cases/update-banner-message.use-case.js';
+import { MongooseDashboardBannerMessageGateway } from '../infrastructure/gateways/mongoose-dashboard-banner-message.gateway.js';
 
-export const getActiveNotifications = async (req, res) => {
+const dashboardBannerMessageGateway = new MongooseDashboardBannerMessageGateway();
+const getActiveBannerMessagesUseCase = new GetActiveBannerMessagesUseCase({ dashboardBannerMessageGateway });
+const dismissBannerMessageUseCase = new DismissBannerMessageUseCase({ dashboardBannerMessageGateway });
+const getDismissedBannerMessagesUseCase = new GetDismissedBannerMessagesUseCase({ dashboardBannerMessageGateway });
+const createBannerMessageUseCase = new CreateBannerMessageUseCase({ dashboardBannerMessageGateway });
+const updateBannerMessageUseCase = new UpdateBannerMessageUseCase({ dashboardBannerMessageGateway });
+const deleteBannerMessageUseCase = new DeleteBannerMessageUseCase({ dashboardBannerMessageGateway });
+
+const isDashboardDddEnabled = () => process.env.DASHBOARD_DDD_ENABLED !== 'false';
+
+const legacyGetActiveNotifications = async (req, res) => {
   try {
     const now = new Date();
     const userId = req.user?._id; // Assuming user is attached to request via auth middleware
@@ -60,7 +83,7 @@ export const getActiveNotifications = async (req, res) => {
   }
 };
 
-export const dismissNotification = async (req, res) => {
+const legacyDismissNotification = async (req, res) => {
   try {
     const { notificationId } = req.params;
     const {userId} = req.body;
@@ -103,7 +126,7 @@ export const dismissNotification = async (req, res) => {
   }
 };
 
-export const getDismissedNotifications = async (req, res) => {
+const legacyGetDismissedNotifications = async (req, res) => {
   try {
     const { userId } = req.params;
     
@@ -132,7 +155,7 @@ export const getDismissedNotifications = async (req, res) => {
 };
 
 // Admin only endpoints
-export const createNotification = async (req, res) => {
+const legacyCreateNotification = async (req, res) => {
   try {
     const notificationData = req.body;
     //notificationData.createdBy = req.q;
@@ -156,7 +179,7 @@ export const createNotification = async (req, res) => {
   }
 };
 
-export const updateNotification = async (req, res) => {
+const legacyUpdateNotification = async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
@@ -188,7 +211,7 @@ export const updateNotification = async (req, res) => {
   }
 };
 
-export const deleteNotification = async (req, res) => {
+const legacyDeleteNotification = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -210,6 +233,141 @@ export const deleteNotification = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete notification'
+    });
+  }
+};
+
+export const getActiveNotifications = async (req, res) => {
+  if (!isDashboardDddEnabled()) {
+    return legacyGetActiveNotifications(req, res);
+  }
+
+  try {
+    const response = await getActiveBannerMessagesUseCase.execute(
+      GetActiveBannerMessagesDto.fromRequest({
+        user: req.user || null,
+      }),
+    );
+
+    return res.status(response.statusCode).json(response.body);
+  } catch (error) {
+    console.error('Error fetching active notifications:', error);
+    return res.status(500).json({
+      success: false,
+      data: [],
+      message: 'Failed to fetch notifications',
+    });
+  }
+};
+
+export const dismissNotification = async (req, res) => {
+  if (!isDashboardDddEnabled()) {
+    return legacyDismissNotification(req, res);
+  }
+
+  try {
+    const response = await dismissBannerMessageUseCase.execute(
+      DismissBannerMessageDto.fromRequest({
+        params: req.params || {},
+        body: req.body || {},
+      }),
+    );
+
+    return res.status(response.statusCode).json(response.body);
+  } catch (error) {
+    console.error('Error dismissing notification:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to dismiss notification',
+    });
+  }
+};
+
+export const getDismissedNotifications = async (req, res) => {
+  if (!isDashboardDddEnabled()) {
+    return legacyGetDismissedNotifications(req, res);
+  }
+
+  try {
+    const response = await getDismissedBannerMessagesUseCase.execute(
+      GetDismissedBannerMessagesDto.fromRequest({
+        params: req.params || {},
+      }),
+    );
+
+    return res.status(response.statusCode).json(response.body);
+  } catch (error) {
+    console.error('Error fetching dismissed notifications:', error);
+    return res.status(500).json({
+      success: false,
+      data: [],
+    });
+  }
+};
+
+export const createNotification = async (req, res) => {
+  if (!isDashboardDddEnabled()) {
+    return legacyCreateNotification(req, res);
+  }
+
+  try {
+    const response = await createBannerMessageUseCase.execute(
+      CreateBannerMessageDto.fromRequest({
+        body: req.body || {},
+      }),
+    );
+
+    return res.status(response.statusCode).json(response.body);
+  } catch (error) {
+    console.error('Error creating notification:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create notification',
+    });
+  }
+};
+
+export const updateNotification = async (req, res) => {
+  if (!isDashboardDddEnabled()) {
+    return legacyUpdateNotification(req, res);
+  }
+
+  try {
+    const response = await updateBannerMessageUseCase.execute(
+      UpdateBannerMessageDto.fromRequest({
+        params: req.params || {},
+        body: req.body || {},
+      }),
+    );
+
+    return res.status(response.statusCode).json(response.body);
+  } catch (error) {
+    console.error('Error updating notification:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update notification',
+    });
+  }
+};
+
+export const deleteNotification = async (req, res) => {
+  if (!isDashboardDddEnabled()) {
+    return legacyDeleteNotification(req, res);
+  }
+
+  try {
+    const response = await deleteBannerMessageUseCase.execute(
+      DeleteBannerMessageDto.fromRequest({
+        params: req.params || {},
+      }),
+    );
+
+    return res.status(response.statusCode).json(response.body);
+  } catch (error) {
+    console.error('Error deleting notification:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete notification',
     });
   }
 };

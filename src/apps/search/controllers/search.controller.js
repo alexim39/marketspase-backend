@@ -3,6 +3,24 @@ import {
   queryGlobalSearch,
   reindexGlobalSearchDocuments,
 } from '../services/search-index.service.js';
+import { SearchEverythingDto } from '../application/dto/search-everything.dto.js';
+import { SearchEverythingUseCase } from '../application/use-cases/search-everything.use-case.js';
+import { GetSearchSuggestionsDto } from '../application/dto/get-search-suggestions.dto.js';
+import { GetSearchSuggestionsUseCase } from '../application/use-cases/get-search-suggestions.use-case.js';
+import { RebuildSearchIndexDto } from '../application/dto/rebuild-search-index.dto.js';
+import { RebuildSearchIndexUseCase } from '../application/use-cases/rebuild-search-index.use-case.js';
+import { LegacySearchIndexGateway } from '../infrastructure/gateways/legacy-search-index.gateway.js';
+
+const searchIndexGateway = new LegacySearchIndexGateway();
+const searchEverythingUseCase = new SearchEverythingUseCase({
+  searchIndexGateway,
+});
+const getSearchSuggestionsUseCase = new GetSearchSuggestionsUseCase({
+  searchIndexGateway,
+});
+const rebuildSearchIndexUseCase = new RebuildSearchIndexUseCase({
+  searchIndexGateway,
+});
 
 const parseCsvList = (value) => String(value || '')
   .split(',')
@@ -18,7 +36,7 @@ const clamp = (value, minimum, maximum, fallback) => {
   return Math.max(minimum, Math.min(maximum, Math.trunc(numeric)));
 };
 
-export const searchEverything = async (req, res) => {
+export const legacySearchEverything = async (req, res) => {
   try {
     ensureGlobalSearchBootstrap().catch((error) => {
       console.warn('[global-search] background bootstrap trigger failed:', error.message);
@@ -48,7 +66,30 @@ export const searchEverything = async (req, res) => {
   }
 };
 
-export const getSearchSuggestions = async (req, res) => {
+export const searchEverything = async (req, res) => {
+  if (process.env.SEARCH_DDD_ENABLED === 'false') {
+    return legacySearchEverything(req, res);
+  }
+
+  try {
+    const response = await searchEverythingUseCase.execute(
+      SearchEverythingDto.fromRequest({
+        query: req.query,
+        user: req.user,
+      }),
+    );
+
+    return res.status(200).json(response);
+  } catch (error) {
+    console.error('[global-search] searchEverything error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to search MarketSpase',
+    });
+  }
+};
+
+export const legacyGetSearchSuggestions = async (req, res) => {
   try {
     ensureGlobalSearchBootstrap().catch((error) => {
       console.warn('[global-search] background bootstrap trigger failed:', error.message);
@@ -103,7 +144,30 @@ export const getSearchSuggestions = async (req, res) => {
   }
 };
 
-export const rebuildSearchIndex = async (req, res) => {
+export const getSearchSuggestions = async (req, res) => {
+  if (process.env.SEARCH_DDD_ENABLED === 'false') {
+    return legacyGetSearchSuggestions(req, res);
+  }
+
+  try {
+    const response = await getSearchSuggestionsUseCase.execute(
+      GetSearchSuggestionsDto.fromRequest({
+        query: req.query,
+        user: req.user,
+      }),
+    );
+
+    return res.status(200).json(response);
+  } catch (error) {
+    console.error('[global-search] getSearchSuggestions error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch search suggestions',
+    });
+  }
+};
+
+export const legacyRebuildSearchIndex = async (req, res) => {
   try {
     const entityTypes = parseCsvList(req.body?.entityTypes || req.query.types);
     const summary = await reindexGlobalSearchDocuments({
@@ -115,6 +179,29 @@ export const rebuildSearchIndex = async (req, res) => {
       message: 'Search index rebuilt successfully',
       data: summary,
     });
+  } catch (error) {
+    console.error('[global-search] rebuildSearchIndex error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to rebuild search index',
+    });
+  }
+};
+
+export const rebuildSearchIndex = async (req, res) => {
+  if (process.env.SEARCH_DDD_ENABLED === 'false') {
+    return legacyRebuildSearchIndex(req, res);
+  }
+
+  try {
+    const response = await rebuildSearchIndexUseCase.execute(
+      RebuildSearchIndexDto.fromRequest({
+        body: req.body,
+        query: req.query,
+      }),
+    );
+
+    return res.status(200).json(response);
   } catch (error) {
     console.error('[global-search] rebuildSearchIndex error:', error);
     return res.status(500).json({

@@ -2,6 +2,141 @@ import { ContactModel } from "../models/index.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { sendEmail } from "../../../core/email.service.js";
 import mongoose from "mongoose";
+import { AddContactAdminNoteDto } from "../application/dto/add-contact-admin-note.dto.js";
+import { AddContactAdminNoteUseCase } from "../application/use-cases/add-contact-admin-note.use-case.js";
+import { AssignContactToAdminDto } from "../application/dto/assign-contact-to-admin.dto.js";
+import { AssignContactToAdminUseCase } from "../application/use-cases/assign-contact-to-admin.use-case.js";
+import { BulkUpdateContactStatusDto } from "../application/dto/bulk-update-contact-status.dto.js";
+import { BulkUpdateContactStatusUseCase } from "../application/use-cases/bulk-update-contact-status.use-case.js";
+import { DeleteContactDto } from "../application/dto/delete-contact.dto.js";
+import { DeleteContactUseCase } from "../application/use-cases/delete-contact.use-case.js";
+import { ExportContactsDto } from "../application/dto/export-contacts.dto.js";
+import { ExportContactsUseCase } from "../application/use-cases/export-contacts.use-case.js";
+import { GetAvailableContactAdminsUseCase } from "../application/use-cases/get-available-contact-admins.use-case.js";
+import { GetContactMessageDto } from "../application/dto/get-contact-message.dto.js";
+import { GetContactMessageUseCase } from "../application/use-cases/get-contact-message.use-case.js";
+import { GetContactMessagesDto } from "../application/dto/get-contact-messages.dto.js";
+import { GetContactMessagesUseCase } from "../application/use-cases/get-contact-messages.use-case.js";
+import { GetContactStatsUseCase } from "../application/use-cases/get-contact-stats.use-case.js";
+import { MarkContactReadDto } from "../application/dto/mark-contact-read.dto.js";
+import { MarkContactReadUseCase } from "../application/use-cases/mark-contact-read.use-case.js";
+import { SetContactFollowUpDto } from "../application/dto/set-contact-follow-up.dto.js";
+import { SetContactFollowUpUseCase } from "../application/use-cases/set-contact-follow-up.use-case.js";
+import { SubmitContactDto } from "../application/dto/submit-contact.dto.js";
+import { SubmitContactUseCase } from "../application/use-cases/submit-contact.use-case.js";
+import { ToggleContactArchiveDto } from "../application/dto/toggle-contact-archive.dto.js";
+import { ToggleContactArchiveUseCase } from "../application/use-cases/toggle-contact-archive.use-case.js";
+import { UpdateContactPriorityDto } from "../application/dto/update-contact-priority.dto.js";
+import { UpdateContactPriorityUseCase } from "../application/use-cases/update-contact-priority.use-case.js";
+import { UpdateContactStatusDto } from "../application/dto/update-contact-status.dto.js";
+import { UpdateContactStatusUseCase } from "../application/use-cases/update-contact-status.use-case.js";
+import { UpdateContactTagsDto } from "../application/dto/update-contact-tags.dto.js";
+import { UpdateContactTagsUseCase } from "../application/use-cases/update-contact-tags.use-case.js";
+import {
+  ContactAdminNoteRequiredError,
+  ContactAuthenticationRequiredError,
+  ContactInvalidAdminIdError,
+  ContactInvalidAdminUserError,
+  ContactInvalidArchiveValueError,
+  ContactInvalidIdError,
+  ContactInvalidPriorityValueError,
+  ContactInvalidStatusValueError,
+  ContactInvalidTagsValueError,
+  ContactIdsRequiredError,
+  ContactNoValidIdsError,
+  ContactNotFoundError,
+  ContactUserNotFoundError,
+} from "../domain/errors/contact.errors.js";
+import { MongooseContactRepository } from "../infrastructure/repositories/mongoose-contact.repository.js";
+import { MongooseContactUserRepository } from "../infrastructure/repositories/mongoose-contact-user.repository.js";
+import { ContactResponsePresenter } from "../presentation/presenters/contact-response.presenter.js";
+
+const submitContactUseCase = new SubmitContactUseCase({
+  contactRepository: new MongooseContactRepository(),
+  contactUserRepository: new MongooseContactUserRepository(),
+});
+
+const getContactMessagesUseCase = new GetContactMessagesUseCase({
+  contactRepository: new MongooseContactRepository(),
+  contactUserRepository: new MongooseContactUserRepository(),
+});
+
+const getContactMessageUseCase = new GetContactMessageUseCase({
+  contactRepository: new MongooseContactRepository(),
+  contactUserRepository: new MongooseContactUserRepository(),
+  isValidContactId: (id) => mongoose.Types.ObjectId.isValid(id),
+});
+
+const getContactStatsUseCase = new GetContactStatsUseCase({
+  contactRepository: new MongooseContactRepository(),
+});
+
+const getAvailableContactAdminsUseCase = new GetAvailableContactAdminsUseCase({
+  contactUserRepository: new MongooseContactUserRepository(),
+});
+
+const markContactReadUseCase = new MarkContactReadUseCase({
+  contactRepository: new MongooseContactRepository(),
+  contactUserRepository: new MongooseContactUserRepository(),
+  isValidContactId: (id) => mongoose.Types.ObjectId.isValid(id),
+});
+
+const toggleContactArchiveUseCase = new ToggleContactArchiveUseCase({
+  contactRepository: new MongooseContactRepository(),
+  contactUserRepository: new MongooseContactUserRepository(),
+  isValidContactId: (id) => mongoose.Types.ObjectId.isValid(id),
+});
+
+const setContactFollowUpUseCase = new SetContactFollowUpUseCase({
+  contactRepository: new MongooseContactRepository(),
+  contactUserRepository: new MongooseContactUserRepository(),
+  isValidContactId: (id) => mongoose.Types.ObjectId.isValid(id),
+});
+
+const updateContactPriorityUseCase = new UpdateContactPriorityUseCase({
+  contactRepository: new MongooseContactRepository(),
+  contactUserRepository: new MongooseContactUserRepository(),
+  isValidContactId: (id) => mongoose.Types.ObjectId.isValid(id),
+});
+
+const updateContactStatusUseCase = new UpdateContactStatusUseCase({
+  contactRepository: new MongooseContactRepository(),
+  contactUserRepository: new MongooseContactUserRepository(),
+  isValidContactId: (id) => mongoose.Types.ObjectId.isValid(id),
+});
+
+const assignContactToAdminUseCase = new AssignContactToAdminUseCase({
+  contactRepository: new MongooseContactRepository(),
+  contactUserRepository: new MongooseContactUserRepository(),
+  isValidContactId: (id) => mongoose.Types.ObjectId.isValid(id),
+  isValidAdminId: (id) => mongoose.Types.ObjectId.isValid(id),
+});
+
+const addContactAdminNoteUseCase = new AddContactAdminNoteUseCase({
+  contactRepository: new MongooseContactRepository(),
+  contactUserRepository: new MongooseContactUserRepository(),
+  isValidContactId: (id) => mongoose.Types.ObjectId.isValid(id),
+});
+
+const updateContactTagsUseCase = new UpdateContactTagsUseCase({
+  contactRepository: new MongooseContactRepository(),
+  contactUserRepository: new MongooseContactUserRepository(),
+  isValidContactId: (id) => mongoose.Types.ObjectId.isValid(id),
+});
+
+const deleteContactUseCase = new DeleteContactUseCase({
+  contactRepository: new MongooseContactRepository(),
+  isValidContactId: (id) => mongoose.Types.ObjectId.isValid(id),
+});
+
+const bulkUpdateContactStatusUseCase = new BulkUpdateContactStatusUseCase({
+  contactRepository: new MongooseContactRepository(),
+  isValidContactId: (id) => mongoose.Types.ObjectId.isValid(id),
+});
+
+const exportContactsUseCase = new ExportContactsUseCase({
+  contactRepository: new MongooseContactRepository(),
+});
 
 //generate a numerical id.
 function generateNumericContactRequestId(length = 8) {
@@ -12,8 +147,7 @@ function generateNumericContactRequestId(length = 8) {
   return result;
 }
 
-// User contact contnroller
-export const ContactController = async (req, res) => {
+const legacyContactController = async (req, res) => {
   const requestID = generateNumericContactRequestId();
   try {
     const userId = req.userId;
@@ -79,6 +213,37 @@ export const ContactController = async (req, res) => {
   }
 };
 
+// User contact controller
+export const ContactController = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyContactController(req, res);
+  }
+
+  try {
+    const result = await submitContactUseCase.execute(
+      SubmitContactDto.fromRequest({
+        userId: req.userId,
+        body: req.body,
+      }),
+    );
+
+    return res.status(200).json(ContactResponsePresenter.submitted(result));
+  } catch (error) {
+    if (error instanceof ContactAuthenticationRequiredError) {
+      return res
+        .status(401)
+        .json(ContactResponsePresenter.authenticationRequired());
+    }
+
+    if (error instanceof ContactUserNotFoundError) {
+      return res.status(404).json(ContactResponsePresenter.userNotFound());
+    }
+
+    console.error(error.message);
+    return res.status(500).json(ContactResponsePresenter.internalServerError());
+  }
+};
+
 // Helper function to populate user data
 const populateUserData = async (contacts) => {
   if (!contacts || contacts.length === 0) return contacts;
@@ -113,7 +278,7 @@ const populateUserData = async (contacts) => {
 };
 
 // Get all contact messages with filters and pagination
-export const getContactMessages = async (req, res) => {
+const legacyGetContactMessages = async (req, res) => {
   try {
     const {
       page = 1,
@@ -284,8 +449,29 @@ export const getContactMessages = async (req, res) => {
   }
 };
 
+export const getContactMessages = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyGetContactMessages(req, res);
+  }
+
+  try {
+    const result = await getContactMessagesUseCase.execute(
+      GetContactMessagesDto.fromRequest({ query: req.query }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Error fetching contact messages:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch contact messages",
+      error: error.message,
+    });
+  }
+};
+
 // Get single contact message by ID
-export const getContactMessage = async (req, res) => {
+const legacyGetContactMessage = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -324,8 +510,43 @@ export const getContactMessage = async (req, res) => {
   }
 };
 
+export const getContactMessage = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyGetContactMessage(req, res);
+  }
+
+  try {
+    const result = await getContactMessageUseCase.execute(
+      GetContactMessageDto.fromRequest({ params: req.params }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof ContactInvalidIdError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contact ID",
+      });
+    }
+
+    if (error instanceof ContactNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: "Contact message not found",
+      });
+    }
+
+    console.error("Error fetching contact message:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch contact message",
+      error: error.message,
+    });
+  }
+};
+
 // Update contact status
-export const updateContactStatus = async (req, res) => {
+const legacyUpdateContactStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, notes } = req.body;
@@ -402,8 +623,54 @@ export const updateContactStatus = async (req, res) => {
   }
 };
 
+export const updateContactStatus = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyUpdateContactStatus(req, res);
+  }
+
+  try {
+    const result = await updateContactStatusUseCase.execute(
+      UpdateContactStatusDto.fromRequest({
+        params: req.params,
+        body: req.body,
+        user: req.user,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof ContactInvalidIdError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contact ID",
+      });
+    }
+
+    if (error instanceof ContactInvalidStatusValueError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status value",
+      });
+    }
+
+    if (error instanceof ContactNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: "Contact message not found",
+      });
+    }
+
+    console.error("Error updating contact status:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update contact status",
+      error: error.message,
+    });
+  }
+};
+
 // Update contact priority
-export const updateContactPriority = async (req, res) => {
+const legacyUpdateContactPriority = async (req, res) => {
   try {
     const { id } = req.params;
     const { priority } = req.body;
@@ -459,8 +726,54 @@ export const updateContactPriority = async (req, res) => {
   }
 };
 
+export const updateContactPriority = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyUpdateContactPriority(req, res);
+  }
+
+  try {
+    const result = await updateContactPriorityUseCase.execute(
+      UpdateContactPriorityDto.fromRequest({
+        params: req.params,
+        body: req.body,
+        user: req.user,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof ContactInvalidIdError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contact ID",
+      });
+    }
+
+    if (error instanceof ContactInvalidPriorityValueError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid priority value",
+      });
+    }
+
+    if (error instanceof ContactNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: "Contact message not found",
+      });
+    }
+
+    console.error("Error updating contact priority:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update contact priority",
+      error: error.message,
+    });
+  }
+};
+
 // Assign contact to admin
-export const assignContactToAdmin = async (req, res) => {
+const legacyAssignContactToAdmin = async (req, res) => {
   try {
     const { id } = req.params;
     const { adminId } = req.body;
@@ -531,8 +844,61 @@ export const assignContactToAdmin = async (req, res) => {
   }
 };
 
+export const assignContactToAdmin = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyAssignContactToAdmin(req, res);
+  }
+
+  try {
+    const result = await assignContactToAdminUseCase.execute(
+      AssignContactToAdminDto.fromRequest({
+        params: req.params,
+        body: req.body,
+        user: req.user,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof ContactInvalidIdError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contact ID",
+      });
+    }
+
+    if (error instanceof ContactInvalidAdminIdError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid admin ID",
+      });
+    }
+
+    if (error instanceof ContactInvalidAdminUserError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid admin user",
+      });
+    }
+
+    if (error instanceof ContactNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: "Contact message not found",
+      });
+    }
+
+    console.error("Error assigning contact:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to assign contact",
+      error: error.message,
+    });
+  }
+};
+
 // Add admin note
-export const addAdminNote = async (req, res) => {
+const legacyAddAdminNote = async (req, res) => {
   try {
     const { id } = req.params;
     const { note } = req.body;
@@ -585,8 +951,54 @@ export const addAdminNote = async (req, res) => {
   }
 };
 
+export const addAdminNote = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyAddAdminNote(req, res);
+  }
+
+  try {
+    const result = await addContactAdminNoteUseCase.execute(
+      AddContactAdminNoteDto.fromRequest({
+        params: req.params,
+        body: req.body,
+        user: req.user,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof ContactInvalidIdError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contact ID",
+      });
+    }
+
+    if (error instanceof ContactAdminNoteRequiredError) {
+      return res.status(400).json({
+        success: false,
+        message: "Note is required",
+      });
+    }
+
+    if (error instanceof ContactNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: "Contact message not found",
+      });
+    }
+
+    console.error("Error adding admin note:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to add note",
+      error: error.message,
+    });
+  }
+};
+
 // Update tags
-export const updateTags = async (req, res) => {
+const legacyUpdateTags = async (req, res) => {
   try {
     const { id } = req.params;
     const { tags } = req.body;
@@ -650,8 +1062,54 @@ export const updateTags = async (req, res) => {
   }
 };
 
+export const updateTags = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyUpdateTags(req, res);
+  }
+
+  try {
+    const result = await updateContactTagsUseCase.execute(
+      UpdateContactTagsDto.fromRequest({
+        params: req.params,
+        body: req.body,
+        user: req.user,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof ContactInvalidIdError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contact ID",
+      });
+    }
+
+    if (error instanceof ContactInvalidTagsValueError) {
+      return res.status(400).json({
+        success: false,
+        message: "Tags must be an array",
+      });
+    }
+
+    if (error instanceof ContactNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: "Contact message not found",
+      });
+    }
+
+    console.error("Error updating tags:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update tags",
+      error: error.message,
+    });
+  }
+};
+
 // Mark as read
-export const markAsRead = async (req, res) => {
+const legacyMarkAsRead = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -695,8 +1153,43 @@ export const markAsRead = async (req, res) => {
   }
 };
 
+export const markAsRead = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyMarkAsRead(req, res);
+  }
+
+  try {
+    const result = await markContactReadUseCase.execute(
+      MarkContactReadDto.fromRequest({ params: req.params }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof ContactInvalidIdError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contact ID",
+      });
+    }
+
+    if (error instanceof ContactNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: "Contact message not found",
+      });
+    }
+
+    console.error("Error marking contact as read:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to mark contact as read",
+      error: error.message,
+    });
+  }
+};
+
 // Archive/unarchive contact
-export const toggleArchive = async (req, res) => {
+const legacyToggleArchive = async (req, res) => {
   try {
     const { id } = req.params;
     const { archived } = req.body;
@@ -752,8 +1245,54 @@ export const toggleArchive = async (req, res) => {
   }
 };
 
+export const toggleArchive = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyToggleArchive(req, res);
+  }
+
+  try {
+    const result = await toggleContactArchiveUseCase.execute(
+      ToggleContactArchiveDto.fromRequest({
+        params: req.params,
+        body: req.body,
+        user: req.user,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof ContactInvalidIdError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contact ID",
+      });
+    }
+
+    if (error instanceof ContactInvalidArchiveValueError) {
+      return res.status(400).json({
+        success: false,
+        message: "Archived must be a boolean value",
+      });
+    }
+
+    if (error instanceof ContactNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: "Contact message not found",
+      });
+    }
+
+    console.error("Error toggling archive status:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update archive status",
+      error: error.message,
+    });
+  }
+};
+
 // Set follow-up date
-export const setFollowUpDate = async (req, res) => {
+const legacySetFollowUpDate = async (req, res) => {
   try {
     const { id } = req.params;
     const { date } = req.body;
@@ -806,8 +1345,47 @@ export const setFollowUpDate = async (req, res) => {
   }
 };
 
+export const setFollowUpDate = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacySetFollowUpDate(req, res);
+  }
+
+  try {
+    const result = await setContactFollowUpUseCase.execute(
+      SetContactFollowUpDto.fromRequest({
+        params: req.params,
+        body: req.body,
+        user: req.user,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof ContactInvalidIdError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contact ID",
+      });
+    }
+
+    if (error instanceof ContactNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: "Contact message not found",
+      });
+    }
+
+    console.error("Error setting follow-up date:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to set follow-up date",
+      error: error.message,
+    });
+  }
+};
+
 // Delete contact
-export const deleteContact = async (req, res) => {
+const legacyDeleteContact = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -841,8 +1419,43 @@ export const deleteContact = async (req, res) => {
   }
 };
 
+export const deleteContact = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyDeleteContact(req, res);
+  }
+
+  try {
+    const result = await deleteContactUseCase.execute(
+      DeleteContactDto.fromRequest({ params: req.params }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof ContactInvalidIdError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid contact ID",
+      });
+    }
+
+    if (error instanceof ContactNotFoundError) {
+      return res.status(404).json({
+        success: false,
+        message: "Contact message not found",
+      });
+    }
+
+    console.error("Error deleting contact:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete contact",
+      error: error.message,
+    });
+  }
+};
+
 // Bulk operations
-export const bulkUpdateStatus = async (req, res) => {
+const legacyBulkUpdateStatus = async (req, res) => {
   try {
     const { ids, status } = req.body;
 
@@ -910,8 +1523,53 @@ export const bulkUpdateStatus = async (req, res) => {
   }
 };
 
+export const bulkUpdateStatus = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyBulkUpdateStatus(req, res);
+  }
+
+  try {
+    const result = await bulkUpdateContactStatusUseCase.execute(
+      BulkUpdateContactStatusDto.fromRequest({
+        body: req.body,
+        user: req.user,
+      }),
+    );
+
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof ContactIdsRequiredError) {
+      return res.status(400).json({
+        success: false,
+        message: "No contact IDs provided",
+      });
+    }
+
+    if (error instanceof ContactInvalidStatusValueError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status value",
+      });
+    }
+
+    if (error instanceof ContactNoValidIdsError) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid contact IDs provided",
+      });
+    }
+
+    console.error("Error in bulk status update:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update contacts",
+      error: error.message,
+    });
+  }
+};
+
 // Export contacts
-export const exportContacts = async (req, res) => {
+const legacyExportContacts = async (req, res) => {
   try {
     const { format = "csv", ...filters } = req.query;
 
@@ -1017,8 +1675,31 @@ export const exportContacts = async (req, res) => {
   }
 };
 
+export const exportContacts = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyExportContacts(req, res);
+  }
+
+  try {
+    const result = await exportContactsUseCase.execute(
+      ExportContactsDto.fromRequest({ query: req.query }),
+    );
+
+    res.setHeader("Content-Type", result.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${result.fileName}"`);
+    return res.send(result.body);
+  } catch (error) {
+    console.error("Error exporting contacts:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to export contacts",
+      error: error.message,
+    });
+  }
+};
+
 // Get contact statistics
-export const getContactStats = async (req, res) => {
+const legacyGetContactStats = async (req, res) => {
   try {
     const stats = await ContactModel.getStats();
 
@@ -1036,8 +1717,27 @@ export const getContactStats = async (req, res) => {
   }
 };
 
+export const getContactStats = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyGetContactStats(req, res);
+  }
+
+  try {
+    const result = await getContactStatsUseCase.execute();
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Error getting contact stats:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get contact statistics",
+      error: error.message,
+    });
+  }
+};
+
 // Get available admins for assignment
-export const getAvailableAdmins = async (req, res) => {
+const legacyGetAvailableAdmins = async (req, res) => {
   try {
     const admins = await UserModel.find({
       role: { $in: ["admin", "marketing_rep"] },
@@ -1054,6 +1754,25 @@ export const getAvailableAdmins = async (req, res) => {
   } catch (error) {
     console.error("Error fetching admins:", error);
     res.status(500).json({
+      success: false,
+      message: "Failed to fetch admins",
+      error: error.message,
+    });
+  }
+};
+
+export const getAvailableAdmins = async (req, res) => {
+  if (process.env.CONTACT_DDD_ENABLED === "false") {
+    return legacyGetAvailableAdmins(req, res);
+  }
+
+  try {
+    const result = await getAvailableContactAdminsUseCase.execute();
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Error fetching admins:", error);
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch admins",
       error: error.message,
