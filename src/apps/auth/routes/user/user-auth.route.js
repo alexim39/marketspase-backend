@@ -2,6 +2,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import {
     Authenticate,
+    GetCurrentUser,
     GetUser,
     LocalSignIn,
     LocalSignUp,
@@ -26,6 +27,7 @@ UserRouter.post('/local/signup', localAuthLimiter, LocalSignUp);
 UserRouter.post('/local/request-password-reset', localAuthLimiter, RequestLocalPasswordReset);
 UserRouter.post('/local/reset-password', localAuthLimiter, ResetLocalPassword);
 // Get User record
+UserRouter.get('/me', authenticate, GetCurrentUser);
 UserRouter.get('/:uid', authenticate, GetUser);
 
 export default UserRouter;

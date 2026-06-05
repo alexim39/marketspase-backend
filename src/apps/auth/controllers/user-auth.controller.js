@@ -399,3 +399,17 @@ export const GetUser = async (req, res) => {
   }
 };
 
+export const GetCurrentUser = async (req, res) => {
+  const uid = req.user?.uid;
+
+  if (!uid) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found.",
+    });
+  }
+
+  req.params.uid = uid;
+  return GetUser(req, res);
+};
+
