@@ -10,6 +10,17 @@ import { AuthenticateUserUseCase } from '../application/use-cases/authenticate-u
 import { MongooseAuthUserRepository } from '../infrastructure/repositories/mongoose-auth-user.repository.js';
 import { AuthActivityLogService } from '../infrastructure/services/auth-activity-log.service.js';
 import { AuthWelcomeNotificationService } from '../infrastructure/services/auth-welcome-notification.service.js';
+import {
+  AuthenticateLocalUserUseCase,
+  RegisterOrAttachLocalPasswordUseCase,
+  RequestLocalPasswordResetUseCase,
+  ResetLocalPasswordUseCase,
+} from '../application/use-cases/local-auth.use-case.js';
+import { sendEmail } from '../../../core/email.service.js';
+import {
+  localPasswordResetTemplate,
+  localPasswordSetupTemplate,
+} from '../services/email/localAuthTemplate.js';
 
 const referralService = new ReferralService();
 const authUserRepository = new MongooseAuthUserRepository();
@@ -42,6 +53,7 @@ const AUTH_RESPONSE_PROJECTION = {
   isActive: 1,
   isVerified: 1,
   authenticationMethod: 1,
+  authProviders: 1,
   rating: 1,
   ratingCount: 1,
   ratingUpdatedAt: 1,
@@ -67,6 +79,7 @@ const buildAuthResponseUser = (userLike, reputationSnapshot = {}) => {
     isActive: userLike.isActive !== false,
     isVerified: Boolean(userLike.isVerified),
     authenticationMethod: userLike.authenticationMethod || 'google.com',
+    authProviders: Array.isArray(userLike.authProviders) ? userLike.authProviders : [],
     rating: Number(reputationSnapshot.rating ?? userLike.rating ?? 0),
     ratingCount: Number(reputationSnapshot.ratingCount ?? userLike.ratingCount ?? 0),
     createdAt: userLike.createdAt || null,
@@ -85,6 +98,79 @@ const authenticateUserUseCase = new AuthenticateUserUseCase({
   generateUsername: generateUniqueUsername,
   projection: AUTH_RESPONSE_PROJECTION,
 });
+
+const registerOrAttachLocalPasswordUseCase = new RegisterOrAttachLocalPasswordUseCase({
+  userRepository: authUserRepository,
+  activityLogService: authActivityLogService,
+  welcomeNotificationService: authWelcomeNotificationService,
+  referralService,
+  refreshUserReputation,
+  generateUsername: generateUniqueUsername,
+  sendEmail,
+  setupEmailTemplate: localPasswordSetupTemplate,
+  projection: AUTH_RESPONSE_PROJECTION,
+});
+
+const authenticateLocalUserUseCase = new AuthenticateLocalUserUseCase({
+  userRepository: authUserRepository,
+  activityLogService: authActivityLogService,
+  refreshUserReputation,
+  projection: AUTH_RESPONSE_PROJECTION,
+});
+
+const requestLocalPasswordResetUseCase = new RequestLocalPasswordResetUseCase({
+  userRepository: authUserRepository,
+  sendEmail,
+  resetEmailTemplate: localPasswordResetTemplate,
+});
+
+const resetLocalPasswordUseCase = new ResetLocalPasswordUseCase({
+  userRepository: authUserRepository,
+  activityLogService: authActivityLogService,
+  refreshUserReputation,
+  projection: AUTH_RESPONSE_PROJECTION,
+});
+
+const handleLocalAuthError = (res, error) => {
+  console.error("Local Auth Error:", error);
+
+  if (error?.statusCode) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message,
+      code: error.code,
+      ...(error.requiresEmailVerification ? { requiresEmailVerification: true } : {}),
+    });
+  }
+
+  if (error.name === 'ValidationError') {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+
+  if (error.code === 11000) {
+    return res.status(409).json({ success: false, message: "Duplicate email or username." });
+  }
+
+  return res.status(500).json({ success: false, message: "Internal server error." });
+};
+
+const sendLocalAuthResult = (res, result) => {
+  if (result.requiresEmailVerification) {
+    res.set('Cache-Control', 'no-store');
+    return res.status(result.statusCode || 202).json(result);
+  }
+
+  const responseUser = buildAuthResponseUser(result.user, result.reputationSnapshot);
+
+  res.set('Cache-Control', 'no-store');
+  return res.status(200).json({
+    success: true,
+    message: result.message,
+    user: responseUser,
+    token: result.token,
+    isNewUser: Boolean(result.isNewUser),
+  });
+};
 
 
 // Authenticate/Verify Usery
@@ -115,6 +201,44 @@ export const Authenticate = async (req, res) => {
       return res.status(409).json({ success: false, message: "Duplicate email or username." });
     }
     return res.status(500).json({ success: false, message: "Internal server error." });
+  }
+};
+
+export const LocalSignUp = async (req, res) => {
+  try {
+    const result = await registerOrAttachLocalPasswordUseCase.execute(req.body);
+    return sendLocalAuthResult(res, result);
+  } catch (error) {
+    return handleLocalAuthError(res, error);
+  }
+};
+
+export const LocalSignIn = async (req, res) => {
+  try {
+    const result = await authenticateLocalUserUseCase.execute(req.body);
+    return sendLocalAuthResult(res, result);
+  } catch (error) {
+    return handleLocalAuthError(res, error);
+  }
+};
+
+export const RequestLocalPasswordReset = async (req, res) => {
+  try {
+    const result = await requestLocalPasswordResetUseCase.execute(req.body);
+
+    res.set('Cache-Control', 'no-store');
+    return res.status(200).json(result);
+  } catch (error) {
+    return handleLocalAuthError(res, error);
+  }
+};
+
+export const ResetLocalPassword = async (req, res) => {
+  try {
+    const result = await resetLocalPasswordUseCase.execute(req.body);
+    return sendLocalAuthResult(res, result);
+  } catch (error) {
+    return handleLocalAuthError(res, error);
   }
 };
 

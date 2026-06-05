@@ -43,4 +43,21 @@ export const setupUserIndexes = (schema) => {
   schema.index({ 'fraudProfile.suspendedUntil': 1, isActive: 1 });
   schema.index({ 'fraudProfile.riskLevel': 1, role: 1, isDeleted: 1 });
   schema.index({ 'securityProfile.lastAuthIpHash': 1, role: 1, isDeleted: 1 });
+  schema.index({ authProviders: 1, isDeleted: 1 });
+  schema.index(
+    { 'localAuth.verificationCodeExpiresAt': 1 },
+    {
+      partialFilterExpression: {
+        'localAuth.verificationCodeExpiresAt': { $exists: true },
+      },
+    }
+  );
+  schema.index(
+    { 'localAuth.resetCodeExpiresAt': 1 },
+    {
+      partialFilterExpression: {
+        'localAuth.resetCodeExpiresAt': { $exists: true },
+      },
+    }
+  );
 };
