@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import mongoose from 'mongoose';
 
 import { GetConversationMessagesDto } from '../application/dto/get-conversation-messages.dto.js';
 import { ListConversationsDto } from '../application/dto/list-conversations.dto.js';
 import { MarkConversationReadDto } from '../application/dto/mark-conversation-read.dto.js';
-import { serializeCollaborationConversation } from '../application/mappers/collaboration-conversation.mapper.js';
+import {
+  serializeCollaborationConversation,
+  toCollaborationIdString,
+} from '../application/mappers/collaboration-conversation.mapper.js';
 import { GetConversationMessagesUseCase } from '../application/use-cases/get-conversation-messages.use-case.js';
 import { ListConversationsUseCase } from '../application/use-cases/list-conversations.use-case.js';
 import { MarkConversationReadUseCase } from '../application/use-cases/mark-conversation-read.use-case.js';
@@ -116,6 +120,13 @@ test('serializeCollaborationConversation preserves legacy conversation payload s
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-04T00:00:00.000Z',
   });
+});
+
+test('toCollaborationIdString serializes Mongoose ObjectIds without recursive _id lookups', () => {
+  const objectId = new mongoose.Types.ObjectId();
+
+  assert.equal(toCollaborationIdString(objectId), objectId.toHexString());
+  assert.equal(toCollaborationIdString({ _id: objectId }), objectId.toHexString());
 });
 
 test('ListConversationsUseCase preserves query parsing, search filtering, cache header, and unread counts', async () => {
