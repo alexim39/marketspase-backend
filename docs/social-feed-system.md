@@ -72,8 +72,41 @@ The discovery service scores posts using a blend of:
 - media richness
 - hashtag/challenge relevance
 - spotlight quality indicators
+- creator trust and suspension state
+- role relevance for promoters, marketers, and general users
+- business signals from product purchases/views and campaign click quality
+- stable exploration boost so users occasionally see useful adjacent content
+- diversity penalties to avoid repetitive creators or post types
 
 The current ranking is request-time scoring, which is simple and safe for the current deployment size. If feed volume grows significantly, the next scaling step is to precompute candidate sets or cache ranked windows by segment.
+
+### Feed quality pipeline
+
+`GET /feed/community` now follows a production-style pipeline:
+
+1. Build a base candidate query for published, unflagged content.
+2. Apply explicit filters from the request: type, hashtag, challenge, author, search, and feed mode.
+3. Fetch an expanded candidate window so ranking has enough posts to choose from.
+4. Remove ineligible posts before scoring:
+   - missing authors
+   - inactive or soft-deleted authors
+   - currently suspended creators
+   - critical-risk creators
+   - flagged/moderated feed posts
+   - expired, paused, rejected, archived, or deleted campaign posts
+   - unpublished, inactive, deleted, out-of-schedule product posts
+   - inactive or deleted storefront product stores
+5. Score each remaining candidate using the ranking signals above.
+6. Re-rank for diversity so the final feed avoids long runs from the same creator or same content type.
+7. Shape and sanitize the response before returning it to the frontend.
+
+The response includes a non-breaking `feedModel` object with the ranker name and signal names. This is diagnostic metadata only; clients should not depend on it for rendering.
+
+### Privacy and public payload safety
+
+The ranker reads internal creator and business fields such as `fraudProfile`, suspension status, product publication flags, store status, and campaign click quality. These fields are backend-only and must not be sent to the client.
+
+`shapeFeedPost()` sanitizes populated author, campaign, product, and store summaries before response delivery. Future feed work should keep this rule: internal ranking fields can be read during scoring, but only public display fields should be returned.
 
 ### Discovery response shape
 
@@ -85,6 +118,7 @@ The current ranking is request-time scoring, which is simple and safe for the cu
 - `trendingHashtags`
 - `trendingChallenges`
 - `creatorSpotlight`
+- `feedModel`
 - `sortMode`
 
 This lets the frontend render the feed, spotlight rail, and discovery modules from one request.
@@ -180,6 +214,7 @@ That matches the current implementation.
 - signal-backed feed state
 - tabbed discovery modes
 - search-aware feed loading
+- append-time duplicate protection for ranked pagination windows
 - creator spotlight section
 - trending hashtags and challenges
 - richer feed cards with product and challenge callouts
@@ -250,6 +285,8 @@ Current design is suitable for the live app and moderate growth. When feed traff
 2. precompute recommendation candidates for active users
 3. move heavy ranking into scheduled aggregation jobs
 4. add pagination indexes for challenge/hashtag filters
+5. add a cursor-based feed endpoint once the ranked window grows beyond request-time scoring
+6. track negative feedback events such as hide, report, and not interested for stronger personalization
 
 ## Known Follow-ups
 

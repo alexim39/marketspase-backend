@@ -3,7 +3,12 @@ import { FlagCollaborationReviewDto } from '../dto/flag-collaboration-review.dto
 const toIdString = (value) => {
   if (!value) return '';
   if (typeof value === 'string') return value;
-  if (typeof value === 'object' && value._id) return toIdString(value._id);
+  if (typeof value === 'object' && typeof value.toHexString === 'function') {
+    return value.toHexString();
+  }
+  if (typeof value === 'object' && value._id && value._id !== value) {
+    return toIdString(value._id);
+  }
   return String(value);
 };
 
