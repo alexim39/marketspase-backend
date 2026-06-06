@@ -31,7 +31,10 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
   const limitNum = Math.min(24, parsePositiveInt(limit, 12));
   const skip = (pageNum - 1) * limitNum;
 
-  const query = { status: 'published' };
+  const query = {
+    status: 'published',
+    'moderation.isFlagged': { $ne: true }
+  };
 
   if (type && type !== 'all') {
     query.type = type;
@@ -103,18 +106,18 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
     );
   }
 
-  const [discovery, candidates] = await Promise.all([
-    getFeedDiscoveryPayload({ status: 'published' }),
+  const [discovery, candidates, totalMatchingPosts] = await Promise.all([
+    getFeedDiscoveryPayload({ status: 'published', 'moderation.isFlagged': { $ne: true } }),
     fetchFeedCandidates({
       query,
       page: pageNum,
       limit: limitNum,
       mode: normalizedFeedType,
       userId
-    })
+    }),
+    FeedPostModel.countDocuments(query)
   ]);
 
-  const total = candidates.length;
   const pagedPosts = candidates.slice(skip, skip + limitNum).map((post) => shapeFeedPost(post, userId));
 
   await trackFeedImpressions(pagedPosts, userId).catch((error) => {
@@ -136,8 +139,21 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
         pagination: {
           page: pageNum,
           limit: limitNum,
-          total,
-          pages: Math.max(1, Math.ceil(total / limitNum))
+          total: totalMatchingPosts,
+          pages: Math.max(1, Math.ceil(totalMatchingPosts / limitNum))
+        },
+        feedModel: {
+          mode: normalizedFeedType,
+          candidateWindow: candidates.length,
+          ranker: 'marketspase-feed-v1',
+          signals: [
+            'freshness',
+            'engagement_quality',
+            'creator_trust',
+            'role_relevance',
+            'business_signal',
+            'diversity'
+          ]
         },
         sortMode: normalizedFeedType
       },
