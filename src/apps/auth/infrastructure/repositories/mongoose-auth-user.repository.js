@@ -23,10 +23,40 @@ export class MongooseAuthUserRepository {
     };
   }
 
+  async findByEmail(email, projection) {
+    const query = UserModel.findOne({ email: String(email || "").toLowerCase() });
+
+    if (projection) {
+      query.select(projection);
+    }
+
+    return query.lean();
+  }
+
+  async findLocalAuthByEmail(email) {
+    return UserModel.findOne({ email: String(email || "").toLowerCase() })
+      .select("+password +localAuth.verificationCodeHash +localAuth.verificationCodeExpiresAt +localAuth.resetCodeHash +localAuth.resetCodeExpiresAt")
+      .lean();
+  }
+
   async updateById(userId, setFields, projection) {
     const query = UserModel.findByIdAndUpdate(
       userId,
       { $set: setFields },
+      { new: true, runValidators: true }
+    );
+
+    if (projection) {
+      query.select(projection);
+    }
+
+    return query.lean();
+  }
+
+  async updateByIdWithOperators(userId, update, projection) {
+    const query = UserModel.findByIdAndUpdate(
+      userId,
+      update,
       { new: true, runValidators: true }
     );
 

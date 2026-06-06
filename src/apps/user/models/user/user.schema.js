@@ -43,11 +43,32 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
       required: function () { return this.authenticationMethod === 'local'; },
+      select: false,
     },
     authenticationMethod: {
       type: String,
       enum: AUTH_METHODS_ARRAY,
       default: 'google.com',
+    },
+    authProviders: {
+      type: [{
+        type: String,
+        enum: AUTH_METHODS_ARRAY,
+      }],
+      default: function () {
+        return this.authenticationMethod ? [this.authenticationMethod] : [];
+      },
+    },
+    localAuth: {
+      enabled: { type: Boolean, default: false },
+      passwordSetAt: { type: Date, default: null },
+      passwordLastUsedAt: { type: Date, default: null },
+      verificationCodeHash: { type: String, select: false },
+      verificationCodeExpiresAt: { type: Date, select: false },
+      verificationRequestedAt: { type: Date, select: false },
+      resetCodeHash: { type: String, select: false },
+      resetCodeExpiresAt: { type: Date, select: false },
+      resetRequestedAt: { type: Date, select: false },
     },
 
     role: {

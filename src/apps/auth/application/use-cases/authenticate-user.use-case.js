@@ -52,6 +52,15 @@ export class AuthenticateUserUseCase {
     let syncedFields = [];
 
     if (existingUser) {
+      const isLinkingProviderByEmail = matchedBy === "email" && providerProfile.uid !== existingUser.uid;
+      const existingProviders = Array.isArray(existingUser.authProviders) ? existingUser.authProviders : [];
+      const isExistingLocalAccount =
+        existingUser.authenticationMethod === "local" || existingProviders.includes("local");
+
+      if (isLinkingProviderByEmail && isExistingLocalAccount && decodedToken.email_verified === false) {
+        throw createStatusError(403, "Verify your social account email before linking it to this MarketSpase profile.");
+      }
+
       const syncUpdate = buildExistingUserSyncUpdate(existingUser, providerProfile, now);
       syncedFields = syncUpdate.syncedFields;
       user = await this.userRepository.updateById(existingUser._id, syncUpdate.setFields, this.projection);

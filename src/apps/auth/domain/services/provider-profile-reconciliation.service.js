@@ -7,6 +7,11 @@ export const buildExistingUserSyncUpdate = (existingUser, providerProfile, now =
     lastSeenAt: now,
   };
   const syncedFields = [];
+  const existingProviders = Array.isArray(existingUser.authProviders)
+    ? existingUser.authProviders.filter(Boolean)
+    : existingUser.authenticationMethod
+      ? [existingUser.authenticationMethod]
+      : [];
 
   if (providerProfile.uid && providerProfile.uid !== existingUser.uid) {
     setFields.uid = providerProfile.uid;
@@ -36,6 +41,14 @@ export const buildExistingUserSyncUpdate = (existingUser, providerProfile, now =
     syncedFields.push("authenticationMethod");
   }
 
+  if (
+    providerProfile.authenticationMethod &&
+    !existingProviders.includes(providerProfile.authenticationMethod)
+  ) {
+    setFields.authProviders = [...existingProviders, providerProfile.authenticationMethod];
+    syncedFields.push("authProviders");
+  }
+
   if (providerProfile.userDevice && providerProfile.userDevice !== existingUser.userDevice) {
     setFields.userDevice = providerProfile.userDevice;
     syncedFields.push("userDevice");
@@ -54,6 +67,7 @@ export const buildNewAuthUserDraft = (providerProfile, { username, now = new Dat
   email: providerProfile.email || undefined,
   avatar: providerProfile.avatar || DEFAULT_AVATAR,
   authenticationMethod: providerProfile.authenticationMethod || DEFAULT_AUTH_METHOD,
+  authProviders: [providerProfile.authenticationMethod || DEFAULT_AUTH_METHOD],
   userDevice: providerProfile.userDevice || undefined,
   lastSeenAt: now,
 });
