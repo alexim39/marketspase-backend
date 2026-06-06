@@ -24,6 +24,7 @@ export const setupPromotionIndexes = (schema) => {
   schema.index({ promoter: 1, isActive: 1, 'clickStats.earnedAmount': -1 });
   schema.index({ payoutModel: 1, status: 1 });
   schema.index({ 'fraudStatus.isFlagged': 1, 'fraudStatus.reviewStatus': 1, updatedAt: -1 });
+  schema.index({ 'fraudStatus.manualHold': 1, 'fraudStatus.reviewStatus': 1, updatedAt: -1 });
   schema.index({ promoter: 1, 'fraudStatus.reviewStatus': 1, createdAt: -1 });
   
   // Date indexes

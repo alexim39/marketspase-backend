@@ -8,6 +8,7 @@ import { PromotionModel } from "../../models/index.js";
 import { PromotionFraudCaseModel } from "../../models/promotion-fraud-case.model.js";
 import {
   promotionFraudClearedTemplate,
+  promotionFraudManualHoldTemplate,
   promotionFraudSuspensionTemplate,
   promotionFraudWarningTemplate,
 } from "./promotion-fraud-email.templates.js";
@@ -138,7 +139,7 @@ const appendUserActivity = async (userId, description, metadata = {}) => {
       $push: {
         activityLog: {
           $each: [{
-            action: "account_suspend",
+            action: metadata.action || "account_suspend",
             description,
             resourceType: "promotion",
             resourceId: metadata.promotionId || undefined,
@@ -466,6 +467,58 @@ const sendPromoterFraudWarning = async ({
   }
 };
 
+const sendPromoterFraudManualHoldMessage = async ({
+  promoter,
+  promotion,
+  campaign,
+  reasonSummary,
+  reasons = [],
+}) => {
+  const actionUrl = buildPromotionActionUrl(promotion._id);
+
+  try {
+    await NotificationService.createNotification({
+      recipient: promoter._id,
+      type: "system_announcement",
+      title: "Promotion link suspended until admin review",
+      message: `Your promotion link for "${campaign.title}" has been suspended by admin review and will remain inactive until restored.`,
+      data: {
+        promotionId: promotion._id,
+        campaignId: campaign._id,
+        actionUrl,
+        metadata: {
+          kind: "promotion_fraud_manual_hold",
+          reasonSummary,
+        },
+      },
+      priority: "high",
+    });
+  } catch (error) {
+    console.error("Unable to send manual fraud-hold notification:", error.message);
+  }
+
+  if (!promoter.email) {
+    return;
+  }
+
+  try {
+    await sendEmail(
+      promoter.email,
+      "MarketSpase promotion link suspended pending admin review",
+      promotionFraudManualHoldTemplate({
+        promoterName: promoter.displayName,
+        campaignTitle: campaign.title,
+        reasonSummary,
+        detectedReasons: reasons,
+        policyReasons: FRAUD_SUSPENSION_POLICY_REASONS,
+        promotionUrl: actionUrl,
+      })
+    );
+  } catch (error) {
+    console.error("Unable to send manual fraud-hold email:", error.message);
+  }
+};
+
 const sendPromoterFraudClearedMessage = async ({ promoter, promotion, campaign }) => {
   const actionUrl = buildPromotionActionUrl(promotion._id);
 
@@ -508,6 +561,10 @@ const sendPromoterFraudClearedMessage = async ({ promoter, promotion, campaign }
 
 export const isPromotionFraudLinkRestoreDue = (promotion, now = new Date()) => {
   if (!promotion || promotion.isActive !== false || !promotion?.fraudStatus?.isFlagged) {
+    return false;
+  }
+
+  if (promotion?.fraudStatus?.manualHold) {
     return false;
   }
 
@@ -595,6 +652,7 @@ export const restoreExpiredPromotionFraudLinks = async ({
   const query = {
     isActive: false,
     "fraudStatus.isFlagged": true,
+    "fraudStatus.manualHold": { $ne: true },
     status: { $nin: ["rejected", "paid"] },
     ...(promoterId ? { promoter: promoterId } : {}),
     $or: [
@@ -1127,6 +1185,114 @@ export const getPromotionFraudCases = async ({
   };
 };
 
+const suspendPromotionLinkIndefinitely = async ({
+  fraudCase,
+  promotion,
+  promoter,
+  campaign,
+  reason = "",
+  adminId = null,
+  now = new Date(),
+}) => {
+  const detectedReasonSummary = buildReasonSummary(fraudCase.reasons || []);
+  const reasonSummary = String(reason || "").trim()
+    || detectedReasonSummary
+    || "Promotion link suspended by admin for suspicious traffic activity.";
+  const nextRiskLevel = fraudCase.riskLevel === "critical" ? "critical" : "high";
+
+  promotion.isActive = false;
+  promotion.fraudStatus = {
+    ...(promotion.fraudStatus || {}),
+    isFlagged: true,
+    reviewStatus: "blocked",
+    riskLevel: nextRiskLevel,
+    reasonSummary,
+    reasons: uniqStrings([
+      promotion.fraudStatus?.reasons || [],
+      (fraudCase.reasons || []).map((item) => item.code),
+      "admin_manual_hold",
+    ]),
+    warningCount: Number(promotion.fraudStatus?.warningCount || 0) + 1,
+    firstFlaggedAt: promotion.fraudStatus?.firstFlaggedAt || now,
+    lastFlaggedAt: now,
+    blockedAt: now,
+    blockedUntil: null,
+    autoRestoredAt: null,
+    manualHold: true,
+    manualHoldAt: now,
+    manualHoldBy: adminId,
+    manualHoldReason: reasonSummary,
+    lastCaseId: fraudCase._id,
+  };
+  await promotion.save();
+
+  fraudCase.status = "suspended";
+  fraudCase.riskLevel = nextRiskLevel;
+  fraudCase.riskScore = Math.max(Number(fraudCase.riskScore || 0), 95);
+  fraudCase.reviewedAt = now;
+  fraudCase.reviewedBy = adminId;
+  fraudCase.resolutionNotes = reasonSummary;
+  fraudCase.suspendedAt = now;
+  fraudCase.suspendedUntil = null;
+  fraudCase.permanentLinkSuspendedAt = now;
+  fraudCase.permanentLinkSuspendedBy = adminId;
+  fraudCase.actionLog = [
+    ...(Array.isArray(fraudCase.actionLog) ? fraudCase.actionLog : []),
+    {
+      action: "suspend_promotion_indefinitely",
+      details: reasonSummary,
+      performedByAdmin: adminId,
+      timestamp: now,
+    },
+  ];
+  await fraudCase.save();
+
+  const activeCaseCount = await getOpenCaseCount(promoter._id);
+  await UserModel.updateOne(
+    { _id: promoter._id },
+    {
+      $set: {
+        "fraudProfile.activeCaseCount": activeCaseCount,
+        "fraudProfile.latestCase": fraudCase._id,
+        "fraudProfile.riskLevel": nextRiskLevel,
+        "fraudProfile.lastFlaggedAt": now,
+      },
+    }
+  );
+
+  await appendPromotionActivity(
+    promotion._id,
+    "Promotion Link Suspended Indefinitely",
+    reasonSummary,
+    adminId
+  );
+
+  await appendUserActivity(
+    promoter._id,
+    "Promotion link suspended indefinitely after admin fraud review.",
+    {
+      promotionId: promotion._id,
+      caseId: fraudCase._id,
+      reasonSummary,
+      action: "suspend_promotion_indefinitely",
+    }
+  );
+
+  await sendPromoterFraudManualHoldMessage({
+    promoter,
+    promotion,
+    campaign,
+    reasonSummary,
+    reasons: fraudCase.reasons || [],
+  });
+
+  return {
+    caseId: fraudCase._id,
+    status: fraudCase.status,
+    promotionSuspendedIndefinitely: true,
+  };
+};
+
 export const applyPromotionFraudCaseAction = async ({
   caseId,
   action,
@@ -1149,6 +1315,18 @@ export const applyPromotionFraudCaseAction = async ({
   }
 
   const now = new Date();
+
+  if (action === "suspend_promotion_indefinitely") {
+    return suspendPromotionLinkIndefinitely({
+      fraudCase,
+      promotion,
+      promoter,
+      campaign,
+      reason,
+      adminId,
+      now,
+    });
+  }
 
   if (action === "suspend_30_days" || action === "suspend_2_hours") {
     return enforcePromotionFraudSignal({
@@ -1203,6 +1381,12 @@ export const applyPromotionFraudCaseAction = async ({
       reasonSummary: "",
       reasons: [],
       lastFlaggedAt: promotion.fraudStatus?.lastFlaggedAt || now,
+      blockedUntil: null,
+      autoRestoredAt: null,
+      manualHold: false,
+      manualHoldAt: null,
+      manualHoldBy: null,
+      manualHoldReason: "",
       warningCount: 0,
       lastCaseId: fraudCase._id,
     };
