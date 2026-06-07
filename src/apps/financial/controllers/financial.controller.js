@@ -1,5 +1,7 @@
 import {
   buildFinancialAnalytics,
+  exportAdminDeposits,
+  getAdminDeposits,
   getFinancialOverviewPayload,
   getFinancialStatsPayload,
 } from '../services/financial-analytics.service.js';
@@ -55,6 +57,43 @@ export const getFinancialAnalytics = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error loading financial analytics',
+    });
+  }
+};
+
+export const getDeposits = async (req, res) => {
+  try {
+    const data = await getAdminDeposits(req.query || {});
+
+    res.json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    console.error('Error getting deposits:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching deposits',
+    });
+  }
+};
+
+export const exportDeposits = async (req, res) => {
+  try {
+    const data = await exportAdminDeposits({
+      ...(req.query || {}),
+      ...(req.body || {}),
+    });
+
+    res.json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    console.error('Error exporting deposits:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error exporting deposits',
     });
   }
 };

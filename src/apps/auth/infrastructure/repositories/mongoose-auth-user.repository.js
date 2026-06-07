@@ -1,4 +1,12 @@
 import { UserModel } from "../../../user/models/user/index.js";
+import {
+  ACTIVITY_ACTIONS,
+  ACTIVITY_ACTIONS_ARRAY,
+  RESOURCE_TYPES_ARRAY,
+} from "../../../user/models/activity/activity.constants.js";
+
+const knownActivityActions = new Set(ACTIVITY_ACTIONS_ARRAY);
+const knownResourceTypes = new Set(RESOURCE_TYPES_ARRAY);
 
 const createStatusError = (statusCode, message) => {
   const error = new Error(message);
@@ -83,12 +91,31 @@ export class MongooseAuthUserRepository {
   }
 
   async appendActivity(userId, activity) {
+    const action = knownActivityActions.has(activity?.action)
+      ? activity.action
+      : ACTIVITY_ACTIONS.SYSTEM_EVENT;
+    const resourceType = activity?.resourceType && knownResourceTypes.has(activity.resourceType)
+      ? activity.resourceType
+      : undefined;
+    const normalizedActivity = {
+      ...activity,
+      action,
+      resourceType,
+      metadata: {
+        ...(activity?.metadata || {}),
+        ...(action !== activity?.action ? { originalAction: activity?.action } : {}),
+        ...(activity?.resourceType && resourceType !== activity.resourceType
+          ? { originalResourceType: activity.resourceType }
+          : {}),
+      },
+    };
+
     await UserModel.updateOne(
       { _id: userId },
       {
         $push: {
           activityLog: {
-            $each: [activity],
+            $each: [normalizedActivity],
             $slice: -200,
           },
         },

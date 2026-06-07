@@ -161,7 +161,7 @@ const userSchema = new mongoose.Schema(
 
     userDevice: { type: String },
   },
-  { timestamps: true }
+  { timestamps: true, validateModifiedOnly: true }
 );
 
 export default userSchema;
