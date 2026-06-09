@@ -6,6 +6,7 @@ app.use(express.urlencoded({extended: false})); // Use formdata middleware
 import router from './financial.routes.js';
 import RefundRouter from './refund.routes.js';
 import TransferRouter from './transfer.routes.js';
+import RecoveryRouter from './recovery.routes.js';
 import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 import { requireAdmin } from '../../../shared/middleware/authorization.middleware.js';
 
@@ -21,7 +22,10 @@ FinancialRouter.use('/', router);
 FinancialRouter.use('/refund', RefundRouter);
 // Mount transferRouter under adminIndexRouter
 FinancialRouter.use('/transfer', TransferRouter);
+// Mount recovery router
+FinancialRouter.use('/recovery', RecoveryRouter);
 
 
 
 export default FinancialRouter;
+
