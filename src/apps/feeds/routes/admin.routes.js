@@ -5,12 +5,26 @@ import { adminGetPosts } from '../controllers/admin/admin-get-posts.controller.j
 import { adminGetPostDetail } from '../controllers/admin/admin-get-post-detail.controller.js';
 import { adminToggleFeaturePost } from '../controllers/admin/admin-feature-post.controller.js';
 import { adminDeletePost } from '../controllers/admin/admin-delete-post.controller.js';
+import {
+  adminGetSpotlightConfig,
+  adminUpdateSpotlightConfig,
+  adminClearSpotlight
+} from '../controllers/admin/admin-spotlight.controller.js';
 
 const router = express.Router();
 
 // All admin feed routes require authentication + admin role
 router.use(authenticate);
 router.use(requireAdmin);
+
+// GET /api/v1/feed/admin/spotlight - Get current spotlight config
+router.get('/spotlight', adminGetSpotlightConfig);
+
+// PUT /api/v1/feed/admin/spotlight - Update spotlight rotation
+router.put('/spotlight', adminUpdateSpotlightConfig);
+
+// DELETE /api/v1/feed/admin/spotlight - Clear spotlight rotation
+router.delete('/spotlight', adminClearSpotlight);
 
 // GET /api/v1/feed/admin/posts - List all posts with filters
 router.get('/posts', adminGetPosts);
