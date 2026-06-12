@@ -111,6 +111,12 @@ const promotionFraudCaseSchema = new mongoose.Schema(
     finalWarningSentAt: Date,
     suspendedAt: Date,
     suspendedUntil: Date,
+    permanentLinkSuspendedAt: Date,
+    permanentLinkSuspendedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
     reviewedAt: Date,
     reviewedBy: {
       type: mongoose.Schema.Types.ObjectId,

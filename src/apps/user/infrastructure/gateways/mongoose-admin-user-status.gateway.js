@@ -18,20 +18,34 @@ export class MongooseAdminUserStatusGateway extends AdminUserStatusGateway {
   }
 
   async saveUserActiveStatus({ user, isActive } = {}) {
-    user.isActive = isActive;
-    await user.save();
-    return user;
+    return this.userModel.findByIdAndUpdate(
+      user._id,
+      { $set: { isActive } },
+      { new: true },
+    );
   }
 
   async logUserStatusChange({ user, isActive, actorId } = {}) {
-    return user.logActivity(
-      'account_suspend',
-      `User status changed to ${isActive ? 'active' : 'inactive'}`,
+    return this.userModel.updateOne(
+      { _id: user._id },
       {
-        resourceType: 'user',
-        resourceId: user._id,
-        performedBy: actorId || 'system',
-        metadata: { isActive },
+        $push: {
+          activityLog: {
+            $each: [{
+              action: 'account_suspend',
+              description: `User status changed to ${isActive ? 'active' : 'inactive'}`,
+              resourceType: 'user',
+              resourceId: user._id,
+              metadata: {
+                isActive,
+                performedBy: actorId || 'system',
+              },
+              timestamp: new Date(),
+            }],
+            $position: 0,
+            $slice: 1000,
+          },
+        },
       }
     );
   }

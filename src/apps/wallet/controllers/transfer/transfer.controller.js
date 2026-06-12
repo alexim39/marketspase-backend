@@ -13,27 +13,51 @@ import { sendEmail } from "../../../../core/email.service.js";
  */
 export const transferFunds = async (req, res) => {
   const session = await mongoose.startSession();
-  session.startTransaction();
 
   try {
-    const {
-      transferType,      // 'self' or 'other'
-      destinationType,   // 'marketer' or 'promoter'
-      amount,
-      recipientUsername,
-      recipientId,
-      note,
-    } = req.body;
-    const sourceUserId = req.userId;
+    const transactionOptions = {
+      readPreference: 'primary',
+      readConcern: { level: 'local' },
+      writeConcern: { w: 'majority' }
+    };
+
+    let transferType;
+    let destinationType;
+    let amount;
+    let recipientUsername;
+    let recipientId;
+    let note;
+    let sourceUser;
+    let destinationUser;
+    let destinationWalletType;
+    let isSelfTransfer;
+    let marketerLockedTransfer;
+    let transferAmount;
+    let sourceTransaction;
+    let destinationTransaction;
+    let destinationWallet;
+    let sourceActivity;
+    let destinationActivity;
+
+    await session.withTransaction(async () => {
+      ({
+        transferType,
+        destinationType,
+        amount,
+        recipientUsername,
+        recipientId,
+        note,
+      } = req.body);
+      const sourceUserId = req.userId;
 
     // Validate amount
-    const transferAmount = parseFloat(amount);
+    transferAmount = parseFloat(amount);
     if (isNaN(transferAmount) || transferAmount < 100) {
       throw new Error('Minimum transfer amount is 100');
     }
 
     // Get source user
-    const sourceUser = await UserModel.findById(sourceUserId).session(session);
+    sourceUser = await UserModel.findById(sourceUserId).session(session);
     if (!sourceUser) {
       throw new Error('Source user not found');
     }
@@ -64,10 +88,9 @@ export const transferFunds = async (req, res) => {
       }
     }
 
-    let destinationUser;
-    let destinationWalletType;
-    let isSelfTransfer = transferType === 'self';
-    let marketerLockedTransfer = false;
+    destinationWalletType = undefined;
+    isSelfTransfer = transferType === 'self';
+    marketerLockedTransfer = false;
 
     if (isSelfTransfer) {
       // Self transfer: Always to user's own marketer wallet
@@ -116,7 +139,7 @@ export const transferFunds = async (req, res) => {
       };
     }
 
-    const destinationWallet = destinationUser.wallets[destinationWalletType];
+    destinationWallet = destinationUser.wallets[destinationWalletType];
 
     // Store balances before update for email
     const sourceOldBalance = sourceUser.wallets.promoter.balance;
@@ -126,7 +149,7 @@ export const transferFunds = async (req, res) => {
     sourceUser.wallets.promoter.balance -= transferAmount;
 
     // Create source transaction record
-    const sourceTransaction = {
+    sourceTransaction = {
       _id: new mongoose.Types.ObjectId(),
       reference: `TRF-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       amount: transferAmount,
@@ -156,7 +179,7 @@ export const transferFunds = async (req, res) => {
     destinationWallet.balance += transferAmount;
 
     // Create destination transaction record with lock flag if applicable
-    const destinationTransaction = {
+    destinationTransaction = {
       _id: new mongoose.Types.ObjectId(),
       reference: sourceTransaction.reference,
       amount: transferAmount,
@@ -182,8 +205,7 @@ export const transferFunds = async (req, res) => {
 
     destinationWallet.transactions.unshift(destinationTransaction);
 
-    // Log activity for source user
-    sourceUser.activityLog.unshift({
+    sourceActivity = {
       action: isSelfTransfer ? 'refund_received' : 'transfer',
       description: sourceTransaction.description,
       resourceType: 'wallet',
@@ -196,11 +218,10 @@ export const transferFunds = async (req, res) => {
       },
       severity: 'info',
       timestamp: new Date()
-    });
+    };
 
-    // Log activity for destination user (if different)
     if (!isSelfTransfer) {
-      destinationUser.activityLog.unshift({
+      destinationActivity = {
         action: 'transfer',
         description: destinationTransaction.description,
         resourceType: 'wallet',
@@ -214,12 +235,55 @@ export const transferFunds = async (req, res) => {
         },
         severity: 'info',
         timestamp: new Date()
-      });
+      };
     }
 
-    // Save both users
-    await sourceUser.save({ session });
-    await destinationUser.save({ session });
+    // Update source and destination users atomically without revalidating the whole activityLog array
+    const sourceUpdate = {
+      $set: {
+        'wallets.promoter.balance': sourceUser.wallets.promoter.balance
+      },
+      $push: {
+        'wallets.promoter.transactions': {
+          $each: [sourceTransaction],
+          $position: 0,
+          $slice: 1000
+        },
+        activityLog: {
+          $each: [sourceActivity],
+          $position: 0,
+          $slice: 1000
+        }
+      }
+    };
+
+    if (isSelfTransfer) {
+      sourceUpdate.$set[`wallets.${destinationWalletType}.balance`] = destinationWallet.balance;
+      sourceUpdate.$push[`wallets.${destinationWalletType}.transactions`] = {
+        $each: [destinationTransaction],
+        $position: 0,
+        $slice: 1000
+      };
+    }
+
+    await UserModel.updateOne({ _id: sourceUser._id }, sourceUpdate, { session });
+
+    if (!isSelfTransfer) {
+      const destinationUpdate = {
+        $set: {
+          [`wallets.${destinationWalletType}`]: destinationWallet
+        },
+        $push: {
+          activityLog: {
+            $each: [destinationActivity],
+            $position: 0,
+            $slice: 1000
+          }
+        }
+      };
+
+      await UserModel.updateOne({ _id: destinationUser._id }, destinationUpdate, { session });
+    }
 
     // Also create a standalone transaction record for audit
     const auditTransaction = new TransactionModel({
@@ -242,8 +306,7 @@ export const transferFunds = async (req, res) => {
     });
 
     await auditTransaction.save({ session });
-
-    await session.commitTransaction();
+  }, transactionOptions);
 
     // ==============================================
     // SEND EMAIL NOTIFICATIONS
@@ -337,7 +400,6 @@ export const transferFunds = async (req, res) => {
     });
 
   } catch (error) {
-    await session.abortTransaction();
     console.error('Transfer error:', error);
     
     res.status(400).json({

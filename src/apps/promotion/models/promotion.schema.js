@@ -150,6 +150,18 @@ const promotionSchema = new mongoose.Schema(
       blockedAt: Date,
       blockedUntil: Date,
       autoRestoredAt: Date,
+      manualHold: { type: Boolean, default: false },
+      manualHoldAt: Date,
+      manualHoldBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Admin",
+        default: null,
+      },
+      manualHoldReason: {
+        type: String,
+        trim: true,
+        default: "",
+      },
       lastCaseId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "PromotionFraudCase",

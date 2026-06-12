@@ -4,6 +4,8 @@ import {
   getFinancialOverview,
   getFinancialAnalytics,
   getFinancialStats,
+  getDeposits,
+  exportDeposits,
   exportTransactions,
   exportWithdrawals
 } from '../controllers/financial.controller.js';
@@ -30,9 +32,11 @@ router.patch('/withdrawals/:withdrawalId/process', processWithdrawal);
 
 // Transaction management
 router.get('/transactions', getTransactions);
+router.get('/deposits', getDeposits);
 
 // Export functionality
 router.post('/export/transactions', exportTransactions);
 router.post('/export/withdrawals', exportWithdrawals);
+router.post('/export/deposits', exportDeposits);
 
 export default router;

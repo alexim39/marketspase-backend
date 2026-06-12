@@ -243,6 +243,54 @@ export const promotionFraudSuspensionTemplate = ({
   ],
 });
 
+export const promotionFraudManualHoldTemplate = ({
+  promoterName,
+  campaignTitle,
+  reasonSummary,
+  detectedReasons = [],
+  policyReasons = [],
+  promotionUrl,
+}) => buildFraudNoticeShell({
+  preheader: "Your promotion link has been suspended pending admin restoration.",
+  title: "Promotion link suspended until admin review",
+  noticeTone: "danger",
+  ctaLabel: "Review Promotion Status",
+  ctaUrl: promotionUrl,
+  intro: `Hi ${escapeHtml(promoterName || "there")}, an admin has placed a manual suspension on your promotion link for <strong>${escapeHtml(campaignTitle)}</strong>. This is not a timed hold. The link will remain inactive until the MarketSpase Trust & Safety team restores it after review.`,
+  sections: [
+    {
+      heading: "Why this link was suspended",
+      body: `
+        <p style="margin:0 0 12px;"><strong>Summary:</strong> ${escapeHtml(reasonSummary)}</p>
+        ${renderBulletList(formatDetectedReasons(detectedReasons), { compact: true })}
+      `,
+      background: "#fef2f2",
+      border: "#fca5a5",
+      headingColor: "#991b1b",
+    },
+    {
+      heading: "Policy issues that can trigger this action",
+      body: renderBulletList(policyReasons.map((item) => escapeHtml(item))),
+      background: "#fffaf0",
+      border: "#f6ad55",
+      headingColor: "#9c4221",
+    },
+    {
+      heading: "What happens next",
+      body: `
+        <p style="margin:0 0 12px;">
+          Please stop sending traffic to this link and avoid actions that create duplicate, automated, self-clicked, or low-quality traffic.
+        </p>
+        <p style="margin:0;">
+          This suspension can only be reversed by an admin. Continued attempts to cheat the PPC system can reduce your promoter value, limit campaign access, reduce earning opportunities, or lead to stricter account penalties.
+        </p>
+      `,
+      background: "#f7fafc",
+      border: "#cbd5e0",
+    },
+  ],
+});
+
 export const promotionFraudClearedTemplate = ({
   promoterName,
   campaignTitle,

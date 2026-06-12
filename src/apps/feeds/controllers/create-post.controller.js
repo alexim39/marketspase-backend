@@ -4,6 +4,7 @@ import { CampaignModel } from '../../campaign/models/index.js';
 import { ProductModel } from '../../store/models/promotion/index.js';
 import { StoreModel } from '../../store/models/store/index.js';
 import { uploadToCloudinary } from '../../campaign/utils/cloudinary.js';
+import { buildVideoThumbnailUrl } from '../../campaign/services/thumbnail-generator.service.js';
 import { evaluateUserBadges } from '../../badges/service/badge.service.js';
 import { awardGamificationProgress } from '../../gamification/service/gamification.service.js';
 import { mergeHashtags, normalizeHashtagInput } from '../models/feed/feed.utils.js';
@@ -37,7 +38,9 @@ const buildUploadedMedia = async (files = [], userId) => {
     return {
       url: result.secure_url,
       type,
-      thumbnail: type === 'video' ? result.secure_url : undefined,
+      thumbnail: type === 'video'
+        ? buildVideoThumbnailUrl(result.public_id)
+        : undefined,
       altText: file.originalname,
       order: index
     };

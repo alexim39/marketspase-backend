@@ -93,6 +93,32 @@ const getTopRows = (rawValue) => {
   return Math.max(4, Math.min(16, parsedValue));
 };
 
+const getPageNumber = (rawPage) => Math.max(1, Number.parseInt(rawPage, 10) || 1);
+const getPageSize = (rawLimit, fallback = 20, max = 200) => Math.max(1, Math.min(max, Number.parseInt(rawLimit, 10) || fallback));
+const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const getValidDate = (rawValue) => {
+  if (!rawValue) {
+    return null;
+  }
+
+  const date = new Date(rawValue);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getInclusiveEndDate = (rawValue) => {
+  const date = getValidDate(rawValue);
+  if (!date) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(rawValue))) {
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
+
+  return date;
+};
+
 const getYearStart = (year) => new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0));
 const getYearEnd = (year) => new Date(Date.UTC(year + 1, 0, 1, 0, 0, 0, 0));
 
@@ -138,6 +164,9 @@ const buildWalletTransactionStages = ({ startDate = null, endDate = null } = {})
                   nativeAmount: { $ifNull: ['$$txn.amount', 0] },
                   amountPayable: { $ifNull: ['$$txn.amountPayable', 0] },
                   fee: { $ifNull: ['$$txn.fee', 0] },
+                  settlementAmount: { $ifNull: ['$$txn.settlementAmount', null] },
+                  exchangeRate: { $ifNull: ['$$txn.exchangeRate', null] },
+                  gateway: { $ifNull: ['$$txn.gateway', 'system'] },
                   currency: { $ifNull: ['$$txn.currency', DEFAULT_BASE_CURRENCY] },
                   baseCurrency: { $ifNull: ['$$txn.baseCurrency', DEFAULT_BASE_CURRENCY] },
                   settlementCurrency: {
@@ -148,6 +177,7 @@ const buildWalletTransactionStages = ({ startDate = null, endDate = null } = {})
                   bankDetails: { $ifNull: ['$$txn.bankDetails', null] },
                   transferCode: { $ifNull: ['$$txn.transferCode', null] },
                   failureReason: { $ifNull: ['$$txn.failureReason', null] },
+                  meta: { $ifNull: ['$$txn.meta', {}] },
                 },
               },
             },
@@ -171,6 +201,9 @@ const buildWalletTransactionStages = ({ startDate = null, endDate = null } = {})
                   nativeAmount: { $ifNull: ['$$txn.amount', 0] },
                   amountPayable: { $ifNull: ['$$txn.amountPayable', 0] },
                   fee: { $ifNull: ['$$txn.fee', 0] },
+                  settlementAmount: { $ifNull: ['$$txn.settlementAmount', null] },
+                  exchangeRate: { $ifNull: ['$$txn.exchangeRate', null] },
+                  gateway: { $ifNull: ['$$txn.gateway', 'system'] },
                   currency: { $ifNull: ['$$txn.currency', DEFAULT_BASE_CURRENCY] },
                   baseCurrency: { $ifNull: ['$$txn.baseCurrency', DEFAULT_BASE_CURRENCY] },
                   settlementCurrency: {
@@ -181,6 +214,7 @@ const buildWalletTransactionStages = ({ startDate = null, endDate = null } = {})
                   bankDetails: { $ifNull: ['$$txn.bankDetails', null] },
                   transferCode: { $ifNull: ['$$txn.transferCode', null] },
                   failureReason: { $ifNull: ['$$txn.failureReason', null] },
+                  meta: { $ifNull: ['$$txn.meta', {}] },
                 },
               },
             },
@@ -1210,5 +1244,376 @@ export const getAdminTransactions = async ({
     total: normalizeNumber(totalRows[0]?.count),
     page: pageNumber,
     limit: pageSize,
+  };
+};
+
+const getPaymentMeta = (row) => {
+  const meta = row.meta || {};
+  const paystackResponse = meta.paystackResponse || {};
+  const webhookPayload = meta.fullWebhookPayload || {};
+
+  return {
+    providerPaymentId: paystackResponse.id || webhookPayload.id || null,
+    channel: paystackResponse.channel || webhookPayload.channel || meta.channel || null,
+    domain: paystackResponse.domain || webhookPayload.domain || null,
+    paidAt: paystackResponse.paidAt || webhookPayload.paidAt || row.processedAt || null,
+    ipAddress: paystackResponse.ipAddress || webhookPayload.ipAddress || null,
+    quoteBaseCurrency: meta.quote?.baseCurrency || row.baseCurrency || DEFAULT_BASE_CURRENCY,
+    quoteTargetCurrency: meta.quote?.targetCurrency || row.currency || DEFAULT_BASE_CURRENCY,
+  };
+};
+
+const mapDepositRow = (row) => {
+  const paymentMeta = getPaymentMeta(row);
+
+  return {
+    depositId: row.transactionId?.toString?.() || '',
+    userId: row.userId?.toString?.() || '',
+    userName: row.userName || 'Unknown user',
+    userEmail: row.userEmail || '',
+    userRole: row.userRole || 'marketer',
+    walletType: row.walletType || 'marketer',
+    amount: roundAmount(row.amount),
+    nativeAmount: roundAmount(row.nativeAmount),
+    settlementAmount: row.settlementAmount === null ? null : roundAmount(row.settlementAmount),
+    fee: roundAmount(row.fee),
+    currency: row.currency || DEFAULT_BASE_CURRENCY,
+    baseCurrency: row.baseCurrency || DEFAULT_BASE_CURRENCY,
+    settlementCurrency: row.settlementCurrency || row.currency || DEFAULT_BASE_CURRENCY,
+    exchangeRate: row.exchangeRate || null,
+    gateway: row.gateway || 'system',
+    status: row.status,
+    description: row.description || CATEGORY_LABELS.deposit,
+    reference: row.reference || '',
+    createdAt: row.createdAt,
+    processedAt: row.processedAt || null,
+    paymentChannel: paymentMeta.channel,
+    providerPaymentId: paymentMeta.providerPaymentId,
+    domain: paymentMeta.domain,
+    paidAt: paymentMeta.paidAt,
+    ipAddress: paymentMeta.ipAddress,
+  };
+};
+
+const buildDepositFilterStages = ({
+  status,
+  gateway,
+  currency,
+  walletType,
+  search,
+} = {}) => {
+  const match = {
+    category: 'deposit',
+    type: 'credit',
+  };
+
+  if (status && status !== 'all') {
+    match.status = status;
+  }
+
+  if (gateway && gateway !== 'all') {
+    match.gateway = gateway;
+  }
+
+  if (currency && currency !== 'all') {
+    match.$or = [
+      { currency: String(currency).toUpperCase() },
+      { baseCurrency: String(currency).toUpperCase() },
+      { settlementCurrency: String(currency).toUpperCase() },
+    ];
+  }
+
+  if (walletType && walletType !== 'all') {
+    match.walletType = walletType;
+  }
+
+  const stages = [{ $match: match }];
+
+  if (search) {
+    const safeRegex = new RegExp(escapeRegex(search).slice(0, 80), 'i');
+    stages.push({
+      $match: {
+        $or: [
+          { userName: safeRegex },
+          { userEmail: safeRegex },
+          { reference: safeRegex },
+          { description: safeRegex },
+          { gateway: safeRegex },
+          { currency: safeRegex },
+          { baseCurrency: safeRegex },
+        ],
+      },
+    });
+  }
+
+  return stages;
+};
+
+const buildDepositSummary = (rows = []) => {
+  const summaryRow = rows[0] || {};
+  const statusRows = summaryRow.statuses || [];
+  const gatewayRows = summaryRow.gateways || [];
+  const currencyRows = summaryRow.currencies || [];
+  const trendRows = summaryRow.dailyTrend || [];
+  const totalAmount = normalizeNumber(summaryRow.totalAmount);
+
+  return {
+    totalAmount: roundAmount(totalAmount),
+    totalNativeAmount: roundAmount(summaryRow.totalNativeAmount),
+    totalFees: roundAmount(summaryRow.totalFees),
+    totalCount: normalizeNumber(summaryRow.totalCount),
+    successfulAmount: roundAmount(summaryRow.successfulAmount),
+    successfulCount: normalizeNumber(summaryRow.successfulCount),
+    pendingAmount: roundAmount(summaryRow.pendingAmount),
+    pendingCount: normalizeNumber(summaryRow.pendingCount),
+    failedAmount: roundAmount(summaryRow.failedAmount),
+    failedCount: normalizeNumber(summaryRow.failedCount),
+    averageDeposit: normalizeNumber(summaryRow.totalCount)
+      ? roundAmount(totalAmount / normalizeNumber(summaryRow.totalCount))
+      : 0,
+    statuses: statusRows
+      .map((row) => ({
+        key: row._id || 'unknown',
+        label: STATUS_LABELS[row._id] || row._id || 'Unknown',
+        amount: roundAmount(row.amount),
+        count: normalizeNumber(row.count),
+        share: toShare(row.amount, totalAmount),
+      }))
+      .sort((left, right) => right.amount - left.amount),
+    gateways: gatewayRows
+      .map((row) => ({
+        key: row._id || 'system',
+        label: row._id || 'System',
+        amount: roundAmount(row.amount),
+        count: normalizeNumber(row.count),
+        share: toShare(row.amount, totalAmount),
+      }))
+      .sort((left, right) => right.amount - left.amount),
+    currencies: currencyRows
+      .map((row) => ({
+        key: row._id || DEFAULT_BASE_CURRENCY,
+        label: row._id || DEFAULT_BASE_CURRENCY,
+        amount: roundAmount(row.amount),
+        nativeAmount: roundAmount(row.nativeAmount),
+        count: normalizeNumber(row.count),
+        share: toShare(row.amount, totalAmount),
+      }))
+      .sort((left, right) => right.amount - left.amount),
+    dailyTrend: trendRows
+      .map((row) => ({
+        date: row._id,
+        amount: roundAmount(row.amount),
+        count: normalizeNumber(row.count),
+      }))
+      .sort((left, right) => String(left.date).localeCompare(String(right.date))),
+  };
+};
+
+export const getAdminDeposits = async ({
+  status = 'all',
+  gateway = 'all',
+  currency = 'all',
+  walletType = 'all',
+  search = '',
+  page = 1,
+  limit = 50,
+  fromDate,
+  toDate,
+  startDate,
+  endDate,
+  maxLimit = 500,
+} = {}) => {
+  const pageNumber = getPageNumber(page);
+  const pageSize = getPageSize(limit, 50, maxLimit);
+  const skip = (pageNumber - 1) * pageSize;
+  const start = getValidDate(fromDate || startDate);
+  const end = getInclusiveEndDate(toDate || endDate);
+  const basePipeline = buildWalletTransactionStages({ startDate: start, endDate: end });
+  const filterStages = buildDepositFilterStages({
+    status,
+    gateway,
+    currency,
+    walletType,
+    search,
+  });
+
+  const [rows, totalRows, summaryRows] = await Promise.all([
+    aggregateTransactions([
+      ...basePipeline,
+      ...filterStages,
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: pageSize },
+    ]),
+    aggregateTransactions([
+      ...basePipeline,
+      ...filterStages,
+      { $count: 'count' },
+    ]),
+    aggregateTransactions([
+      ...basePipeline,
+      ...filterStages,
+      {
+        $facet: {
+          totals: [
+            {
+              $group: {
+                _id: null,
+                totalAmount: { $sum: '$amount' },
+                totalNativeAmount: { $sum: '$nativeAmount' },
+                totalFees: { $sum: '$fee' },
+                totalCount: { $sum: 1 },
+                successfulAmount: {
+                  $sum: { $cond: [{ $in: ['$status', SUCCESS_STATUSES] }, '$amount', 0] },
+                },
+                successfulCount: {
+                  $sum: { $cond: [{ $in: ['$status', SUCCESS_STATUSES] }, 1, 0] },
+                },
+                pendingAmount: {
+                  $sum: { $cond: [{ $in: ['$status', ['pending', 'processing', 'initiated']] }, '$amount', 0] },
+                },
+                pendingCount: {
+                  $sum: { $cond: [{ $in: ['$status', ['pending', 'processing', 'initiated']] }, 1, 0] },
+                },
+                failedAmount: {
+                  $sum: { $cond: [{ $in: ['$status', ['failed', 'declined', 'cancelled', 'abandoned']] }, '$amount', 0] },
+                },
+                failedCount: {
+                  $sum: { $cond: [{ $in: ['$status', ['failed', 'declined', 'cancelled', 'abandoned']] }, 1, 0] },
+                },
+              },
+            },
+          ],
+          statuses: [
+            { $group: { _id: '$status', amount: { $sum: '$amount' }, count: { $sum: 1 } } },
+          ],
+          gateways: [
+            { $group: { _id: '$gateway', amount: { $sum: '$amount' }, count: { $sum: 1 } } },
+          ],
+          currencies: [
+            { $group: { _id: '$baseCurrency', amount: { $sum: '$amount' }, nativeAmount: { $sum: '$nativeAmount' }, count: { $sum: 1 } } },
+          ],
+          dailyTrend: [
+            {
+              $group: {
+                _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+                amount: { $sum: '$amount' },
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { _id: -1 } },
+            { $limit: 14 },
+          ],
+        },
+      },
+      {
+        $project: {
+          totals: { $ifNull: [{ $arrayElemAt: ['$totals', 0] }, {}] },
+          statuses: 1,
+          gateways: 1,
+          currencies: 1,
+          dailyTrend: 1,
+        },
+      },
+      {
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: [
+              '$totals',
+              {
+                statuses: '$statuses',
+                gateways: '$gateways',
+                currencies: '$currencies',
+                dailyTrend: '$dailyTrend',
+              },
+            ],
+          },
+        },
+      },
+    ]),
+  ]);
+
+  return {
+    deposits: rows.map(mapDepositRow),
+    total: normalizeNumber(totalRows[0]?.count),
+    page: pageNumber,
+    limit: pageSize,
+    summary: buildDepositSummary(summaryRows),
+    filters: {
+      status,
+      gateway,
+      currency,
+      walletType,
+      search,
+      fromDate: start?.toISOString?.() || null,
+      toDate: end?.toISOString?.() || null,
+    },
+  };
+};
+
+const csvCell = (value) => {
+  const text = value === null || value === undefined ? '' : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+};
+
+export const exportAdminDeposits = async (query = {}) => {
+  const data = await getAdminDeposits({
+    ...query,
+    page: 1,
+    limit: Math.min(5000, Number(query.limit) || 5000),
+    maxLimit: 5000,
+  });
+
+  const headers = [
+    'Deposit ID',
+    'User',
+    'Email',
+    'Role',
+    'Wallet',
+    'Amount',
+    'Currency',
+    'Native Amount',
+    'Native Currency',
+    'Settlement Amount',
+    'Settlement Currency',
+    'Gateway',
+    'Channel',
+    'Status',
+    'Reference',
+    'Provider Payment ID',
+    'Created At',
+    'Processed At',
+  ];
+
+  const rows = data.deposits.map((deposit) => [
+    deposit.depositId,
+    deposit.userName,
+    deposit.userEmail,
+    deposit.userRole,
+    deposit.walletType,
+    deposit.amount,
+    deposit.baseCurrency,
+    deposit.nativeAmount,
+    deposit.currency,
+    deposit.settlementAmount ?? '',
+    deposit.settlementCurrency,
+    deposit.gateway,
+    deposit.paymentChannel || '',
+    deposit.status,
+    deposit.reference,
+    deposit.providerPaymentId || '',
+    deposit.createdAt ? new Date(deposit.createdAt).toISOString() : '',
+    deposit.processedAt ? new Date(deposit.processedAt).toISOString() : '',
+  ]);
+
+  return {
+    filename: `deposits_${new Date().toISOString().slice(0, 10)}.csv`,
+    mimeType: 'text/csv',
+    csv: [
+      headers.map(csvCell).join(','),
+      ...rows.map((row) => row.map(csvCell).join(',')),
+    ].join('\n'),
+    total: data.total,
+    exported: data.deposits.length,
   };
 };

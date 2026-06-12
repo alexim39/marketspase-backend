@@ -778,7 +778,16 @@ export const pingLoginStreakSession = async (userId, sessionId = null, metadata 
       Math.min(MAX_HEARTBEAT_SECONDS, Math.floor((now.getTime() - previousPing.getTime()) / 1000))
     );
 
-    streakSession.activeSecondsAccumulated += deltaSeconds;
+    const existingActiveSeconds = Number(streakSession.activeSecondsAccumulated);
+    const previousActiveSeconds = Number.isFinite(existingActiveSeconds) && existingActiveSeconds > 0
+      ? existingActiveSeconds
+      : 0;
+    const configuredRequiredSeconds = Math.max(60, Number(config.minimumSessionMinutes || 12) * 60);
+    const existingRequiredSeconds = Number(streakSession.requiredActiveSeconds);
+    streakSession.requiredActiveSeconds = Number.isFinite(existingRequiredSeconds) && existingRequiredSeconds > 0
+      ? existingRequiredSeconds
+      : configuredRequiredSeconds;
+    streakSession.activeSecondsAccumulated = previousActiveSeconds + deltaSeconds;
     streakSession.lastPingAt = now;
 
     let recentlyQualified = false;

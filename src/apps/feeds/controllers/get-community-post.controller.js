@@ -6,6 +6,7 @@ import {
   shapeFeedPost,
   trackFeedImpressions
 } from '../services/feed-discovery.service.js';
+import { getSpotlightData } from '../services/spotlight.service.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -79,7 +80,8 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
       : null;
   }
 
-  if (query.author === null) {
+    if (query.author === null) {
+    const spotlightData = await getSpotlightData(userId);
     return res.status(200).json(
       new ApiResponse(200, {
         posts: [],
@@ -95,6 +97,7 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
         forumHighlights: [],
         hotTopics: [],
         forumSpotlight: [],
+        spotlight: spotlightData,
         pagination: {
           page: pageNum,
           limit: limitNum,
@@ -106,7 +109,7 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
     );
   }
 
-  const [discovery, candidates, totalMatchingPosts] = await Promise.all([
+    const [discovery, candidates, totalMatchingPosts, spotlightData] = await Promise.all([
     getFeedDiscoveryPayload({ status: 'published', 'moderation.isFlagged': { $ne: true } }),
     fetchFeedCandidates({
       query,
@@ -115,7 +118,8 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
       mode: normalizedFeedType,
       userId
     }),
-    FeedPostModel.countDocuments(query)
+    FeedPostModel.countDocuments(query),
+    getSpotlightData(userId)
   ]);
 
   const pagedPosts = candidates.slice(skip, skip + limitNum).map((post) => shapeFeedPost(post, userId));
@@ -136,6 +140,7 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
         forumHighlights: discovery.forumHighlights,
         hotTopics: discovery.hotTopics,
         forumSpotlight: discovery.forumSpotlight,
+        spotlight: spotlightData,
         pagination: {
           page: pageNum,
           limit: limitNum,

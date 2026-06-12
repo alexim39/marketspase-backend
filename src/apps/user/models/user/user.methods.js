@@ -139,7 +139,7 @@ export const setupUserMethods = (schema) => {
     
     const maxActivities = 1000;
 
-    if (!activityLogSelected) {
+    if (!this.isNew && this._id) {
       return this.constructor.updateOne(
         { _id: this._id },
         {
@@ -152,6 +152,10 @@ export const setupUserMethods = (schema) => {
           }
         }
       ).then(() => this);
+    }
+
+    if (!activityLogSelected) {
+      return Promise.resolve(this);
     }
 
     this.activityLog = ensureArray(this.activityLog);
