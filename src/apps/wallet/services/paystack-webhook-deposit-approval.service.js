@@ -40,23 +40,26 @@ export default async function handler(req, res) {
       const chargedAmount = roundCurrencyAmount((amountInMinorUnits || 0) / 100);
       const fundingCurrency = normalizeCurrencyCode(paystackCurrency || metadata?.currency || 'NGN');
 
-      // Extract user info from metadata
-      let userId = metadata?.userId;
-      
-      // If userId not in metadata, try to find by email or reference
+      const customFields = Array.isArray(metadata?.custom_fields) ? metadata.custom_fields : [];
+      const findCustomField = (varName) => customFields.find(f => f.variable_name === varName)?.value;
+
+      // Extract user info from metadata — try custom_fields first (reliable), then flat metadata keys
+      let userId = metadata?.userId || findCustomField('user_id');
+
+      // If userId not in metadata, try to find by reference pattern
       if (!userId) {
-        // Try to find by reference pattern
         const referenceParts = reference.split('-');
         if (referenceParts.length >= 2 && referenceParts[0] === 'WALLET') {
           userId = referenceParts[1];
         }
       }
 
-      // If still no userId, find by email
-      if (!userId && customer?.email) {
-        const user = await UserModel.findOne({ email: customer.email }).session(session);
-        if (user) {
-          userId = user._id;
+      // If still no userId, try by email from custom_fields or customer
+      if (!userId) {
+        const emailFromMeta = metadata?.userEmail || findCustomField('user_email') || customer?.email;
+        if (emailFromMeta) {
+          const user = await UserModel.findOne({ email: emailFromMeta }).session(session);
+          if (user) userId = user._id;
         }
       }
 
@@ -85,17 +88,20 @@ export default async function handler(req, res) {
         throw new Error(`User not found: ${userId}`);
       }
 
-      // Determine funding amount from metadata or use full amount
+      // Determine funding amount — try custom_fields, then metadata, then fall back to charged amount
+      const fundingAmountFromMeta = Number(metadata?.fundingAmount || findCustomField('funding_amount') || 0);
+      const effectiveFundingAmount = fundingAmountFromMeta > 0 ? fundingAmountFromMeta : chargedAmount;
+
       const verifiedQuote = metadata?.quote
         ? await verifySignedQuote(metadata.quote, { purpose: 'wallet_funding' })
         : await buildSignedQuote({
-            amount: Number(metadata?.fundingAmount || chargedAmount),
+            amount: effectiveFundingAmount,
             fromCurrency: fundingCurrency,
             toCurrency: fundingCurrency,
             purpose: 'wallet_funding',
           });
 
-      const fundingAmount = roundCurrencyAmount(verifiedQuote.targetAmount || metadata?.fundingAmount || chargedAmount);
+      const fundingAmount = roundCurrencyAmount(verifiedQuote.targetAmount || effectiveFundingAmount);
       const baseAmount = roundCurrencyAmount(verifiedQuote.baseAmount);
       const baseCurrency = normalizeCurrencyCode(verifiedQuote.baseCurrency || 'NGN');
       

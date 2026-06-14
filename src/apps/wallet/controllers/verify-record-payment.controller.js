@@ -33,6 +33,7 @@ export const verifyAndRecordPayment = async (req, res) => {
   const userId = req.userId;
   const {
     amount,
+    fundingAmount,
     currency,
     paystackResult,
     quote,
@@ -116,7 +117,7 @@ export const verifyAndRecordPayment = async (req, res) => {
     const verifiedQuote = quote
       ? await verifySignedQuote(quote, { purpose: 'wallet_funding' })
       : await buildSignedQuote({
-          amount: Number(amount),
+          amount: Number(fundingAmount || amount),
           fromCurrency: fundingCurrency,
           toCurrency: fundingCurrency,
           purpose: 'wallet_funding',
@@ -125,7 +126,7 @@ export const verifyAndRecordPayment = async (req, res) => {
     const baseCurrency = normalizeCurrencyCode(verifiedQuote.baseCurrency || user.wallets?.marketer?.baseCurrency || 'NGN');
     const nativeAmount = roundCurrencyAmount(verifiedQuote.targetCurrency === fundingCurrency
       ? verifiedQuote.targetAmount
-      : Number(amount));
+      : Number(fundingAmount || amount));
     const baseAmount = roundCurrencyAmount(verifiedQuote.baseAmount);
 
     ensureWalletCurrencyState(user.wallets.marketer, baseCurrency);
@@ -178,8 +179,10 @@ export const verifyAndRecordPayment = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
+    const creditedAmount = fundingAmount || amount;
+
     // 10. Handle referral (don't await - run in background)
-    if (isFirstCampaignFunding && amount >= 2000) {
+    if (isFirstCampaignFunding && creditedAmount >= 2000) {
       referralService.checkMarketerFirstCampaign(userId).catch(err => {
         console.error('Referral processing error:', err);
       });
@@ -222,7 +225,7 @@ export const verifyAndRecordPayment = async (req, res) => {
           'Payment Declined',
           paymentDeclinedEmailTemplate({
             userName: user.displayName,
-            amount: amount,
+            amount: creditedAmount,
             transactionReference: reference,
             reason: 'System error processing payment. Please contact support.',
           })
