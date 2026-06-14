@@ -1,0 +1,41 @@
+import express from "express";
+import { authenticate } from "../../../shared/middleware/auth.middleware.js";
+import {
+  getCustomers,
+  getCustomer,
+  createCustomerHandler,
+  updateCustomerHandler,
+  deleteCustomerHandler,
+  importCustomersHandler,
+  addCustomerLogHandler,
+  updateConsentHandler,
+  getCustomerAnalyticsHandler,
+  getTagsHandler,
+} from "../controllers/customer.controller.js";
+
+const router = express.Router();
+
+// All routes require authentication
+router.use(authenticate);
+
+// Analytics / metadata routes (must come before :id routes)
+router.get("/analytics/summary", getCustomerAnalyticsHandler);
+router.get("/tags", getTagsHandler);
+
+// Import
+router.post("/import", importCustomersHandler);
+
+// CRUD
+router.get("/", getCustomers);
+router.get("/:id", getCustomer);
+router.post("/", createCustomerHandler);
+router.patch("/:id", updateCustomerHandler);
+router.delete("/:id", deleteCustomerHandler);
+
+// Activity log
+router.post("/:id/logs", addCustomerLogHandler);
+
+// Consent
+router.post("/:id/consent", updateConsentHandler);
+
+export default router;
