@@ -34,6 +34,7 @@ import { metricsRoutes } from './src/apps/metrics/index.js';
 import { aiAssistantRoutes } from './src/apps/ai-assistant/index.js';
 import CollaborationRouter from './src/apps/collaboration/index.js';
 import SearchRouter from './src/apps/search/index.js';
+import CrmRouter from './src/apps/customer-crm/routes/index.js';
 import { ensureGlobalSearchBootstrap } from './src/apps/search/services/search-index.service.js';
 import { trackClick as trackStoreAffiliateClick } from './src/apps/store/controllers/promotion/product-tracking.controller.js';
 
@@ -194,6 +195,7 @@ app.use('/api/v1/metrics', metricsRoutes);
 app.use('/api/v1/ai-assistant', aiAssistantRoutes);
 app.use('/api/v1/collaboration', CollaborationRouter);
 app.use('/api/v1/search', SearchRouter);
+app.use('/api/v1', CrmRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));

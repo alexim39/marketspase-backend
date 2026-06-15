@@ -46,6 +46,29 @@ const cleanInvalidTransactionIds = (wallet) => {
   });
 };
 
+/**
+ * Generates a unique withdrawal reference.
+ * Uses timestamp + random suffix for uniqueness.
+ */
+const generateReference = () => `WD_${Date.now()}_${Math.random().toString(36).slice(2, 15)}`;
+
+/**
+ * Refunds a wallet by the gross amount and marks the transaction as failed.
+ * Uses the wallet object directly — caller must save afterwards.
+ */
+const refundWalletForFailedTransfer = (userWallet, txRef, grossAmount, withdrawalCurrency, grossBaseAmount, reason) => {
+  applyWalletCredit(userWallet, {
+    bucket: 'balance',
+    amount: grossAmount,
+    currency: withdrawalCurrency,
+    baseAmount: grossBaseAmount,
+    baseCurrency: userWallet.baseCurrency || 'NGN',
+  });
+  txRef.status = 'failed';
+  txRef.failureReason = reason;
+  txRef.processedAt = new Date();
+};
+
 export const withdrawRequest = async (req, res) => {
   const {
     bank,
@@ -60,13 +83,12 @@ export const withdrawRequest = async (req, res) => {
     currency,
     finalAmount,
     quote,
+    idempotencyKey,
   } = req.body;
   const userId = req.userId;
   const requestedAmount = asNumber(amount);
   const requestedPayableAmount = asNumber(payableAmount);
   const requestedFinalAmount = asNumber(finalAmount ?? amount);
-
-  //console.log('Withdrawal request body:', req.body);
 
   if (!userId || !amount || !bank || !accountNumber || !accountName) {
     return res.status(400).json({
@@ -100,6 +122,8 @@ export const withdrawRequest = async (req, res) => {
     });
   }
 
+  const reference = generateReference();
+
   try {
     // 1) Load user & basic checks
     const user = await UserModel.findById(userId);
@@ -115,6 +139,33 @@ export const withdrawRequest = async (req, res) => {
         message: "Account inactive or deleted.", 
         success: false 
       });
+    }
+
+    // 2) Idempotency check — prevent duplicate Paystack transfers
+    if (idempotencyKey) {
+      const existing = await UserModel.findOne({
+        _id: userId,
+        $or: [
+          { 'wallets.promoter.transactions.idempotencyKey': idempotencyKey },
+          { 'wallets.marketer.transactions.idempotencyKey': idempotencyKey },
+        ],
+      });
+      if (existing) {
+        const wallet = role === 'promoter' ? existing.wallets.promoter : existing.wallets.marketer;
+        const tx = wallet.transactions.find(t => t.idempotencyKey === idempotencyKey);
+        return res.status(200).json({
+          success: true,
+          message: tx?.status === 'failed'
+            ? 'A previous withdrawal failed. Please try again with a new request.'
+            : 'Withdrawal is already being processed.',
+          data: {
+            balance: wallet.balance,
+            transaction: tx || null,
+            duplicate: true,
+          },
+          code: tx?.status === 'failed' ? 'PREVIOUS_FAILED' : 'DUPLICATE_REQUEST',
+        });
+      }
     }
 
     // 3) Bank ownership guard
@@ -144,8 +195,7 @@ export const withdrawRequest = async (req, res) => {
       });
     }
 
-    // 5) Balance check & initial deduction
-
+    // 5) Balance check & fee calculation
     let userWallet; 
     let serviceFee;
     const withdrawalCurrency = normalizeCurrencyCode(currency || 'NGN');
@@ -237,12 +287,17 @@ export const withdrawRequest = async (req, res) => {
 
     const settlementAmount = roundCurrencyAmount(verifiedQuote.targetAmount);
 
-    // 2b) Optional: Check Paystack balance before proceeding
+    // Check Paystack balance (non-blocking)
     const balanceCheck = await checkPaystackBalance(settlementCurrency);
     if (!balanceCheck.success || balanceCheck.balance < settlementAmount) {
       console.warn('Paystack balance warning:', balanceCheck);
-      // Continue anyway - webhook will handle failure if insufficient
     }
+
+    // ─────────────────────────────────────────────────────────────────
+    // CRITICAL: Deduct wallet AND save BEFORE calling Paystack
+    // This ensures funds are locked before any external transfer.
+    // Previously the save happened AFTER Paystack, allowing double-spend.
+    // ─────────────────────────────────────────────────────────────────
 
     applyWalletDebit(userWallet, {
       bucket: 'balance',
@@ -252,9 +307,10 @@ export const withdrawRequest = async (req, res) => {
       baseCurrency: userWallet.baseCurrency || 'NGN',
     });
 
-    // 6) Create transaction
+    // Create transaction record
     const tx = {
-      reference: `WD_${Date.now()}_${Math.random().toString(36).slice(2, 15)}`,
+      reference,
+      idempotencyKey: idempotencyKey || undefined,
       gateway: "paystack",
       currency: withdrawalCurrency,
       baseCurrency: userWallet.baseCurrency || 'NGN',
@@ -292,8 +348,11 @@ export const withdrawRequest = async (req, res) => {
     userWallet.transactions.push(tx);
     const txRef = userWallet.transactions[userWallet.transactions.length - 1];
 
-    // 7) Process payment through Paystack
-    //console.log('Initiating payment with reference:', txRef.reference);
+    // === SAVE WALLET DEDUCTION BEFORE PAYSTACK ===
+    cleanInvalidTransactionIds(userWallet);
+    await user.save();
+
+    // === NOW CALL PAYSTACK ===
     const paymentResponse = await processPayment(
       bank,
       accountNumber,
@@ -307,151 +366,93 @@ export const withdrawRequest = async (req, res) => {
       settlementCurrency,
     );
 
-    // console.log('🔵 PAYMENT RESPONSE DETAILS:', {
-    //   success: paymentResponse.success,
-    //   status: paymentResponse.status,
-    //   reference: paymentResponse.reference,
-    //   providerReference: paymentResponse.providerReference,
-    //   transferCode: paymentResponse.transferCode,
-    //   message: paymentResponse.message
-    // });
+    // Reload user from DB to get the latest saved state for update
+    const updatedUser = await UserModel.findById(userId);
+    const updatedWallet = role === 'promoter' ? updatedUser.wallets.promoter : updatedUser.wallets.marketer;
+    const updatedTxRef = updatedWallet.transactions.find(t => t.reference === reference);
 
-    // Store ALL provider identifiers for recon
-    if (paymentResponse.reference) {
-      txRef.reference = paymentResponse.reference; // Update with our reference (should be same)
-    }
-    if (paymentResponse.providerReference) {
-      txRef.providerReference = paymentResponse.providerReference; // Paystack's reference
-    }
-    if (paymentResponse.transferCode) {
-      txRef.transferCode = paymentResponse.transferCode;
-    }
-
-    // Store the full response in meta
-   txRef.meta.processPayment = {
-    success: paymentResponse.success,
-    status: paymentResponse.status,
-    message: paymentResponse.message,
-    providerReference: paymentResponse.providerReference,
-    transferCode: paymentResponse.transferCode,
-    timestamp: new Date(),
-    fullResponse: paymentResponse.data // Store full response for debugging
-  };
-
-  // Check if transfer was blocked
-  if (paymentResponse.status === "blocked" || paymentResponse.data?.status === "blocked") {
-    // Refund gross
-    applyWalletCredit(userWallet, {
-      bucket: 'balance',
-      amount: grossAmount,
-      currency: withdrawalCurrency,
-      baseAmount: grossBaseAmount,
-      baseCurrency: userWallet.baseCurrency || 'NGN',
-    });
-    txRef.status = "failed";
-    txRef.failureReason = "Transfer blocked by provider";
-    txRef.processedAt = new Date();
-    cleanInvalidTransactionIds(userWallet);
-    await user.save();
-    
-    return res.status(200).json({
-      success: false,
-      message: "Withdrawal failed (blocked).",
-      data: { balance: userWallet.balance, transaction: txRef },
-    });
-  }
-
-    // Handle immediate failures
-    if (!paymentResponse.success) {
-      // Refund the user
-      applyWalletCredit(userWallet, {
+    if (!updatedTxRef) {
+      // Transaction was not found — this shouldn't happen but we must handle it
+      console.error('CRITICAL: Paystack transfer created but transaction not found in DB for reference:', reference);
+      // Refund on the reloaded user
+      applyWalletCredit(updatedWallet, {
         bucket: 'balance',
         amount: grossAmount,
         currency: withdrawalCurrency,
         baseAmount: grossBaseAmount,
-        baseCurrency: userWallet.baseCurrency || 'NGN',
+        baseCurrency: updatedWallet.baseCurrency || 'NGN',
       });
-      txRef.status = "failed";
-      txRef.failureReason = paymentResponse.message || "Transfer failed";
-      txRef.processedAt = new Date();
-      
-      cleanInvalidTransactionIds(userWallet);
-      await user.save();
+      await updatedUser.save();
+      return res.status(500).json({
+        success: false,
+        message: 'Internal error. Please contact support with reference: ' + reference,
+        code: 'TRANSACTION_NOT_FOUND_AFTER_PAYSTACK',
+      });
+    }
 
-      // Send failure notification
-      // if (user.email) {
-      //   try {
-      //     const emailTemplate = withdrawalFailedTemplate(user);
-      //     await sendEmail({
-      //       to: user.email,
-      //       subject: 'Withdrawal Failed - Funds Refunded',
-      //       html: emailTemplate
-      //     });
-      //   } catch (emailError) {
-      //     console.error('Failed to send failure email:', emailError);
-      //   }
-      // }
+    // Store Paystack identifiers
+    if (paymentResponse.providerReference) {
+      updatedTxRef.providerReference = paymentResponse.providerReference;
+    }
+    if (paymentResponse.transferCode) {
+      updatedTxRef.transferCode = paymentResponse.transferCode;
+    }
 
+    updatedTxRef.meta.processPayment = {
+      success: paymentResponse.success,
+      status: paymentResponse.status,
+      message: paymentResponse.message,
+      providerReference: paymentResponse.providerReference,
+      transferCode: paymentResponse.transferCode,
+      timestamp: new Date(),
+      fullResponse: paymentResponse.data,
+    };
+
+    // Handle blocked transfer
+    if (paymentResponse.status === "blocked" || paymentResponse.data?.status === "blocked") {
+      refundWalletForFailedTransfer(updatedWallet, updatedTxRef, grossAmount, withdrawalCurrency, grossBaseAmount,
+        'Transfer blocked by provider');
+      cleanInvalidTransactionIds(updatedWallet);
+      await updatedUser.save();
+      return res.status(200).json({
+        success: false,
+        message: "Withdrawal failed (blocked).",
+        data: { balance: updatedWallet.balance, transaction: updatedTxRef },
+      });
+    }
+
+    // Handle Paystack failure
+    if (!paymentResponse.success) {
+      refundWalletForFailedTransfer(updatedWallet, updatedTxRef, grossAmount, withdrawalCurrency, grossBaseAmount,
+        paymentResponse.message || 'Transfer failed');
+      cleanInvalidTransactionIds(updatedWallet);
+      await updatedUser.save();
       return res.status(200).json({
         success: false,
         message: "Withdrawal failed: " + (paymentResponse.message || "Unknown error"),
         data: { 
-          balance: userWallet.balance, 
-          transaction: txRef,
+          balance: updatedWallet.balance, 
+          transaction: updatedTxRef,
           refunded: true
         },
       });
     }
 
-    // If transfer was immediately successful (OTP disabled)
+    // Handle immediate success
     if (paymentResponse.status === 'success') {
-      txRef.status = "successful";
-      txRef.processedAt = new Date();
-      
-      // Send success email
-      // if (user.email) {
-      //   try {
-      //     const emailTemplate = withdrawalSuccessfulTemplate(user);
-      //     await sendEmail({
-      //       to: user.email,
-      //       subject: 'Withdrawal Successful',
-      //       html: emailTemplate
-      //     });
-      //   } catch (emailError) {
-      //     console.error('Failed to send success email:', emailError);
-      //   }
-      // }
-
-      // Add to activity log
-      await user.logActivity(
-        'withdrawal_complete',
-        `Withdrawal of ₦${(amount / 100).toFixed(2)} completed successfully`,
-        {
-          resourceType: 'withdrawal',
-          metadata: {
-            transactionId: txRef._id,
-            reference: txRef.reference,
-            amount: grossAmount,
-            currency: withdrawalCurrency,
-            settlementAmount,
-            settlementCurrency,
-          }
-        }
-      );
-    } 
-    // If still processing (fallback - but unlikely with OTP disabled)
-    else {
-      txRef.status = "processing";
+      updatedTxRef.status = "successful";
+      updatedTxRef.processedAt = new Date();
+    } else {
+      updatedTxRef.status = "processing";
     }
 
     // Save bank account if requested
     if (saveAccount) {
-      const saved = user.savedAccounts.find(
+      const saved = updatedUser.savedAccounts.find(
         a => a.accountNumber === accountNumber && a.bankCode === bank
       );
-      
       if (!saved) {
-        user.savedAccounts.push({
+        updatedUser.savedAccounts.push({
           bank: bankName || bank,
           bankCode: bank,
           accountNumber,
@@ -460,7 +461,7 @@ export const withdrawRequest = async (req, res) => {
           verifiedAt: new Date(),
           firstUsed: new Date(),
           lastUsed: new Date(),
-          recipientCode: paymentResponse.data?.recipient?.recipient_code // Save for future use
+          recipientCode: paymentResponse.data?.recipient?.recipient_code,
         });
       } else {
         saved.lastUsed = new Date();
@@ -470,8 +471,8 @@ export const withdrawRequest = async (req, res) => {
       }
     }
 
-    cleanInvalidTransactionIds(userWallet);
-    await user.save();
+    cleanInvalidTransactionIds(updatedWallet);
+    await updatedUser.save();
 
     return res.status(200).json({
       message: paymentResponse.status === 'success' 
@@ -479,9 +480,9 @@ export const withdrawRequest = async (req, res) => {
         : "Withdrawal request is being processed.",
       success: true,
       data: { 
-        balance: userWallet.balance, 
-        transaction: txRef,
-        status: txRef.status,
+        balance: updatedWallet.balance, 
+        transaction: updatedTxRef,
+        status: updatedTxRef.status,
         providerStatus: paymentResponse.status
       },
     });
@@ -497,24 +498,45 @@ export const withdrawRequest = async (req, res) => {
       });
     }
     
-    // Attempt to refund if error occurred after deduction
+    // Attempt to refund if the wallet was already deducted (use the KNOWN reference)
     try {
       const user = await UserModel.findById(userId);
-      if (user && user.wallets?.promoter) {
-        const userWallet = user.wallets.promoter;
-        const transaction = userWallet.transactions.find(
-          t => t.reference === `WD_${Date.now()}_${Math.random().toString(36).slice(2, 15)}`
+      if (!user) {
+        return res.status(500).json({
+          message: "Unexpected error occurred. Please try again.",
+          success: false,
+          code: "INTERNAL_SERVER_ERROR",
+        });
+      }
+
+      const walletKey = role === 'promoter' ? 'promoter' : 'marketer';
+      const userWallet = user.wallets[walletKey];
+      if (!userWallet) {
+        return res.status(500).json({
+          message: "Unexpected error occurred. Please try again.",
+          success: false,
+          code: "INTERNAL_SERVER_ERROR",
+        });
+      }
+
+      const transaction = userWallet.transactions.find(
+        t => t.reference === reference
+      );
+
+      if (transaction && (transaction.status === 'processing' || transaction.status === 'pending')) {
+        // Only reverse if the wallet was actually debited (status is processing/pending)
+        userWallet.balance = roundCurrencyAmount(
+          (Number(userWallet.balance || 0)) + (Number(transaction.amount || 0))
         );
-        
-        if (transaction && transaction.status === 'processing') {
-          userWallet.balance += transaction.amount;
-          transaction.status = 'failed';
-          transaction.failureReason = 'System error: ' + error.message;
-          await user.save();
-        }
+        transaction.status = 'failed';
+        transaction.failureReason = 'System error: ' + error.message;
+        transaction.processedAt = new Date();
+        cleanInvalidTransactionIds(userWallet);
+        await user.save();
+        console.log('Refunded withdrawal due to error, reference:', reference);
       }
     } catch (refundError) {
-      console.error('Failed to refund user:', refundError);
+      console.error('CRITICAL: Failed to refund user after withdrawal error:', refundError);
     }
 
     return res.status(500).json({
