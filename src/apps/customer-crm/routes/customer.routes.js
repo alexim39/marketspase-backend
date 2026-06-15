@@ -11,6 +11,9 @@ import {
   updateConsentHandler,
   getCustomerAnalyticsHandler,
   getTagsHandler,
+  sendCustomerSmsHandler,
+  sendBulkCustomerSmsHandler,
+  sendCustomerEmailHandler,
 } from "../controllers/customer.controller.js";
 
 const router = express.Router();
@@ -37,5 +40,10 @@ router.post("/:id/logs", addCustomerLogHandler);
 
 // Consent
 router.post("/:id/consent", updateConsentHandler);
+
+// SMS & Email communication (must come before :id routes that could match)
+router.post("/send-bulk-sms", sendBulkCustomerSmsHandler);
+router.post("/:id/send-sms", sendCustomerSmsHandler);
+router.post("/:id/send-email", sendCustomerEmailHandler);
 
 export default router;

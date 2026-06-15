@@ -20,7 +20,8 @@ export const TRANSACTION_CATEGORIES = [
   'balance_recalculation',
   'promoter_balance_reset',
   'negative_reserved_fix',
-  'ai_subscription'
+  'ai_subscription',
+  'sms'               // SMS marketing charges
 ];
 
 // Transaction statuses
