@@ -170,3 +170,5 @@ export const createCampaignLead = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Unable to process.' });
   }
 };
+
+export { landing };

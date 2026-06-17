@@ -28,6 +28,27 @@ router.get('/track-redirect.js', serveTrackingRedirectScript);
 router.head('/track/:upi', (_req, res) => res.sendStatus(204));
 router.get('/track/:upi', trackCampaignClick);
 
+// Public campaign preview — returns JSON for the landing page Angular component
+router.get('/preview/:upi', async (req, res) => {
+  try {
+    const { PromotionModel } = await import('../../promotion/models/index.js');
+    const promotion = await PromotionModel.findOne({ upi: req.params.upi }).populate('campaign').populate('promoter', 'displayName username').lean();
+    if (!promotion) return res.json({ success: false });
+    if (!promotion.isActive) return res.json({ success: false, suspended: true });
+    const c = promotion.campaign;
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    return res.json({
+      success: true,
+      data: {
+        title: c?.title, caption: c?.caption, category: c?.category,
+        mediaUrl: c?.mediaUrl, mediaType: c?.mediaType, thumbnailUrl: c?.thumbnailUrl,
+        promotionGoal: c?.promotionGoal || 'awareness',
+        promoterName: promotion.promoter?.displayName || null,
+      }
+    });
+  } catch (e) { return res.json({ success: false }); }
+});
+
 // All remaining campaign routes require an authenticated actor.
 router.use(authenticate);
 
