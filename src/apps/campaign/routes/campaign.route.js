@@ -42,7 +42,7 @@ router.get('/preview/:upi', async (req, res) => {
       data: {
         title: c?.title, caption: c?.caption, category: c?.category,
         mediaUrl: c?.mediaUrl, mediaType: c?.mediaType, thumbnailUrl: c?.thumbnailUrl,
-        promotionGoal: c?.promotionGoal || 'awareness',
+        promotionGoal: c?.campaignGoal || c?.promotionGoal || 'awareness',
         promoterName: promotion.promoter?.displayName || null,
       }
     });
