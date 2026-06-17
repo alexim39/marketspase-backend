@@ -1,7 +1,9 @@
 import { PromotionModel } from '../../promotion/models/index.js';
-import { CampaignModel } from '../models/campaign.model.js';
 import { CustomerModel } from '../../customer-crm/models/customer.model.js';
 import { ContactLogModel } from '../../customer-crm/models/contact-log.model.js';
+import { UserModel } from '../../user/models/user/index.js';
+import { sendEmail } from '../../../core/email.service.js';
+import { campaignLeadTemplate } from '../services/email/campaign-lead-template.js';
 
 const BASE_URL = process.env.BASE_URL || 'https://marketspase.com';
 const esc = (val) => String(val || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -164,6 +166,23 @@ export const createCampaignLead = async (req, res) => {
       notes: `Generated from campaign "${campaign?.title}" via UPI ${upi}. Promoter: ${promotion.promoter?.displayName || 'unknown'}`,
     });
     await ContactLogModel.create({ customer: lead._id, marketer: marketerId, type: 'note', direction: 'incoming', subject: 'Campaign lead', content: `Lead from "${campaign?.title}". Phone: ${phone}${email ? ', Email: '+email : ''}` });
+
+    // Send email notification to marketer (background — don't block response)
+    try {
+      const marketer = await UserModel.findById(marketerId).select('email displayName').lean();
+      if (marketer?.email) {
+        sendEmail(marketer.email, `New Lead: ${campaign?.title}`,
+          campaignLeadTemplate({
+            marketerName: marketer.displayName,
+            campaignTitle: campaign?.title,
+            phone, email: email || null,
+            promoterName: promotion.promoter?.displayName || null,
+            promotionGoal: campaign?.promotionGoal || 'awareness',
+          })
+        ).catch(err => console.error('Lead email failed:', err.message));
+      }
+    } catch (e) { console.error('Marketer lookup failed:', e.message); }
+
     return res.status(201).json({ success: true, data: { leadId: lead._id } });
   } catch (error) {
     console.error('Lead creation error:', error.message);
