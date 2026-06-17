@@ -34,6 +34,27 @@ AdminRouter.patch('/:id/status', UpdateCampaignStatus);
 // Admin - update promotion status: approve, reject, pause,
 AdminRouter.patch('/promotion/:id/status/:performedBy', UpdatePromotionStatus);
 
+// Admin - toggle promotion active (suspend/restore link)
+AdminRouter.patch('/promotion/:promotionId/toggle-active', async (req, res) => {
+  try {
+    const { PromotionModel } = await import('../../../promotion/models/index.js');
+    const promotion = await PromotionModel.findById(req.params.promotionId);
+    if (!promotion) return res.status(404).json({ success: false, message: 'Promotion not found.' });
+    promotion.isActive = !promotion.isActive;
+    if (!promotion.isActive) {
+      promotion.fraudStatus = promotion.fraudStatus || {};
+      promotion.fraudStatus.manualHold = true;
+      promotion.fraudStatus.manualHoldAt = new Date();
+      promotion.fraudStatus.manualHoldBy = req.userId;
+      promotion.fraudStatus.manualHoldReason = 'Admin manual suspension';
+    } else {
+      if (promotion.fraudStatus) promotion.fraudStatus.manualHold = false;
+    }
+    await promotion.save();
+    return res.json({ success: true, isActive: promotion.isActive, message: promotion.isActive ? 'Link restored.' : 'Link suspended.' });
+  } catch (e) { return res.status(500).json({ success: false, message: e.message }); }
+});
+
 // Admin - PPC analytics (click + conversion intelligence)
 AdminRouter.get('/ppc/overview', getAdminPpcAnalyticsOverviewController);
 AdminRouter.get('/ppc/promoters', getAdminPpcAnalyticsPromotersController);

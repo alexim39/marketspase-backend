@@ -5,6 +5,7 @@ import { UserModel } from "../../user/models/user/index.js";
 import { generateUniqueUpi } from "../../promotion/utils/generateUniqueUpi.js";
 import {
   buildPromotionTrackingUrl,
+  getPromotionTrackingBaseUrl,
   DEFAULT_PROMOTION_TRACKING_PATH,
 } from "../../promotion/utils/promotion-url.js";
 import { evaluateUserBadges } from "../../badges/service/badge.service.js";

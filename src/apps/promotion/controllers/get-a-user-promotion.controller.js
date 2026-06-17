@@ -21,6 +21,7 @@ const PROMOTION_LIST_SELECT = [
   "rejectionReason",
   "upi",
   "promotionUrl",
+  "publicUrl",
   "isActive",
   "clickStats",
   "fraudStatus",
@@ -37,12 +38,13 @@ const CAMPAIGN_LIST_SELECT = [
   "payoutPerPromotion",
   "mediaUrl",
   "thumbnailUrl",
-      "mediaType",
-      "category",
-      "budget",
-      "spentBudget",
-      "remainingBudget",
-      "endDate"
+  "mediaType",
+  "category",
+  "budget",
+  "spentBudget",
+  "remainingBudget",
+  "endDate",
+  "campaignGoal"
 ].join(" ");
 
 const ALLOWED_SORT_FIELDS = new Set([
