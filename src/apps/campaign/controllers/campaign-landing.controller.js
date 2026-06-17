@@ -101,6 +101,21 @@ function landing(campaign, promoter, goal) {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${t} — MarketSpase</title><meta property="og:title" content="${t}"><meta property="og:description" content="${cap}">${campaign.mediaUrl ? `<meta property="og:image" content="${esc(campaign.mediaUrl)}">` : ''}${CSS}</head><body>${BRAND}<div class="container"><div id="step-landing" class="step"><div class="card">${media}<div class="card-body"><div class="meta">${gb}${cat ? `<span>${cat}</span>` : ''}</div><h1>${t}</h1>${cap ? `<p class="description">${cap}</p>` : ''}${prom}</div></div><div style="margin-top:16px"><button class="btn btn-primary" onclick="h()">Continue →</button></div></div>${leadsSteps}${FOOTER}</div>${SCRIPT(esc(campaign.upi || ''), goal)}</body></html>`;
 }
 
+export const getCampaignLandingData = async (req, res) => {
+  try {
+    const { upi } = req.params;
+    const promotion = await PromotionModel.findOne({ upi }).populate('campaign').populate('promoter', 'displayName username avatar').lean();
+    if (!promotion) return res.json({ success: false, message: 'Not found.' });
+    if (!promotion.isActive) return res.json({ success: false, suspended: true });
+    if (!promotion.campaign) return res.json({ success: false, message: 'Campaign unavailable.' });
+    const c = promotion.campaign;
+    return res.json({ success: true, data: {
+      title: c.title, caption: c.caption, category: c.category, mediaUrl: c.mediaUrl, mediaType: c.mediaType, thumbnailUrl: c.thumbnailUrl,
+      promotionGoal: c.promotionGoal || 'awareness', promoterName: promotion.promoter?.displayName || null,
+    }});
+  } catch (e) { return res.json({ success: false, message: 'Error.' }); }
+};
+
 export const serveCampaignLandingPage = async (req, res) => {
   try {
     const { upi } = req.params;
