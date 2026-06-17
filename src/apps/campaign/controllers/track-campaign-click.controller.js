@@ -565,6 +565,15 @@ export const trackCampaignClick = async (req, res) => {
         const imageUrl = campaign?.thumbnailUrl || campaign?.mediaUrl;
         const description = campaign?.caption || "Open this link to view the offer.";
 
+        // NEW: Serve the campaign landing page when ?preview=1 is passed
+        if (req.query.preview === '1') {
+          const promotionGoal = campaign?.promotionGoal || 'awareness';
+          const promoter = await UserModel.findById(promotion.promoter).select('displayName username avatar').lean();
+          const { landing } = await import('./campaign-landing.controller.js');
+          const html = landing(campaign.toObject ? campaign.toObject() : campaign, promoter, promotionGoal);
+          return sendTrackingResponse(req, res, { httpStatus: 200, html, success: true });
+        }
+
         return sendTrackingResponse(req, res, {
           httpStatus: 200,
           html: buildTrackingLandingHtml({
