@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const CUSTOMER_SOURCES = ["manual", "csv_import", "click_capture", "subscriber_sync", "storefront_checkout"];
+const CUSTOMER_SOURCES = ["manual", "csv_import", "click_capture", "subscriber_sync", "storefront_checkout", "campaign_lead"];
 const CUSTOMER_LIFECYCLE_STAGES = ["new", "active", "repeat", "vip", "at_risk", "suppressed"];
 
 const customerSchema = new mongoose.Schema(
