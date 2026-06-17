@@ -37,6 +37,7 @@ import SearchRouter from './src/apps/search/index.js';
 import CrmRouter from './src/apps/customer-crm/routes/index.js';
 import { ensureGlobalSearchBootstrap } from './src/apps/search/services/search-index.service.js';
 import { trackClick as trackStoreAffiliateClick } from './src/apps/store/controllers/promotion/product-tracking.controller.js';
+import { serveCampaignLandingPage as campaignLandingPage, createCampaignLead } from './src/apps/campaign/controllers/campaign-landing.controller.js';
 
 // paystack transaction webhook imports
 import handlePaystackWithdrawalWebhook from './src/apps/wallet/services/paystack-webhook-wthdrawal-approval.service.js';
@@ -171,6 +172,10 @@ app.get('/', (req, res) => res.send('Node server is up and running'));
 // Keep these working because promoters may have already shared them.
 app.get('/stores/product/promotions/track-click/:uniqueCode', trackStoreAffiliateClick);
 app.post('/stores/product/promotions/track-click/:uniqueCode', trackStoreAffiliateClick);
+
+// Public campaign landing page — user-friendly promo URLs
+app.get('/c/:upi', campaignLandingPage);
+app.post('/api/v1/campaign/lead/:upi', createCampaignLead);
 
 app.use('/api/v1/auth', AuthRouter);
 app.use('/api/v1/user', UserRouter);

@@ -118,6 +118,7 @@ const ensurePromotionLink = async ({ promotion, campaign, marketer, req }) => {
 
   promotion.upi = upi;
   promotion.promotionUrl = promotionUrl;
+  promotion.publicUrl = `${getPromotionTrackingBaseUrl()}/c/${upi}`;
   promotion.destinationUrl = getDestinationUrl(campaign, marketer);
   promotion.payoutModel = "pay_per_click";
   promotion.costPerClick = costPerClick;
