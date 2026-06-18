@@ -79,6 +79,7 @@ const explicitAllowedOrigins = new Set([
     'http://marketspase.com',
     'https://www.marketspase.com',
     'https://admin.marketspase.com',
+    'https://apimarketspase1-hyrqzkeb.b4a.run',
 ]);
 
 const localhostOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;

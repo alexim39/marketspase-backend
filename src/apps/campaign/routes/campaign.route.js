@@ -49,6 +49,25 @@ router.get('/preview/:upi', async (req, res) => {
   } catch (e) { return res.json({ success: false }); }
 });
 
+// Public landing analytics — records user journey events
+router.post('/landing/event', async (req, res) => {
+  try {
+    const { upi, event, durationMs, sessionId, error: eventError } = req.body;
+    if (!upi || !event) return res.json({ success: false });
+
+    const { PromotionModel } = await import('../../promotion/models/index.js');
+    const { LandingEventModel } = await import('../models/landing-event.model.js');
+    const promotion = await PromotionModel.findOne({ upi }).select('_id campaign promoter').lean();
+    if (!promotion) return res.json({ success: false });
+
+    await LandingEventModel.create({
+      campaign: promotion.campaign, promotion: promotion._id, promoter: promotion.promoter,
+      upi, event, durationMs, sessionId, error: eventError || undefined,
+    });
+    return res.json({ success: true });
+  } catch (e) { return res.json({ success: false }); }
+});
+
 // All remaining campaign routes require an authenticated actor.
 router.use(authenticate);
 
