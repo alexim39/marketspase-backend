@@ -20,7 +20,6 @@ export const campaignLeadTemplate = (data) => {
           ${data.email ? `<tr><td style="padding:8px 0;color:#4a5568;"><strong>Email:</strong></td><td style="padding:8px 0;color:#2d3748;text-align:right;">${data.email}</td></tr>` : ''}
           <tr><td style="padding:8px 0;color:#4a5568;"><strong>Campaign:</strong></td><td style="padding:8px 0;color:#2d3748;text-align:right;">${data.campaignTitle}</td></tr>
           <tr><td style="padding:8px 0;color:#4a5568;"><strong>Promoter:</strong></td><td style="padding:8px 0;color:#2d3748;text-align:right;">${data.promoterName || 'N/A'}</td></tr>
-          <tr><td style="padding:8px 0;color:#4a5568;"><strong>Goal:</strong></td><td style="padding:8px 0;color:#2d3748;text-align:right;text-transform:capitalize;">${data.promotionGoal}</td></tr>
           <tr><td style="padding:8px 0;color:#4a5568;"><strong>Date:</strong></td><td style="padding:8px 0;color:#2d3748;text-align:right;">${new Date().toLocaleDateString('en-NG', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td></tr>
         </table>
       </div>

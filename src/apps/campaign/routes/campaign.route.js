@@ -44,6 +44,7 @@ router.get('/preview/:upi', async (req, res) => {
         mediaUrl: c?.mediaUrl, mediaType: c?.mediaType, thumbnailUrl: c?.thumbnailUrl,
         promotionGoal: c?.campaignGoal || c?.promotionGoal || 'awareness',
         promoterName: promotion.promoter?.displayName || null,
+        destinationUrl: promotion.destinationUrl || c?.link || null,
       }
     });
   } catch (e) { return res.json({ success: false }); }

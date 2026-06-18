@@ -15,6 +15,8 @@ import { updateUserDisplayName } from '../../controllers/admin/update-user-displ
 import { markMarketingRep } from '../../controllers/admin/make-marketing-rep.controller.js'
 import { getUserAnalytics } from '../../controllers/admin/get-user-analytics.controller.js';
 import { requireAdmin } from '../../../../shared/middleware/authorization.middleware.js';
+import UserGrowthRouter from './user-growth.routes.js';
+import ActiveUsersRouter from './active-users.routes.js';
 
 
 const AdminIndexRouter = express.Router();
@@ -30,6 +32,8 @@ AdminIndexRouter.get('/summary', getUserSummary);
 AdminIndexRouter.get('/users/stream', streamUsers);
 AdminIndexRouter.get('/stream', streamUsers);
 AdminIndexRouter.get('/users/analytics', getUserAnalytics);
+AdminIndexRouter.use('/users', UserGrowthRouter);
+AdminIndexRouter.use('/users', ActiveUsersRouter);
 
 // admin - get all users by role
 AdminIndexRouter.get('/users/role/:role', getUsersByRole);
