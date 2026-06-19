@@ -26,6 +26,7 @@ export const NOTIFICATION_TYPE = {
   BADGE_UNLOCKED: 'badge_unlocked',
   LEVEL_UP: 'level_up',
   GAMIFICATION_MILESTONE_UNLOCKED: 'gamification_milestone_unlocked',
+  FORUM_ACTIVITY: 'forum_activity',
   
   // Reminders
   REMINDER: 'reminder',
