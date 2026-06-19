@@ -126,6 +126,32 @@ router.get('/users/active', optionalAuthenticate, getActiveUsers);
 // Get popular tags
 router.get('/tags/popular', optionalAuthenticate, getPopularTags);
 
+// Get recent activity (threads with most recent updates/comments)
+router.get('/threads/recent-activity', optionalAuthenticate, async (req, res) => {
+  try {
+    const { ThreadModel } = await import('../models/thread/index.js');
+    const limit = Math.max(1, Math.min(10, parseInt(req.query.limit, 10) || 5));
+    const threads = await ThreadModel.find({ isDeleted: { $ne: true } })
+      .select('_id title updatedAt commentCount author')
+      .populate('author', 'displayName')
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean();
+    return res.json({
+      success: true,
+      data: threads.map(t => ({
+        _id: t._id,
+        title: t.title,
+        updatedAt: t.updatedAt,
+        commentCount: t.commentCount || 0,
+        authorName: t.author?.displayName || 'Unknown',
+      })),
+    });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 // Get thread categories with counts
 router.get('/categories', optionalAuthenticate, getCategories);
 
