@@ -11,6 +11,7 @@ import { EditCampaign, UpdateCampaignPartial  } from '../controllers/edit-campai
 import { getCampaignsByStatusAndUserId } from '../controllers/get-by-status-and-userid.controller.js'
 import { GetAMarketerCampaigns } from '../controllers/get-marketer-campaign.controller.js'
 import { getMarketerAnalytics } from '../controllers/get-marketer-analytics.controller.js';
+import { getMarketerLeadAnalytics } from '../controllers/get-marketer-lead-analytics.controller.js';
 import { getCampaignPpcPricingConfigController } from '../controllers/ppc-pricing-config.controller.js';
 
 import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
@@ -53,17 +54,22 @@ router.get('/preview/:upi', async (req, res) => {
 // Public landing analytics — records user journey events
 router.post('/landing/event', async (req, res) => {
   try {
-    const { upi, event, durationMs, sessionId, error: eventError } = req.body;
+    const { upi, event, durationMs, sessionId, error: eventError, phone, leadId } = req.body;
     if (!upi || !event) return res.json({ success: false });
 
     const { PromotionModel } = await import('../../promotion/models/index.js');
+    const { CampaignModel } = await import('../models/campaign.model.js');
     const { LandingEventModel } = await import('../models/landing-event.model.js');
     const promotion = await PromotionModel.findOne({ upi }).select('_id campaign promoter').lean();
     if (!promotion) return res.json({ success: false });
 
+    const campaign = await CampaignModel.findById(promotion.campaign).select('owner').lean();
+
     await LandingEventModel.create({
       campaign: promotion.campaign, promotion: promotion._id, promoter: promotion.promoter,
+      marketer: campaign?.owner || undefined,
       upi, event, durationMs, sessionId, error: eventError || undefined,
+      phone: phone || undefined, leadId: leadId || undefined,
     });
     return res.json({ success: true });
   } catch (e) { return res.json({ success: false }); }
@@ -74,6 +80,7 @@ router.use(authenticate);
 
 // GET routes in order of specificity - FIXED ORDER
 router.get('/user/:userId', GetAMarketerCampaigns);
+router.get('/analytics/marketer/leads', getMarketerLeadAnalytics);
 router.get('/analytics/marketer/:userId', getMarketerAnalytics);
 router.get('/pricing/config', getCampaignPpcPricingConfigController);
 router.get('/', getCampaignsByStatusAndUserId);

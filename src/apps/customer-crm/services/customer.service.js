@@ -318,7 +318,7 @@ export const updateCustomer = async ({ customerId, marketerId, data }) => {
   return CustomerModel.findById(customerId).populate("groups", "name color").lean();
 };
 
-/* ────── Soft-delete a customer ────── */
+/* ────── Hard-delete a customer ────── */
 
 export const deleteCustomer = async ({ customerId, marketerId }) => {
   await validateOwner(marketerId);
@@ -329,12 +329,11 @@ export const deleteCustomer = async ({ customerId, marketerId }) => {
     throw err;
   }
 
-  const result = await CustomerModel.updateOne(
-    { _id: customerId, marketer: marketerId },
-    { $set: { isActive: false } }
+  const result = await CustomerModel.deleteOne(
+    { _id: customerId, marketer: marketerId }
   );
 
-  if (result.matchedCount === 0) {
+  if (result.deletedCount === 0) {
     const err = new Error("Customer not found");
     err.status = 404;
     throw err;

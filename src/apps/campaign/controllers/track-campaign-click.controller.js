@@ -320,6 +320,27 @@ const getNonBillableRequestReason = (req) => {
     return "bot_or_preview_user_agent";
   }
 
+  // Require a referrer from a valid frontend origin to prevent direct API hits
+  // from generating billable clicks without going through the landing page.
+  const referrerHeader = req.get("referer") || req.get("referrer") || "";
+  if (!referrerHeader) {
+    return "missing_referrer";
+  }
+  try {
+    const refHost = new URL(referrerHeader).hostname.toLowerCase();
+    const VALID_REFERRER_HOSTS = [
+      "marketspase.com",
+      "localhost",
+      "127.0.0.1",
+      // b4a.run hosts serve the SSR landing page at /c/:upi
+      "b4a.run",
+    ];
+    const allowed = VALID_REFERRER_HOSTS.some(
+      h => refHost === h || refHost.endsWith("." + h)
+    );
+    if (!allowed) return "untrusted_referrer";
+  } catch { return "missing_referrer"; }
+
   return null;
 };
 
