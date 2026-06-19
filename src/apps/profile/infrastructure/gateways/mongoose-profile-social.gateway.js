@@ -28,8 +28,8 @@ export class MongooseProfileSocialGateway extends ProfileSocialGateway {
   async findProfileUser({ userId, summaryView = false } = {}) {
     return UserModel.findById(userId)
       .select(summaryView
-        ? 'uid username displayName avatar personalInfo professionalInfo createdAt role rating ratingCount ratingUpdatedAt collaborationRating collaborationRatingCount collaborationReviewCount isVerified badgeProfile gamificationProfile'
-        : 'uid username displayName avatar personalInfo professionalInfo createdAt role rating ratingCount ratingUpdatedAt collaborationRating collaborationRatingCount collaborationReviewCount isVerified badgeProfile gamificationProfile loginStreak')
+        ? 'uid username displayName avatar personalInfo professionalInfo createdAt updatedAt lastSeenAt role rating ratingCount ratingUpdatedAt collaborationRating collaborationRatingCount collaborationReviewCount isVerified badgeProfile gamificationProfile'
+        : 'uid username displayName avatar personalInfo professionalInfo createdAt updatedAt lastSeenAt role rating ratingCount ratingUpdatedAt collaborationRating collaborationRatingCount collaborationReviewCount isVerified badgeProfile gamificationProfile loginStreak')
       .lean();
   }
 

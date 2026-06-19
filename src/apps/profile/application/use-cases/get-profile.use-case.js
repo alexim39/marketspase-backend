@@ -105,6 +105,7 @@ export class GetProfileUseCase {
           promoterProfile: null,
           isFollowing,
           isOwnProfile,
+                  isOnline: user.lastSeenAt ? (Date.now() - new Date(user.lastSeenAt).getTime() < 5 * 60 * 1000) : false,
         },
       };
     }
@@ -168,6 +169,7 @@ export class GetProfileUseCase {
         promoterProfile: user.role === 'promoter' ? roleProfile : null,
         isFollowing,
         isOwnProfile,
+                isOnline: user.lastSeenAt ? (Date.now() - new Date(user.lastSeenAt).getTime() < 5 * 60 * 1000) : false,
       },
     };
   }

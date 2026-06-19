@@ -508,8 +508,8 @@ export const getProfile = async (req, res) => {
 
     const user = await UserModel.findById(userId)
       .select(summaryView
-        ? 'uid username displayName avatar personalInfo professionalInfo createdAt role rating ratingCount ratingUpdatedAt collaborationRating collaborationRatingCount collaborationReviewCount isVerified badgeProfile gamificationProfile'
-        : 'uid username displayName avatar personalInfo professionalInfo createdAt role rating ratingCount ratingUpdatedAt collaborationRating collaborationRatingCount collaborationReviewCount isVerified badgeProfile gamificationProfile loginStreak'
+        ? 'uid username displayName avatar personalInfo professionalInfo createdAt updatedAt lastSeenAt role rating ratingCount ratingUpdatedAt collaborationRating collaborationRatingCount collaborationReviewCount isVerified badgeProfile gamificationProfile'
+        : 'uid username displayName avatar personalInfo professionalInfo createdAt updatedAt lastSeenAt role rating ratingCount ratingUpdatedAt collaborationRating collaborationRatingCount collaborationReviewCount isVerified badgeProfile gamificationProfile loginStreak'
       )
       .lean();
 
@@ -598,6 +598,7 @@ export const getProfile = async (req, res) => {
         promoterProfile: null,
         isFollowing,
         isOwnProfile: currentUserId?.toString() === userId,
+        isOnline: user.lastSeenAt ? (Date.now() - new Date(user.lastSeenAt).getTime() < 5 * 60 * 1000) : false,
       });
     }
 
@@ -707,6 +708,7 @@ export const getProfile = async (req, res) => {
       promoterProfile: user.role === 'promoter' ? roleProfile : null,
       isFollowing,
       isOwnProfile: currentUserId?.toString() === userId,
+      isOnline: user.lastSeenAt ? (Date.now() - new Date(user.lastSeenAt).getTime() < 5 * 60 * 1000) : false,
     });
   } catch (error) {
     console.error('Error in getProfile:', error);
