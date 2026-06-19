@@ -46,14 +46,14 @@ h1{font-size:1.35rem;font-weight:700;line-height:1.3;margin-bottom:8px}
 
 const BRAND = `<div style="text-align:center;padding:20px 0 8px"><span style="font-weight:700;font-size:1.1rem;color:#667eea">MarketSpase</span></div>`;
 
-const SCRIPT = (upi, goal) => `
+const SCRIPT = (upi, goal, destUrl) => `
 <script>
-var U='${upi}',G='${goal}',A='/api/v1/campaign';
+var U='${upi}',G='${goal}',A='/api/v1/campaign',D='${encodeURI(destUrl)}';
 function s(id){document.querySelectorAll('.step').forEach(function(e){e.classList.remove('active')});document.getElementById(id).classList.add('active')}
 function c(){window.location.href=A+'/track/'+U+'?go=1'}
 function h(){if(G==='leads')s('step-choice');else c()}
 function y(){s('step-form');document.getElementById('phone').focus()}
-function n(){c()}
+function n(){window.location.href=decodeURI(D)||c()}
 async function t(){
   var b=document.getElementById('submit-btn'),p=document.getElementById('phone').value.trim(),e=document.getElementById('email').value.trim(),r=document.getElementById('form-error');
   r.textContent='';if(!p){r.textContent='Please enter your phone number.';return}if(!/^[+]?[0-9]{10,15}$/.test(p.replace(/\\s/g,''))){r.textContent='Please enter a valid phone number.';return}
@@ -65,7 +65,7 @@ document.addEventListener('DOMContentLoaded',function(){s('step-landing')});
 
 const FOOTER = `<div class="footer"><p>Powered by MarketSpase · Trusted marketing platform</p></div>`;
 
-function landing(campaign, promoter, goal) {
+function landing(campaign, promoter, goal, destUrl) {
   const t = esc(campaign.title), cap = esc(campaign.caption || '');
   const cat = esc(campaign.category || '');
   const gb = goal === 'leads' ? '<span class="badge badge-leads">Lead Campaign</span>' : '<span class="badge badge-awareness">Awareness Campaign</span>';
@@ -100,7 +100,7 @@ function landing(campaign, promoter, goal) {
       <button class="btn btn-primary" onclick="c()">Proceed to Offer →</button>
     </div></div></div>` : '';
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${t} — MarketSpase</title><meta property="og:title" content="${t}"><meta property="og:description" content="${cap}">${campaign.mediaUrl ? `<meta property="og:image" content="${esc(campaign.mediaUrl)}">` : ''}${CSS}</head><body>${BRAND}<div class="container"><div id="step-landing" class="step"><div class="card">${media}<div class="card-body"><div class="meta">${gb}${cat ? `<span>${cat}</span>` : ''}</div><h1>${t}</h1>${cap ? `<p class="description">${cap}</p>` : ''}${prom}</div></div><div style="margin-top:16px"><button class="btn btn-primary" onclick="h()">Continue →</button></div></div>${leadsSteps}${FOOTER}</div>${SCRIPT(esc(campaign.upi || ''), goal)}</body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${t} — MarketSpase</title><meta property="og:title" content="${t}"><meta property="og:description" content="${cap}">${campaign.mediaUrl ? `<meta property="og:image" content="${esc(campaign.mediaUrl)}">` : ''}${CSS}</head><body>${BRAND}<div class="container"><div id="step-landing" class="step"><div class="card">${media}<div class="card-body"><div class="meta">${gb}${cat ? `<span>${cat}</span>` : ''}</div><h1>${t}</h1>${cap ? `<p class="description">${cap}</p>` : ''}${prom}</div></div><div style="margin-top:16px"><button class="btn btn-primary" onclick="h()">Continue →</button></div></div>${leadsSteps}${FOOTER}</div>${SCRIPT(esc(campaign.upi || ''), goal, destUrl || '')}</body></html>`;
 }
 
 export const getCampaignLandingData = async (req, res) => {
@@ -131,7 +131,7 @@ export const serveCampaignLandingPage = async (req, res) => {
     const campaign = promotion.campaign;
     if (!campaign) return res.status(200).send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Loading</title><style>body{font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f9fafb;color:#374151;text-align:center;padding:24px}</style></head><body><div><h2>Campaign information is loading</h2><p>Please try again in a moment.</p></div></body></html>`);
 
-    const html = landing(campaign, promotion.promoter, campaign.promotionGoal || 'awareness');
+    const html = landing(campaign, promotion.promoter, campaign.promotionGoal || 'awareness', promotion.destinationUrl || campaign.link || '');
     res.setHeader('Cache-Control', 'public, max-age=60');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.send(html);
@@ -160,7 +160,7 @@ export const createCampaignLead = async (req, res) => {
     const lead = await CustomerModel.create({
       marketer: marketerId, displayName: `Lead: ${phone}`, phone, email: email || undefined,
       source: 'campaign_lead', campaignId: campaign?._id, campaignName: campaign?.title,
-      promotionGoal: campaign?.promotionGoal || 'awareness', promoterId: promotion.promoter?._id,
+      promotionId: promotion._id, promotionGoal: campaign?.promotionGoal || 'awareness',
       lifecycleStage: 'new', tags: ['campaign_lead', campaign?.category].filter(Boolean),
       consent: { sms: true, email: !!email },
       notes: `Generated from campaign "${campaign?.title}" via UPI ${upi}. Promoter: ${promotion.promoter?.displayName || 'unknown'}`,

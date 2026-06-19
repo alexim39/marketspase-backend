@@ -128,7 +128,7 @@ export const updateCustomerHandler = async (req, res) => {
 };
 
 /**
- * @desc    Soft-delete a customer contact
+ * @desc    Hard-delete a customer contact
  * @route   DELETE /api/v1/customers/:id
  * @access  Private (Marketer)
  */
