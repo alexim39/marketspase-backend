@@ -18,6 +18,7 @@ import {
   updateAdminCampaignPpcPricingConfigController,
 } from '../../controllers/ppc-pricing-config.controller.js';
 import { getAdminCampaignLeads, deleteAdminCampaignLead } from '../../controllers/admin/get-admin-campaign-leads.controller.js';
+import { getAdminCampaignMetrics } from '../../controllers/admin/get-admin-campaign-metrics.controller.js';
 import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 import { requireAdmin } from '../../../../shared/middleware/authorization.middleware.js';
 
@@ -31,6 +32,9 @@ AdminRouter.get('/campaigns', getAllCampaigns);
 
 // admin - get campaign leads
 AdminRouter.get('/leads', getAdminCampaignLeads);
+
+// admin - campaign funnel metrics
+AdminRouter.get('/metrics', getAdminCampaignMetrics);
 
 // admin - hard-delete a campaign lead
 AdminRouter.delete('/leads/:id', deleteAdminCampaignLead);
