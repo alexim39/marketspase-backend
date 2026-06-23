@@ -71,13 +71,19 @@ export const getCommunityFeed = asyncHandler(async (req, res) => {
       ? 'trending'
       : feedType === 'latest'
         ? 'latest'
-        : 'for_you';
+        : feedType === 'saved'
+          ? 'saved'
+          : 'for_you';
 
   if (normalizedFeedType === 'following') {
     const followingIds = await buildFollowingAuthorQuery(userId);
     query.author = Array.isArray(followingIds) && followingIds.length
       ? { $in: followingIds }
       : null;
+  }
+
+  if (normalizedFeedType === 'saved' && userId) {
+    query['savedBy.user'] = userId;
   }
 
     if (query.author === null) {
