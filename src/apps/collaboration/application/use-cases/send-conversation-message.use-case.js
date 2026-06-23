@@ -1,5 +1,6 @@
 import { SendConversationMessageDto } from '../dto/send-conversation-message.dto.js';
 import { toCollaborationIdString } from '../mappers/collaboration-conversation.mapper.js';
+import { extractMentions, resolveMentions } from '../../services/mention.service.js';
 
 const getParticipantIds = (conversation) => (conversation.participants || [])
   .map((participant) => toCollaborationIdString(participant.user?._id || participant.user))
@@ -100,6 +101,30 @@ export class SendConversationMessageUseCase {
         content: dto.content,
       })),
     );
+
+    // Mention notifications — high priority
+    try {
+      const mentionedUsernames = extractMentions(dto.content);
+      if (mentionedUsernames.length > 0) {
+        const resolved = await resolveMentions(mentionedUsernames, participantIds);
+        for (const mention of resolved) {
+          if (mention.userId === normalizedSenderId) continue;
+          this.collaborationNotificationGateway.createMessageNotification({
+            recipientId: mention.userId,
+            conversation: {
+              _id: conversation._id,
+              title: `${dto.user?.displayName || 'Someone'} mentioned you`,
+              type: conversation.type,
+            },
+            sender: dto.user,
+            content: dto.content,
+            priority: 'high',
+          }).catch(() => null);
+        }
+      }
+    } catch (e) {
+      // Mention processing is best-effort
+    }
 
     return {
       statusCode: 201,

@@ -47,7 +47,7 @@ export async function getSpotlightData(userId = null) {
 
     const activePostId = config.postIds[activeIndex];
     const post = await FeedPostModel.findById(activePostId)
-      .populate('author', 'username displayName avatar role isVerified')
+      .populate('author', 'username displayName avatar role isVerified personalInfo')
       .lean();
 
     if (!post) {

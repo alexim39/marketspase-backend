@@ -101,20 +101,20 @@ export class NotificationService {
     });
   }
 
-  static async createCollaborationMessageNotification(recipientId, conversation, sender, messageText) {
+  static async createCollaborationMessageNotification(recipientId, conversation, sender, messageText, priority = 'medium') {
     const excerpt = String(messageText || '').trim().slice(0, 120);
 
     return this.createNotification({
       recipient: recipientId,
       type: 'collaboration_message',
-      title: conversation?.type === 'campaign_room' ? 'New campaign room message' : 'New message',
+      title: priority === 'high' ? `${sender?.displayName || sender?.username || 'Someone'} mentioned you` : (conversation?.type === 'campaign_room' ? 'New campaign room message' : 'New message'),
       message: `${sender?.displayName || sender?.username || 'Someone'}: ${excerpt || 'Sent a new message.'}`,
       data: {
         conversationId: conversation?._id,
         conversationTitle: conversation?.title || '',
         actionUrl: '/dashboard/campaigns/collaboration',
       },
-      priority: 'medium',
+      priority,
     });
   }
 

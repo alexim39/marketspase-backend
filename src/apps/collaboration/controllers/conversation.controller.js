@@ -454,6 +454,22 @@ export const sendConversationMessage = async (req, res) => {
       });
     }
 
+    // Flood protection — reject duplicate content within 5 seconds
+    const recentDuplicate = await CollaborationMessageModel.findOne({
+      conversation: req.params.conversationId,
+      sender: req.user._id,
+      content,
+      deletedAt: null,
+      createdAt: { $gte: new Date(Date.now() - 5000) },
+    }).lean();
+
+    if (recentDuplicate) {
+      return res.status(429).json({
+        success: false,
+        message: "Duplicate message. Please wait before sending the same message again.",
+      });
+    }
+
     const conversation = await loadConversationForUser(req.params.conversationId, req.user);
     const participantIds = (conversation.participants || [])
       .map((participant) => toIdString(participant.user?._id || participant.user))
@@ -509,6 +525,31 @@ export const sendConversationMessage = async (req, res) => {
       )
     );
 
+    // Mention notifications — high priority for @username mentions
+    try {
+      const { extractMentions, resolveMentions } = await import('../services/mention.service.js');
+      const mentionedUsernames = extractMentions(content);
+      if (mentionedUsernames.length > 0) {
+        const resolved = await resolveMentions(mentionedUsernames, participantIds);
+        for (const mention of resolved) {
+          if (mention.userId === toIdString(req.user._id)) continue;
+          await NotificationService.createCollaborationMessageNotification(
+            mention.userId,
+            {
+              _id: conversation._id,
+              title: `${req.user.displayName || 'Someone'} mentioned you`,
+              type: conversation.type,
+            },
+            req.user,
+            content,
+            'high'
+          ).catch(() => null);
+        }
+      }
+    } catch (e) {
+      // Mention processing is best-effort
+    }
+
     return res.status(201).json({
       success: true,
       data: populatedMessage,
@@ -560,6 +601,11 @@ export const markConversationRead = async (req, res) => {
           },
         },
       }
+    );
+
+    await CollaborationConversationModel.updateOne(
+      { _id: conversation._id, 'participants.user': req.user._id },
+      { $set: { 'participants.$.lastReadAt': new Date() } }
     );
 
     return res.json({

@@ -1,4 +1,5 @@
 import { resolveAccessToken } from '../../shared/middleware/auth.middleware.js';
+import { presenceTracker } from '../collaboration/services/presence-tracker.js';
 
 const extractSocketToken = (socket) => {
   const authToken = socket.handshake.auth?.token;
@@ -38,8 +39,17 @@ export const setupSocketHandlers = (io) => {
 
   io.on('connection', (socket) => {
     const userId = socket.data.userId;
+    const user = socket.data.user;
+
     if (userId) {
       socket.join(`user:${userId}`);
+
+      const wasOffline = !presenceTracker.isOnline(userId);
+      presenceTracker.userConnected(userId, user);
+
+      if (wasOffline) {
+        broadcastPresenceChange(io, userId, 'online');
+      }
     }
 
     socket.on('join_conversation', (conversationId) => {
@@ -50,8 +60,27 @@ export const setupSocketHandlers = (io) => {
       socket.join(`collaboration:${conversationId}`);
     });
 
+    socket.on('presence_heartbeat', () => {
+      if (userId) presenceTracker.heartbeat(userId);
+    });
+
+    socket.on('typing_start', (conversationId) => {
+      if (!userId || !conversationId) return;
+      broadcastTyping(io, userId, socket.data.user?.displayName, conversationId, 'start');
+    });
+
+    socket.on('typing_stop', (conversationId) => {
+      if (!userId || !conversationId) return;
+      broadcastTyping(io, userId, socket.data.user?.displayName, conversationId, 'stop');
+    });
+
     socket.on('disconnect', () => {
-      // cleanup if needed
+      if (userId) {
+        const wentOffline = presenceTracker.userDisconnected(userId);
+        if (wentOffline) {
+          broadcastPresenceChange(io, userId, 'offline');
+        }
+      }
     });
   });
 };
@@ -79,5 +108,51 @@ export const notifyCollaborationMessage = (io, conversationId, participantIds = 
 export const notifyCollaborationConversationUpdate = (io, participantIds = [], payload) => {
   for (const participantId of participantIds) {
     io.to(`user:${participantId}`).emit('collaboration_conversation_updated', payload);
+  }
+};
+
+export const broadcastTyping = (io, userId, displayName, conversationId, action) => {
+  io.to(`collaboration:${conversationId}`).emit('collaboration_typing', {
+    userId,
+    displayName: displayName || 'Someone',
+    conversationId,
+    action,
+    timestamp: new Date().toISOString(),
+  });
+};
+
+export const broadcastPresenceChange = async (io, userId, status) => {
+  try {
+    const { CollaborationConversationModel } = await import('../collaboration/models/index.js');
+    const conversations = await CollaborationConversationModel.find({
+      'participants.user': userId,
+      isActive: true,
+    })
+      .select('participants.user')
+      .lean();
+
+    const partnerIds = new Set();
+    for (const conv of conversations) {
+      for (const p of conv.participants || []) {
+        const pid = p.user?.toString?.();
+        if (pid && pid !== userId) partnerIds.add(pid);
+      }
+    }
+
+    const onlineUser = presenceTracker.getOnlineUser(userId);
+    const payload = {
+      userId,
+      status,
+      displayName: onlineUser?.displayName,
+      timestamp: new Date().toISOString(),
+    };
+
+    for (const partnerId of partnerIds) {
+      io.to(`user:${partnerId}`).emit('presence_changed', payload);
+    }
+
+    io.emit('presence_broadcast', payload);
+  } catch (e) {
+    // Fail silently — presence is best-effort
   }
 };
