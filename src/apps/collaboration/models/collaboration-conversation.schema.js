@@ -12,6 +12,10 @@ const conversationParticipantSchema = new mongoose.Schema(
       enum: ["marketer", "promoter", "admin", "moderator", "user"],
       default: "user",
     },
+    lastReadAt: {
+      type: Date,
+      default: null,
+    },
   },
   { _id: false }
 );
@@ -98,6 +102,10 @@ const collaborationConversationSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    pinnedMessages: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CollaborationMessage',
+    }],
   },
   {
     timestamps: true,

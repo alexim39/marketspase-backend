@@ -12,6 +12,7 @@ import { getCampaignsByStatusAndUserId } from '../controllers/get-by-status-and-
 import { GetAMarketerCampaigns } from '../controllers/get-marketer-campaign.controller.js'
 import { getMarketerAnalytics } from '../controllers/get-marketer-analytics.controller.js';
 import { getMarketerLeadAnalytics } from '../controllers/get-marketer-lead-analytics.controller.js';
+import { getMarketerLeadDetail } from '../controllers/get-marketer-lead-detail.controller.js';
 import { getCampaignPpcPricingConfigController } from '../controllers/ppc-pricing-config.controller.js';
 
 import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
@@ -80,6 +81,7 @@ router.use(authenticate);
 
 // GET routes in order of specificity - FIXED ORDER
 router.get('/user/:userId', GetAMarketerCampaigns);
+router.get('/analytics/marketer/leads/:campaignId', getMarketerLeadDetail);
 router.get('/analytics/marketer/leads', getMarketerLeadAnalytics);
 router.get('/analytics/marketer/:userId', getMarketerAnalytics);
 router.get('/pricing/config', getCampaignPpcPricingConfigController);

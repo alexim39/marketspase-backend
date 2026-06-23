@@ -77,6 +77,11 @@ const collaborationMessageSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    isPinned: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   {
     timestamps: true,
