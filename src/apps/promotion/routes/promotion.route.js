@@ -2,6 +2,7 @@ import express from 'express';
 import { GetPromotionById } from '../controllers/get-promotion-byid.controller.js'
 import { GetUserPromotions } from '../controllers/get-a-user-promotion.controller.js'
 import { getPromoterAnalytics } from '../controllers/get-promoter-analytics.controller.js';
+import { getPromoterMetrics, getPromoterMetricsDetail } from '../controllers/get-promoter-metrics.controller.js';
 import { GetAdminPromotions } from '../controllers/admin/get-promotions.controller.js'
 import { getPromotionFraudSummaryController } from '../controllers/admin/get-promotion-fraud-summary.controller.js';
 import { getPromotionFraudCasesController } from '../controllers/admin/get-promotion-fraud-cases.controller.js';
@@ -23,6 +24,8 @@ PromoterRouter.post('/admin/fraud/cases/:caseId/action', requireAdmin, applyProm
 
 // Get a user promotions with filtering and pagination
 PromoterRouter.get('/analytics/promoter/:userId', getPromoterAnalytics);
+PromoterRouter.get('/metrics/promoter/:userId/metrics/:campaignId', getPromoterMetricsDetail);
+PromoterRouter.get('/metrics/promoter/:userId', getPromoterMetrics);
 PromoterRouter.get('/user/:userId', GetUserPromotions);
 
 // Promoter compliance / fraud history (self + admin access only)
