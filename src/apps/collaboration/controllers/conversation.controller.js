@@ -447,10 +447,10 @@ export const sendConversationMessage = async (req, res) => {
     const content = String(req.body?.content || "").trim();
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
 
-    if (!content) {
+    if (!content && attachments.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Message content is required.",
+        message: "Message content or attachment is required.",
       });
     }
 
@@ -488,7 +488,7 @@ export const sendConversationMessage = async (req, res) => {
       {
         $set: {
           lastMessageAt: message.createdAt,
-          lastMessagePreview: content.slice(0, 280),
+          lastMessagePreview: content.slice(0, 280) || (attachments.length ? `📎 ${attachments[0]?.label || 'Attachment'}` : ''),
           lastMessageBy: req.user._id,
         },
       }
@@ -504,7 +504,7 @@ export const sendConversationMessage = async (req, res) => {
       notifyCollaborationConversationUpdate(io, participantIds, {
         conversationId: toIdString(conversation._id),
         lastMessageAt: message.createdAt,
-        lastMessagePreview: content.slice(0, 280),
+        lastMessagePreview: content.slice(0, 280) || (attachments.length ? `📎 ${attachments[0]?.label || 'Attachment'}` : ''),
         lastMessageBy: toIdString(req.user._id),
       });
     }

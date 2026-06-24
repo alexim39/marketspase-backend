@@ -58,7 +58,7 @@ const collaborationMessageSchema = new mongoose.Schema(
     content: {
       type: String,
       trim: true,
-      required: true,
+      default: '',
       maxlength: 4000,
     },
     attachments: {
@@ -82,6 +82,11 @@ const collaborationMessageSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    reactions: [{
+      emoji: { type: String, required: true },
+      user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+      createdAt: { type: Date, default: Date.now },
+    }],
   },
   {
     timestamps: true,
