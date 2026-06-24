@@ -4,6 +4,18 @@ app.use(express.json()); // Use json middleware
 app.use(express.urlencoded({extended: false})); // Use formdata middleware
 
 import { SwitchUser } from '../controllers/switch-user.controller.js'
+import {
+  getOnboardingState,
+  completeOnboardingStep,
+  dismissOnboarding,
+  getMatchingCampaigns,
+  getPerformanceBenchmarks,
+} from '../controllers/growth-features.controller.js';
+import {
+  getPromoterTier,
+  getPromoterTrustMetrics,
+  bulkInvitePromoters,
+} from '../controllers/promoter-features.controller.js';
 
 import PromoRouter from './promo/promo.routes.js';
 //import StatsRouter from './stats/stats.routes.js';
@@ -39,6 +51,16 @@ UserRouter.use('/admin', AdminIndexRouter);
  * /api/users/switch-user:
  */
 UserRouter.post('/switch-user', SwitchUser);
+
+// Growth features
+UserRouter.get('/onboarding', getOnboardingState);
+UserRouter.post('/onboarding/complete', completeOnboardingStep);
+UserRouter.post('/onboarding/dismiss', dismissOnboarding);
+UserRouter.get('/matching-campaigns', getMatchingCampaigns);
+UserRouter.get('/performance-benchmarks', getPerformanceBenchmarks);
+UserRouter.get('/promoter/:userId/tier', getPromoterTier);
+UserRouter.get('/promoter/:promoterId/trust', getPromoterTrustMetrics);
+UserRouter.post('/campaign/:campaignId/bulk-invite', bulkInvitePromoters);
 
 
 /* Dynamic Routes */

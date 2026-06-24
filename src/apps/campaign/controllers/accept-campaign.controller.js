@@ -242,6 +242,14 @@ const scheduleAcceptanceSideEffects = ({
       );
     }
 
+    // Auto-join campaign conversation room
+    tasks.push((async () => {
+      try {
+        const { getOrCreateCampaignConversation } = await import('../../collaboration/services/collaboration-access.service.js');
+        await getOrCreateCampaignConversation(campaign._id, campaign.owner, req.userId);
+      } catch (e) { /* best-effort */ }
+    })());
+
     const results = await Promise.allSettled(tasks);
     results.forEach((result, index) => {
       if (result.status === "rejected") {
