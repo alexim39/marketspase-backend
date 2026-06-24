@@ -5,7 +5,7 @@
   "main": "bootstrap.js",
   "type": "module",
   "engines": {
-    "node": "20.x"
+    "node": ">=20.x"
   },
   "scripts": {
     "test": "npm run test:auth",
