@@ -34,12 +34,12 @@ export class SendConversationMessageUseCase {
       ? input
       : new SendConversationMessageDto(input);
 
-    if (!dto.content) {
+    if (!dto.content && (!dto.attachments || dto.attachments.length === 0)) {
       return {
         statusCode: 400,
         body: {
           success: false,
-          message: 'Message content is required.',
+          message: 'Message content or attachment is required.',
         },
       };
     }
@@ -50,7 +50,7 @@ export class SendConversationMessageUseCase {
     );
     const participantIds = getParticipantIds(conversation);
     const senderId = dto.user?._id;
-    const preview = dto.content.slice(0, 280);
+    const preview = dto.content.slice(0, 280) || (dto.attachments?.length ? `📎 ${dto.attachments[0]?.label || 'Attachment'}` : '');
 
     const message = await this.collaborationConversationGateway.createMessage({
       conversationId: conversation._id,

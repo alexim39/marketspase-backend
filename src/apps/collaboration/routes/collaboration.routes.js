@@ -22,6 +22,7 @@ import {
 import { CollaborationConversationModel, CollaborationMessageModel } from "../models/index.js";
 import { presenceTracker } from "../services/presence-tracker.js";
 import { messageSendLimiter } from "../../../shared/middleware/rate-limit.middleware.js";
+import multer from "multer";
 
 const router = express.Router();
 
@@ -88,6 +89,101 @@ router.patch("/conversations/:conversationId/messages/:messageId/unpin", async (
     return res.json({ success: true });
   } catch (e) {
     return res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Toggle message reaction
+router.patch("/conversations/:conversationId/messages/:messageId/react", async (req, res) => {
+  try {
+    const { conversationId, messageId } = req.params;
+    const { emoji } = req.body;
+    if (!emoji) return res.status(400).json({ success: false, message: 'Emoji is required.' });
+
+    const conv = await CollaborationConversationModel.findOne({
+      _id: conversationId,
+      'participants.user': req.userId,
+      isActive: true,
+    });
+    if (!conv) return res.status(403).json({ success: false, message: 'Access denied.' });
+
+    const message = await CollaborationMessageModel.findOne({
+      _id: messageId,
+      conversation: conversationId,
+      deletedAt: null,
+    });
+    if (!message) return res.status(404).json({ success: false, message: 'Message not found.' });
+
+    const existingIndex = (message.reactions || []).findIndex(
+      (r) => r.emoji === emoji && r.user.toString() === req.userId,
+    );
+
+    if (existingIndex > -1) {
+      message.reactions.splice(existingIndex, 1);
+    } else {
+      message.reactions.push({ emoji, user: req.userId });
+    }
+
+    await message.save();
+    return res.json({ success: true, data: { _id: message._id, reactions: message.reactions } });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// Upload attachment for a conversation message
+const attachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error('File type not allowed.'));
+  },
+});
+
+router.post("/conversations/:conversationId/attachments", attachmentUpload.single('file'), async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const conv = await CollaborationConversationModel.findOne({
+      _id: conversationId,
+      'participants.user': req.userId,
+      isActive: true,
+    });
+    if (!conv) return res.status(403).json({ success: false, message: 'Access denied.' });
+
+    const file = req.file;
+    if (!file) return res.status(400).json({ success: false, message: 'No file provided.' });
+
+    const ext = file.originalname.split('.').pop()?.toLowerCase();
+    const allowedTypes = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf', 'doc', 'docx'];
+    if (!allowedTypes.includes(ext)) {
+      return res.status(400).json({ success: false, message: 'File type not allowed. Allowed: jpg, jpeg, png, gif, webp, pdf, doc, docx' });
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      return res.status(400).json({ success: false, message: 'File too large (max 10MB).' });
+    }
+
+    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+    const kind = isImage ? 'image' : 'file';
+
+    const result = await new Promise(async (resolve, reject) => {
+      const cloudinary = await import('cloudinary');
+      cloudinary.v2.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+      });
+      const stream = cloudinary.v2.uploader.upload_stream(
+        { folder: 'collaboration-attachments', resource_type: isImage ? 'image' : 'raw' },
+        (error, result) => error ? reject(error) : resolve(result),
+      );
+      stream.end(file.buffer);
+    });
+
+    return res.json({ success: true, data: { url: result.secure_url, kind, label: file.originalname } });
+  } catch (e) {
+    console.error('Attachment upload error:', e);
+    return res.status(500).json({ success: false, message: 'Upload failed.' });
   }
 });
 
