@@ -205,7 +205,14 @@ const campaignSchema = new mongoose.Schema(
       type: String,
       enum: PROMOTION_GOAL_ARRAY,
       default: DEFAULTS.PROMOTION_GOAL
-    }
+    },
+
+    autoRenew: {
+      enabled: { type: Boolean, default: false },
+      maxTopUps: { type: Number, default: 3 },
+      topUpAmount: { type: Number, default: 0 },
+      topUpCount: { type: Number, default: 0 },
+    },
   },
   { timestamps: true }
 );

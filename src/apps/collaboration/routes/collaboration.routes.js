@@ -373,6 +373,81 @@ router.get("/suggestions", async (req, res) => {
   }
 });
 
+// Activity Feed — aggregated timeline of recent events
+router.get("/activity-feed", async (req, res) => {
+  try {
+    const userId = req.userId;
+    const oid = new (require('mongoose').Types.ObjectId)(userId);
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+
+    const [recentMessages, recentCampaigns] = await Promise.all([
+      CollaborationMessageModel.find({
+        conversation: { $exists: true },
+        deletedAt: null,
+        createdAt: { $gte: new Date(Date.now() - 30 * 86400000) },
+      })
+        .populate('sender', 'displayName username avatar')
+        .populate({
+          path: 'conversation',
+          select: 'title type participants',
+          match: { 'participants.user': oid, isActive: true },
+        })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean(),
+
+      (await import('../../campaign/models/campaign.model.js')).CampaignModel.find({
+        $or: [
+          { owner: oid },
+          { updatedAt: { $gte: new Date(Date.now() - 30 * 86400000) } },
+        ],
+      })
+        .select('title status updatedAt owner')
+        .sort({ updatedAt: -1 })
+        .limit(5)
+        .lean(),
+    ]);
+
+    const events = [];
+
+    for (const msg of recentMessages) {
+      if (!msg.conversation) continue;
+      events.push({
+        type: 'message',
+        id: msg._id,
+        actor: msg.sender?.displayName || 'Someone',
+        actorAvatar: msg.sender?.avatar,
+        content: msg.content?.slice(0, 120),
+        conversationTitle: msg.conversation.title,
+        conversationId: msg.conversation._id,
+        conversationType: msg.conversation.type,
+        createdAt: msg.createdAt,
+      });
+    }
+
+    for (const c of recentCampaigns) {
+      events.push({
+        type: 'campaign_update',
+        id: c._id,
+        title: c.title,
+        status: c.status,
+        isOwner: c.owner?.toString() === userId,
+        createdAt: c.updatedAt,
+      });
+    }
+
+    events.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return res.json({
+      success: true,
+      data: { events: events.slice(0, limit), page, total: events.length },
+    });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 router.get("/reviews/eligibility/:targetUserId", getReviewEligibilityController);
 router.get("/reviews/received/:userId", getReceivedReviews);
 router.get("/reviews/given/:userId", getGivenReviews);

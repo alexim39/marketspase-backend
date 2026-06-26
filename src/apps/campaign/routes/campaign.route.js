@@ -14,6 +14,7 @@ import { getMarketerAnalytics } from '../controllers/get-marketer-analytics.cont
 import { getMarketerLeadAnalytics } from '../controllers/get-marketer-lead-analytics.controller.js';
 import { getMarketerLeadDetail } from '../controllers/get-marketer-lead-detail.controller.js';
 import { getCampaignPpcPricingConfigController } from '../controllers/ppc-pricing-config.controller.js';
+import { setCampaignAutoRenew } from '../../user/controllers/growth-features.controller.js';
 
 import { getCampaignById } from '../controllers/get-campaign-byid.controller.js'
 import { UpdateCampaignStatus } from '../controllers/update-campaign.controller.js';
@@ -72,6 +73,12 @@ router.post('/landing/event', async (req, res) => {
       upi, event, durationMs, sessionId, error: eventError || undefined,
       phone: phone || undefined, leadId: leadId || undefined,
     });
+
+    // Update promoter tier after new event (fire-and-forget)
+    import('../promotion/services/promoter-tier.service.js').then(({ updatePromoterTier }) => {
+      updatePromoterTier(promotion.promoter).catch(() => {});
+    });
+
     return res.json({ success: true });
   } catch (e) { return res.json({ success: false }); }
 });
@@ -86,6 +93,38 @@ router.get('/analytics/marketer/leads', getMarketerLeadAnalytics);
 router.get('/analytics/marketer/:userId', getMarketerAnalytics);
 router.get('/pricing/config', getCampaignPpcPricingConfigController);
 router.get('/', getCampaignsByStatusAndUserId);
+
+// Campaign templates
+router.get('/templates', async (req, res) => {
+  try {
+    const templates = await (await import('../models/campaign-template.model.js')).CampaignTemplateModel
+      .find({ owner: req.userId })
+      .sort({ updatedAt: -1 })
+      .limit(10)
+      .lean();
+    return res.json({ success: true, data: templates });
+  } catch (e) { return res.status(500).json({ success: false, message: e.message }); }
+});
+
+router.post('/templates', async (req, res) => {
+  try {
+    const { name, data } = req.body;
+    if (!name || !data) return res.status(400).json({ success: false, message: 'Name and data required.' });
+    const template = await (await import('../models/campaign-template.model.js')).CampaignTemplateModel.create({
+      owner: req.userId, name, data,
+    });
+    return res.status(201).json({ success: true, data: template });
+  } catch (e) { return res.status(500).json({ success: false, message: e.message }); }
+});
+
+router.delete('/templates/:id', async (req, res) => {
+  try {
+    await (await import('../models/campaign-template.model.js')).CampaignTemplateModel.findOneAndDelete({
+      _id: req.params.id, owner: req.userId,
+    });
+    return res.json({ success: true });
+  } catch (e) { return res.status(500).json({ success: false, message: e.message }); }
+});
 
 // MOST SPECIFIC DYNAMIC ROUTES LAST - FIXED: This should be BEFORE other dynamic routes
 router.get('/:id', getCampaignById);
@@ -108,5 +147,6 @@ router.get('/targeting/:campaignId', GetCampaignTargeting);
 router.post('/:campaignId/accept', acceptCampaign);
 router.patch('/:id/status', UpdateCampaignStatus);
 router.post('/:campaignId/top-up', topUpCampaign);
+router.patch('/:campaignId/auto-renew', setCampaignAutoRenew);
 
 export default router;

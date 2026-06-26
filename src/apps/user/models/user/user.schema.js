@@ -97,6 +97,7 @@ const userSchema = new mongoose.Schema(
 
     // Engagement & trust
     rating: { type: Number, default: DEFAULTS.RATING },
+    promoterTier: { type: String, enum: ['unranked', 'bronze', 'silver', 'gold'], default: 'unranked' },
     ratingCount: { type: Number, default: DEFAULTS.RATING_COUNT },
     ratingUpdatedAt: { type: Date, default: null },
     collaborationRating: { type: Number, default: 0 },
