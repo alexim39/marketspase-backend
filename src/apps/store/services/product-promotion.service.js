@@ -26,8 +26,6 @@ export class ProductPromotionService {
         skipped: 0,
         failed: [],
         details: [],
-        trackingUpdated: 0,
-        trackingCreated: 0
       };
 
       for (const product of products) {
@@ -65,23 +63,6 @@ export class ProductPromotionService {
           product.promotionEndDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
           await product.save();
-          
-          // Verify the save worked
-          const verifyProduct = await ProductModel.findById(product._id);
-          // console.log('Verified product after save:', {
-          //   id: verifyProduct._id,
-          //   isPublished: verifyProduct.isPublished,
-          //   publishedAt: verifyProduct.publishedAt
-          // });
-
-          // Create or update promotion tracking
-          const trackingResult = await this.createPromotionTracking(product, userId);
-          
-          if (trackingResult?.wasUpdated) {
-            results.trackingUpdated++;
-          } else if (trackingResult?.wasCreated) {
-            results.trackingCreated++;
-          }
 
           results.published++;
           results.details.push({
@@ -188,116 +169,16 @@ export class ProductPromotionService {
     }
   }
 
-  /**
-   * Create promotion tracking for a product
-   */
-  async createPromotionTracking(product, userId) {
-    try {
-      const now = new Date();
-      const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      
-      // Try to find existing tracking
-      let existing = await PromotionTrackingModel.findOne({
-        product: product._id,
-        promoter: userId
-      });
-      
-      let wasUpdated = false;
-      let wasCreated = false;
-      
-      if (existing) {
-        // Update existing
-        existing.isActive = true;
-        existing.isApproved = true;
-        existing.startDate = now;
-        existing.endDate = endDate;
-        existing.metadata = {
-          ...existing.metadata,
-          campaignName: `Product Promotion - ${product.name}`,
-          lastPublishedAt: now,
-          reactivationCount: (existing.metadata?.reactivationCount || 0) + 1
-        };
-        
-        await existing.save();
-        wasUpdated = true;
-        //console.log(`Updated existing tracking for product ${product._id}`);
-      } else {
-        // Create new
-        const trackingData = {
-          product: product._id,
-          promoter: userId,
-          store: product.store,
-          uniqueCode: `${product._id.toString().slice(-6)}-${Date.now().toString(36)}`,
-          // uniqueCode: `PROMO-${product._id.toString().slice(-6)}-${Date.now().toString(36)}`,
-          uniqueId: `${userId.toString().substring(0, 4)}-${product._id.toString().substring(0, 4)}-${Date.now().toString(36)}`,
-          commissionRate: 10,
-          commissionType: 'percentage',
-          isActive: true,
-          isApproved: true,
-          startDate: now,
-          endDate: endDate,
-          metadata: {
-            campaignName: `Product Promotion - ${product.name}`,
-            notes: "Auto-generated from bulk publish action",
-            publishedAt: now,
-            reactivationCount: 0
-          }
-        };
-
-        existing = new PromotionTrackingModel(trackingData);
-        await existing.save();
-        wasCreated = true;
-        //console.log(`Created new tracking for product ${product._id}`);
-      }
-      
-      return {
-        tracking: existing,
-        wasUpdated,
-        wasCreated
-      };
-    } catch (error) {
-      //console.error("Error in promotion tracking:", error);
-      return null;
-    }
-  }
-
-  /**
-   * Get published products for a store
-   */
   async getPublishedProducts(storeId, options = {}) {
     const { page = 1, limit = 20, includeInactive = false } = options;
-    
-    const query = {
-      store: new mongoose.Types.ObjectId(storeId),
-      isPublished: true,
-      isDeleted: false
-    };
-
-    if (!includeInactive) {
-      query.isActive = true;
-    }
-
+    const query = { store: new mongoose.Types.ObjectId(storeId), isPublished: true, isDeleted: false };
+    if (!includeInactive) query.isActive = true;
     const skip = (page - 1) * limit;
-
     const [products, total] = await Promise.all([
-      ProductModel.find(query)
-        .skip(skip)
-        .limit(limit)
-        .sort({ publishedAt: -1 })
-        .populate('publishedBy', 'name email')
-        .lean(),
+      ProductModel.find(query).skip(skip).limit(limit).sort({ publishedAt: -1 }).populate('publishedBy', 'name email').lean(),
       ProductModel.countDocuments(query)
     ]);
-
-    return {
-      products,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
-      }
-    };
+    return { products, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
   }
 }
 

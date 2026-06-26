@@ -2,10 +2,12 @@
 import { ProductModel, PromotionTrackingModel } from '../../models/promotion/index.js';
 import { StoreModel } from '../../models/store/index.js';
 import { UserModel } from '../../../user/models/user/index.js';
+import { computePromoterTier } from '../../../promotion/services/promoter-tier.service.js';
 import {
   buildAffiliateUrl,
   buildProductLandingUrl,
-  getProductAffiliateSettings
+  getProductAffiliateSettings,
+  calculateCommissionForAmount,
 } from '../../services/storefront-affiliate.service.js';
 
 export const createPromotion = async (req, res) => {
@@ -93,18 +95,22 @@ export const createPromotion = async (req, res) => {
       });
     }
 
+    // Get promoter tier for commission bonus
+    const promoterTier = await computePromoterTier(promoterId);
+    const tierAdjustedCommission = calculateCommissionForAmount(100, affiliateSettings, promoterTier);
+    const tierBonusRate = Math.round((tierAdjustedCommission / 100 * 100) - affiliateSettings.commissionRate);
+
     // Create new promotion with explicit codes
     const promotionData = {
       product: productId,
       promoter: promoterId,
       store: storeId,
-      commissionRate: affiliateSettings.commissionRate,
+      commissionRate: affiliateSettings.commissionRate + tierBonusRate,
       commissionType: affiliateSettings.commissionType,
       fixedCommission: affiliateSettings.fixedCommission,
       isActive: true,
       isApproved: affiliateSettings.autoApprovePromoters,
       startDate: new Date(),
-      // Initialize default values
       viewCount: 0,
       clickCount: 0,
       conversionCount: 0,
@@ -112,11 +118,12 @@ export const createPromotion = async (req, res) => {
       clickThroughRate: 0,
       conversionRate: 0,
       averageOrderValue: 0,
-      deviceTypes: {
-        mobile: 0,
-        desktop: 0,
-        tablet: 0
-      }
+      deviceTypes: { mobile: 0, desktop: 0, tablet: 0 },
+      metadata: {
+        baseCommissionRate: affiliateSettings.commissionRate,
+        tierBonus: tierBonusRate,
+        promoterTier: promoterTier,
+      },
     };
 
     const promotion = new PromotionTrackingModel(promotionData);

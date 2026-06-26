@@ -6,6 +6,7 @@ import { PaymentModel, PAYMENT_GATEWAY, PAYMENT_STATUS as STORE_PAYMENT_STATUS }
 import { InventoryHistoryModel, ProductModel, PromotionTrackingModel } from "../../models/promotion/index.js";
 import { StoreModel } from "../../models/store/index.js";
 import { StoreCustomerModel } from "../../models/store-customer/index.js";
+import { BuyerReferralModel } from "../../models/buyer-referral/index.js";
 import { UserModel } from "../../../user/models/user/index.js";
 import { evaluateUserBadges } from "../../../badges/service/badge.service.js";
 import { awardGamificationProgress } from "../../../gamification/service/gamification.service.js";
@@ -51,6 +52,7 @@ export const createStorefrontOrder = async (req, res) => {
       paymentMethod = PAYMENT_METHOD.PAYSTACK,
       checkoutCurrency,
       checkoutQuote,
+      referralCode,
     } = req.body;
     const authenticatedCustomerId = req.userId || null;
     const effectiveCustomerId = customerId || authenticatedCustomerId;
@@ -213,9 +215,35 @@ export const createStorefrontOrder = async (req, res) => {
       });
     }
 
-    const shippingFee = roundMoney(req.body.shippingFee || 0);
-    const tax = roundMoney(req.body.tax || 0);
-    const discount = roundMoney(req.body.discount || 0);
+    let referralInfo = null;
+    let referralDiscountAmount = 0;
+
+    if (referralCode) {
+      const referral = await BuyerReferralModel.findOne({
+        code: String(referralCode).trim().toLowerCase(),
+        status: "active",
+        expiresAt: { $gt: new Date() },
+      });
+
+      if (!referral) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired referral code",
+        });
+      }
+
+      referralDiscountAmount = roundMoney(subtotal * (referral.discountPercent / 100));
+      referralInfo = {
+        code: referral.code,
+        referralId: referral._id,
+        discountPercent: referral.discountPercent,
+        discountAmount: referralDiscountAmount,
+      };
+    }
+
+    const existingDiscount = roundMoney(req.body.discount || 0);
+    const discount = roundMoney(existingDiscount + referralDiscountAmount);
     const totalAmount = roundMoney(Math.max(0, subtotal + shippingFee + tax - discount));
     const marketerReservedAmount = roundMoney(totalAmount - totalPromoterCommission);
     const orderNumber = await OrderModel.generateOrderNumber();
@@ -267,6 +295,7 @@ export const createStorefrontOrder = async (req, res) => {
       promoterReservedAmount: totalPromoterCommission,
       escrowStatus: "pending",
       customerNote,
+      referral: referralInfo || undefined,
     });
 
     await order.save({ session });
@@ -400,6 +429,8 @@ export const confirmStorefrontPayment = async (req, res) => {
 
     await decrementInventory(order, session);
     await holdOrderEscrow(order, payment, verification.data || paystackResult || {}, session);
+
+    await fulfillReferral(order, payment, session);
 
     await session.commitTransaction();
     transactionCommitted = true;
@@ -1769,6 +1800,72 @@ async function updateStoreSalesCounters(order, session) {
     },
     { session }
   );
+}
+
+async function fulfillReferral(order, payment, session) {
+  if (!order.referral || !order.referral.code || !order.referral.referralId) return;
+
+  const referral = await BuyerReferralModel.findById(order.referral.referralId).session(session);
+  if (!referral || referral.status !== "active") return;
+
+  referral.status = "used";
+  referral.usedAt = new Date();
+  referral.orderId = order._id;
+  if (order.customer) {
+    referral.referredUserId = toObjectId(order.customer);
+  }
+  await referral.save({ session });
+
+  const referrerId = toObjectId(referral.referrerUserId);
+  if (!referrerId || !referral.rewardAmount || referral.rewardAmount <= 0) return;
+
+  const referrer = await UserModel.findById(referrerId).session(session);
+  if (!referrer) return;
+
+  const wallet = referrer.wallets?.marketer;
+  if (!wallet) return;
+
+  ensureWalletCurrencyState(wallet, wallet.baseCurrency || wallet.currency || "NGN");
+  const config = await getPaymentCurrencyConfig();
+  const nativeCurrency = normalizeCurrencyCode(order.currency || "NGN");
+  const baseCurrency = normalizeCurrencyCode(wallet.baseCurrency || wallet.currency || "NGN");
+  const rewardAmount = roundMoney(referral.rewardAmount);
+  const baseAmount = roundMoney(convertAmount(rewardAmount, nativeCurrency, baseCurrency, config).amount);
+
+  applyWalletCredit(wallet, {
+    bucket: "balance",
+    amount: rewardAmount,
+    currency: nativeCurrency,
+    baseAmount,
+    baseCurrency,
+  });
+
+  wallet.transactions.unshift({
+    amount: rewardAmount,
+    baseAmount,
+    currency: nativeCurrency,
+    baseCurrency,
+    settlementCurrency: nativeCurrency,
+    settlementAmount: rewardAmount,
+    exchangeRate: rewardAmount ? roundMoney(baseAmount / rewardAmount) : 1,
+    type: "credit",
+    category: "referral_reward",
+    description: `Referral reward for order ${order.orderNumber}`,
+    reference: `${payment.transactionReference}-REF-REWARD`,
+    gateway: "system",
+    status: "completed",
+    meta: {
+      orderId: order._id,
+      referralCode: referral.code,
+      referralId: referral._id,
+      referredUserId: referral.referredUserId || null,
+    },
+    processedAt: new Date(),
+    createdAt: new Date(),
+  });
+  wallet.transactions = wallet.transactions.slice(0, WALLET_TRANSACTION_LIMIT);
+
+  await referrer.save({ session });
 }
 
 function resolveDeliveryConfirmationRole(order, userId, requestedRole) {

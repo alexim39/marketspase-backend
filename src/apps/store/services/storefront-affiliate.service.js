@@ -113,12 +113,20 @@ export const extractAffiliateSettingsFromBody = (body = {}, fallback = {}) => {
   };
 };
 
-export const calculateCommissionForAmount = (amount, settings = {}) => {
+const TIER_COMMISSION_BONUS = { gold: 10, silver: 5, bronze: 2 };
+const TIER_COMMISSION_BONUS_DEFAULT = 0;
+
+export const calculateCommissionForAmount = (amount, settings = {}, promoterTier = 'unranked') => {
   const saleAmount = Math.max(0, toNumber(amount, 0));
   const commissionType = normalizeCommissionType(settings.commissionType);
+  const baseRate = commissionType === "fixed"
+    ? 0 // fixed commission has no rate
+    : Math.min(100, Math.max(0, toNumber(settings.commissionRate, DEFAULT_COMMISSION_RATE)));
+  const tierBonusRate = TIER_COMMISSION_BONUS[promoterTier] || TIER_COMMISSION_BONUS_DEFAULT;
+  const adjustedRate = Math.min(100, baseRate + tierBonusRate);
   const commission = commissionType === "fixed"
     ? Math.min(saleAmount, Math.max(0, toNumber(settings.fixedCommission, 0)))
-    : (saleAmount * Math.min(100, Math.max(0, toNumber(settings.commissionRate, DEFAULT_COMMISSION_RATE)))) / 100;
+    : (saleAmount * adjustedRate) / 100;
 
   return roundMoney(Math.min(saleAmount, commission));
 };

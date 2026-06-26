@@ -170,7 +170,9 @@ export const getPromoterStoreProducts = async (req, res) => {
         clickCount: stats.clickCount || 0,
         conversionCount: stats.conversionCount || 0,
         conversions: stats.conversionCount || 0,
-        earnings: stats.earnings || 0
+        earnings: stats.earnings || 0,
+        averageConversionRate: stats.clickCount > 0 ? Math.round((stats.conversionCount / stats.clickCount) * 100 * 10) / 10 : 0,
+        estimatedEarningsPerPromo: stats.clickCount > 0 ? Math.round(stats.earnings / stats.clickCount) : 0,
       };
 
       return {
@@ -197,7 +199,9 @@ export const getPromoterStoreProducts = async (req, res) => {
           verificationTier: store.verificationTier || 'basic',
           storeLink: store.storeLink || ''
         },
-        promotion: defaultPromotion
+        promotion: defaultPromotion,
+        averageConversionRate: defaultPromotion.averageConversionRate,
+        estimatedEarningsPerPromo: defaultPromotion.estimatedEarningsPerPromo,
       };
     }));
 

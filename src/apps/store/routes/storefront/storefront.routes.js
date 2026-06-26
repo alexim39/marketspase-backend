@@ -38,12 +38,20 @@ import {
   getStorefrontOrder,
   reviewStorefrontDeliveryRelease
 } from '../../controllers/storefront/storefront-order.controller.js'
+import { saveCartSnapshot } from '../../controllers/storefront/cart-snapshot.controller.js'
 import {
   getMarketerCustomerDetail,
   getMarketerCustomers,
   updateMarketerCustomerMeta,
 } from '../../controllers/storefront/storefront-customer.controller.js';
 import { subscribeStoreSubscriber } from '../../controllers/storefront/store-subscriber.controller.js';
+import {
+  validateReferralCode,
+  getMyReferrals,
+  createReferralCode,
+} from '../../controllers/storefront/buyer-referral.controller.js';
+import { getPublicCollectionBySlug } from '../../controllers/promotion/promoter-collections.controller.js';
+import { getStorefrontAnalytics } from '../../controllers/storefront/storefront-analytics.controller.js';
 
 const router = express.Router();
 
@@ -62,6 +70,9 @@ router.post('/reviews/:reviewId/helpful', authenticate, toggleReviewHelpful);
 router.post('/reviews/:reviewId/report', authenticate, reportProductReview);
 router.get('/products/:productId/related', getRelatedProducts);
 
+// Cart recovery
+router.post('/cart/snapshot', authenticate, saveCartSnapshot);
+
 // 2b. Storefront checkout and order lifecycle
 router.post('/orders', createStorefrontOrder);
 router.get('/orders/release-requests', authenticate, requireAdmin, getStorefrontReleaseRequests);
@@ -75,6 +86,17 @@ router.get('/orders/:orderId', getStorefrontOrder);
 router.post('/orders/:orderId/confirm-payment', confirmStorefrontPayment);
 router.post('/orders/:orderId/confirm-delivery', authenticate, confirmStorefrontDelivery);
 router.post('/orders/:orderId/release-review', authenticate, requireAdmin, reviewStorefrontDeliveryRelease);
+
+// Buyer referral
+router.post('/referrals/validate', validateReferralCode);
+router.get('/referrals/mine', authenticate, getMyReferrals);
+router.post('/referrals/create', authenticate, createReferralCode);
+
+// Public promoter collections
+router.get('/collections/:slug', getPublicCollectionBySlug);
+
+// Storefront analytics (marketer-only)
+router.get('/analytics', authenticate, getStorefrontAnalytics);
 
 // 3. Specific Store Routes
 router.get('/store/:storeId', getStoreById);
