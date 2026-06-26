@@ -4,6 +4,26 @@ import { PromotionModel } from '../../promotion/models/index.js';
 import { CampaignModel } from '../../campaign/models/campaign.model.js';
 import { LandingEventModel } from '../../campaign/models/landing-event.model.js';
 
+// Search promoters by display name
+export const searchPromoters = async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.trim().length < 2) return res.json({ success: true, data: [] });
+
+    const results = await UserModel.find({
+      role: 'promoter',
+      displayName: { $regex: q.trim(), $options: 'i' },
+    })
+      .select('displayName avatar email promoterTier')
+      .limit(15)
+      .lean();
+
+    return res.json({ success: true, data: results });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.message });
+  }
+};
+
 // Get promoter tier + stats
 export const getPromoterTier = async (req, res) => {
   try {

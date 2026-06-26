@@ -15,6 +15,7 @@ import {
   getPromoterTier,
   getPromoterTrustMetrics,
   bulkInvitePromoters,
+  searchPromoters,
 } from '../controllers/promoter-features.controller.js';
 
 import PromoRouter from './promo/promo.routes.js';
@@ -60,6 +61,7 @@ UserRouter.get('/matching-campaigns', getMatchingCampaigns);
 UserRouter.get('/performance-benchmarks', getPerformanceBenchmarks);
 UserRouter.get('/promoter/:userId/tier', getPromoterTier);
 UserRouter.get('/promoter/:promoterId/trust', getPromoterTrustMetrics);
+UserRouter.get('/promoters/search', searchPromoters);
 UserRouter.post('/campaign/:campaignId/bulk-invite', bulkInvitePromoters);
 
 

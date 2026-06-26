@@ -73,6 +73,12 @@ router.post('/landing/event', async (req, res) => {
       upi, event, durationMs, sessionId, error: eventError || undefined,
       phone: phone || undefined, leadId: leadId || undefined,
     });
+
+    // Update promoter tier after new event (fire-and-forget)
+    import('../promotion/services/promoter-tier.service.js').then(({ updatePromoterTier }) => {
+      updatePromoterTier(promotion.promoter).catch(() => {});
+    });
+
     return res.json({ success: true });
   } catch (e) { return res.json({ success: false }); }
 });
@@ -87,29 +93,6 @@ router.get('/analytics/marketer/leads', getMarketerLeadAnalytics);
 router.get('/analytics/marketer/:userId', getMarketerAnalytics);
 router.get('/pricing/config', getCampaignPpcPricingConfigController);
 router.get('/', getCampaignsByStatusAndUserId);
-
-// MOST SPECIFIC DYNAMIC ROUTES LAST - FIXED: This should be BEFORE other dynamic routes
-router.get('/:id', getCampaignById);
-
-// POST/PUT routes - MOVED AFTER GET routes to avoid conflicts
-// router.post('/create', campaignUpload.single('media'), createCampaign);
-router.post('/create', cloudinaryMediaUpload.single('media'), createCampaign); 
-
-router.post('/save', cloudinaryMediaUpload.single('media'), saveCampaign);
-router.post('/media/upload', cloudinaryMediaUpload.single('media'), uploadCampaignMedia);
-
-// General campaign editing routes
-router.put('/edit/:campaignId/:performedBy', cloudinaryMediaUpload.single('media'), EditCampaign);
-//router.patch('/edit/:campaignId/:performedBy', UpdateCampaignPartial);
-
-// Campaign targeting specific routes
-router.put('/targeting/:campaignId/:performedBy', UpdateCampaignTargeting);
-router.get('/targeting/:campaignId', GetCampaignTargeting);
-
-router.post('/:campaignId/accept', acceptCampaign);
-router.patch('/:id/status', UpdateCampaignStatus);
-router.post('/:campaignId/top-up', topUpCampaign);
-router.patch('/:campaignId/auto-renew', setCampaignAutoRenew);
 
 // Campaign templates
 router.get('/templates', async (req, res) => {
@@ -142,5 +125,28 @@ router.delete('/templates/:id', async (req, res) => {
     return res.json({ success: true });
   } catch (e) { return res.status(500).json({ success: false, message: e.message }); }
 });
+
+// MOST SPECIFIC DYNAMIC ROUTES LAST - FIXED: This should be BEFORE other dynamic routes
+router.get('/:id', getCampaignById);
+
+// POST/PUT routes - MOVED AFTER GET routes to avoid conflicts
+// router.post('/create', campaignUpload.single('media'), createCampaign);
+router.post('/create', cloudinaryMediaUpload.single('media'), createCampaign); 
+
+router.post('/save', cloudinaryMediaUpload.single('media'), saveCampaign);
+router.post('/media/upload', cloudinaryMediaUpload.single('media'), uploadCampaignMedia);
+
+// General campaign editing routes
+router.put('/edit/:campaignId/:performedBy', cloudinaryMediaUpload.single('media'), EditCampaign);
+//router.patch('/edit/:campaignId/:performedBy', UpdateCampaignPartial);
+
+// Campaign targeting specific routes
+router.put('/targeting/:campaignId/:performedBy', UpdateCampaignTargeting);
+router.get('/targeting/:campaignId', GetCampaignTargeting);
+
+router.post('/:campaignId/accept', acceptCampaign);
+router.patch('/:id/status', UpdateCampaignStatus);
+router.post('/:campaignId/top-up', topUpCampaign);
+router.patch('/:campaignId/auto-renew', setCampaignAutoRenew);
 
 export default router;
