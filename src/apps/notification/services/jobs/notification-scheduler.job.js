@@ -13,6 +13,7 @@ import { activityLogCleaner } from './activity-log-cleaner.job.js'
 import { campaignAvailabilityNotification } from '../../../campaign/services/jobs/campaign-notification.job.js'; // do not remove this import as it will be needed for the job to run when resources are upgraded later
 import { promotionAutoPayService } from "../../services/promotion-auto-pay.service.js";
 import { abandonedCartJob } from '../../../store/services/jobs/abandoned-cart.job.js';
+import { releasePromoterEscrow } from '../../../campaign/services/jobs/escrow-release.job.js';
  
  
 // 1. Legacy "proof submission" reminder job (download/upload lifecycle)
@@ -479,7 +480,16 @@ cron.schedule("0 * * * *", promotionAutoPayService, { timezone: "Africa/Lagos" }
   }
 }); */
 
-// 6. ABANDONED CART RECOVERY - Every 30 minutes
+// 6. PROMOTER ESCROW RELEASE - Every 15 minutes
+cron.schedule("*/15 * * * *", async () => {
+  try {
+    await releasePromoterEscrow();
+  } catch (e) {
+    console.error('[CRON] Escrow release error:', e.message);
+  }
+});
+
+// 7. ABANDONED CART RECOVERY - Every 30 minutes
 cron.schedule("*/30 * * * *", async () => {
   try {
     await abandonedCartJob();

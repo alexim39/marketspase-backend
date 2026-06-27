@@ -10,6 +10,8 @@ const notificationPreferenceSchema = new mongoose.Schema({
 
 // Notification settings schema (for each notification type)
 const notificationSettingsSchema = new mongoose.Schema({
+  pushEnabled: { type: Boolean, default: true },
+
   // Campaign-related notifications
   campaignAssigned: { type: notificationPreferenceSchema, default: () => ({}) },
   campaignApproved: { type: notificationPreferenceSchema, default: () => ({}) },

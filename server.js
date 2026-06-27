@@ -35,6 +35,7 @@ import { aiAssistantRoutes } from './src/apps/ai-assistant/index.js';
 import CollaborationRouter from './src/apps/collaboration/index.js';
 import SearchRouter from './src/apps/search/index.js';
 import CrmRouter from './src/apps/customer-crm/routes/index.js';
+import AnalyticsRouter from './src/apps/analytics/routes/analytics.routes.js';
 import { ensureGlobalSearchBootstrap } from './src/apps/search/services/search-index.service.js';
 import { trackClick as trackStoreAffiliateClick } from './src/apps/store/controllers/promotion/product-tracking.controller.js';
 import { serveCampaignLandingPage as campaignLandingPage, createCampaignLead, getCampaignLandingData } from './src/apps/campaign/controllers/campaign-landing.controller.js';
@@ -204,6 +205,7 @@ app.use('/api/v1/ai-assistant', aiAssistantRoutes);
 app.use('/api/v1/collaboration', CollaborationRouter);
 app.use('/api/v1/search', SearchRouter);
 app.use('/api/v1', CrmRouter);
+app.use('/api/v1/analytics', AnalyticsRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));

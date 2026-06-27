@@ -121,6 +121,7 @@ const userSchema = new mongoose.Schema(
     },
     deviceTokens: [deviceTokenSchema],
     sseConnections: [sseConnectionSchema],
+    fcmTokens: [String],
 
     // Targeting info
     personalInfo: { type: personalInfoSchema, default: () => ({}) },

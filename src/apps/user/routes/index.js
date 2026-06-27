@@ -24,6 +24,7 @@ import ProfileRouter from './profile/profile.routes.js';
 import ReferralRouter from './referral/referral.routes.js';
 import AdminIndexRouter from './admin/Admin-index.routes.js';
 import { authenticate } from '../../../shared/middleware/auth.middleware.js';
+import { UserModel } from '../models/user/index.js';
 
 
 const UserRouter = express.Router();
@@ -77,5 +78,19 @@ UserRouter.post('/campaign/:campaignId/bulk-invite', bulkInvitePromoters);
  */
 //UserRouter.patch('/:id/status', toggleUserActiveStatus);
 
+
+// FCM push notification token management
+UserRouter.post('/fcm-token', async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ success: false, message: 'Token required' });
+  await UserModel.updateOne({ _id: req.userId }, { $addToSet: { fcmTokens: token } });
+  return res.json({ success: true });
+});
+
+UserRouter.delete('/fcm-token', async (req, res) => {
+  const { token } = req.body;
+  await UserModel.updateOne({ _id: req.userId }, { $pull: { fcmTokens: token } });
+  return res.json({ success: true });
+});
 
 export default UserRouter;

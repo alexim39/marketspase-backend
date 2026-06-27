@@ -20,6 +20,7 @@ import {
   getCampaignRemainingBudgetValue,
   normalizeLegacyPpcPromotionStatus,
 } from "../services/campaign-runtime.service.js";
+import { computePromoterTier } from "../../promotion/services/promoter-tier.service.js";
 
 const MAX_CREATE_RETRIES = 4;
 const MAX_ACCEPTS_PER_CAMPAIGN_PER_USER = Number(
@@ -112,7 +113,7 @@ const generatePromotionUpi = async () => {
   throw { status: 503, message: "Unable to generate promotion link. Please retry." };
 };
 
-const ensurePromotionLink = async ({ promotion, campaign, marketer, req }) => {
+const ensurePromotionLink = async ({ promotion, campaign, marketer, req, tierAdjustedCPC, tierBonus, promoterTier }) => {
   const costPerClick = getCampaignCostPerClick(campaign);
   const upi = promotion.upi || await generatePromotionUpi();
   const promotionUrl = buildPromotionUrl(req, upi);
@@ -122,7 +123,7 @@ const ensurePromotionLink = async ({ promotion, campaign, marketer, req }) => {
   promotion.publicUrl = `${getPromotionTrackingBaseUrl()}/c/${upi}`;
   promotion.destinationUrl = getDestinationUrl(campaign, marketer);
   promotion.payoutModel = "pay_per_click";
-  promotion.costPerClick = costPerClick;
+  promotion.costPerClick = tierAdjustedCPC;
   promotion.payoutAmount = Number(promotion.payoutAmount ?? 0);
   promotion.status = "accepted";
   promotion.isActive = true;
@@ -130,7 +131,9 @@ const ensurePromotionLink = async ({ promotion, campaign, marketer, req }) => {
   promotion.hasReservedForPromoter = false;
   promotion.payoutSnapshot = {
     model: "pay_per_click",
-    costPerClick,
+    costPerClick: tierAdjustedCPC,
+    tierBonus,
+    promoterTier,
     lockedAt: promotion.payoutSnapshot?.lockedAt || new Date(),
   };
 
@@ -365,6 +368,11 @@ export const acceptCampaign = async (req, res) => {
       });
     }
 
+    const promoterTier = await computePromoterTier(promoter._id);
+    const tierBonusMap = { gold: 0.20, silver: 0.10, bronze: 0.05, unranked: 0 };
+    const tierBonus = tierBonusMap[promoterTier] || 0;
+    const tierAdjustedCPC = Math.round(costPerClick * (1 + tierBonus));
+
     const existingPromotion = await PromotionModel.findOne({
       campaign: campaign._id,
       promoter: promoter._id,
@@ -382,6 +390,9 @@ export const acceptCampaign = async (req, res) => {
         campaign,
         marketer,
         req,
+        tierAdjustedCPC,
+        tierBonus,
+        promoterTier,
       });
 
       scheduleAcceptanceSideEffects({
@@ -429,11 +440,13 @@ export const acceptCampaign = async (req, res) => {
           status: "accepted",
           acceptedAt: new Date(),
           payoutModel: "pay_per_click",
-          costPerClick,
+          costPerClick: tierAdjustedCPC,
           payoutAmount: 0,
           payoutSnapshot: {
             model: "pay_per_click",
-            costPerClick,
+            costPerClick: tierAdjustedCPC,
+            tierBonus,
+            promoterTier,
             lockedAt: new Date(),
           },
           promotionUrl,
@@ -477,6 +490,9 @@ export const acceptCampaign = async (req, res) => {
             campaign,
             marketer,
             req,
+            tierAdjustedCPC,
+            tierBonus,
+            promoterTier,
           });
           created = false;
           break;

@@ -74,6 +74,148 @@ router.post('/landing/event', async (req, res) => {
       phone: phone || undefined, leadId: leadId || undefined,
     });
 
+    if (event === 'lead_success') {
+      const { CampaignClickModel } = await import('../models/campaign-click.model.js');
+      const { resolvePromoterPpcPayout } = await import('../services/promoter-ppc-payout-policy.service.js');
+      const { resolveCampaignCostPerClick } = await import('../services/campaign-pricing.service.js');
+      const { UserModel: UM } = await import('../../user/models/user/index.js');
+
+      const pendingClick = await CampaignClickModel.findOne({
+        promotion: promotion._id,
+        chargeOnLead: true,
+        status: 'pending',
+      }).sort({ clickedAt: -1 });
+
+      if (pendingClick) {
+        const cplCampaign = await CampaignModel.findById(pendingClick.campaign).select('_id title owner budget spentBudget costPerClick payoutPerPromotion currency status');
+        const cplMarketer = await UM.findById(pendingClick.marketer);
+        const costPerClick = resolveCampaignCostPerClick(
+          null,
+          cplCampaign?.costPerClick,
+          cplCampaign?.payoutPerPromotion
+        );
+        const payoutResolution = await resolvePromoterPpcPayout({
+          promoterId: pendingClick.promoter,
+          chargeAmount: costPerClick,
+          currency: cplCampaign?.currency || 'NGN',
+          now: new Date(),
+        });
+        const promoterPayoutAmount = payoutResolution.promoterPayoutAmount;
+        const platformRetainedAmount = payoutResolution.platformRetainedAmount;
+        const payoutPolicy = payoutResolution.payoutPolicy;
+        const now = new Date();
+
+        const walletDebit = await UM.updateOne(
+          {
+            _id: pendingClick.marketer,
+            'wallets.marketer.balance': { $gte: costPerClick },
+          },
+          {
+            $inc: { 'wallets.marketer.balance': -costPerClick },
+            $push: {
+              'wallets.marketer.transactions': {
+                $each: [{
+                  amount: costPerClick,
+                  type: 'debit',
+                  category: 'campaign',
+                  description: `CPL lead charge for campaign "${cplCampaign?.title || ''}"`,
+                  relatedCampaign: pendingClick.campaign,
+                  relatedPromotion: pendingClick.promotion,
+                  status: 'completed',
+                  createdAt: now,
+                }],
+                $position: 0,
+                $slice: 500,
+              },
+            },
+          }
+        );
+
+        if (walletDebit.modifiedCount) {
+          const getRemainingBudgetExpression = () => ({
+            $subtract: ['$budget', { $ifNull: ['$spentBudget', 0] }],
+          });
+
+          const campaignChargeResult = await CampaignModel.updateOne(
+            {
+              _id: pendingClick.campaign,
+              status: 'active',
+              $expr: {
+                $gte: [getRemainingBudgetExpression(), costPerClick],
+              },
+            },
+            {
+              $inc: {
+                spentBudget: costPerClick,
+                billableClicks: 1,
+                totalPayouts: promoterPayoutAmount,
+              },
+              $set: { lastClickAt: now, costPerClick },
+            }
+          );
+
+          if (campaignChargeResult.modifiedCount) {
+            await CampaignClickModel.updateOne(
+              { _id: pendingClick._id },
+              {
+                $set: {
+                  status: 'billable',
+                  chargeStatus: 'charged',
+                  cost: costPerClick,
+                  promoterPayoutAmount,
+                  platformRetainedAmount,
+                  payoutPolicy,
+                },
+              }
+            );
+
+            await UM.updateOne(
+              { _id: pendingClick.promoter },
+              {
+                $inc: { 'wallets.promoter.reserved': promoterPayoutAmount },
+                $push: {
+                  'wallets.promoter.transactions': {
+                    $each: [{
+                      amount: promoterPayoutAmount,
+                      type: 'credit',
+                      category: 'promotion',
+                      bucket: 'reserved',
+                      description: `CPL earning from campaign "${cplCampaign?.title || ''}" — held for 10hr review`,
+                      relatedCampaign: pendingClick.campaign,
+                      relatedPromotion: pendingClick.promotion,
+                      status: 'reserved',
+                      createdAt: now,
+                      reservedUntil: new Date(Date.now() + 10 * 60 * 60 * 1000),
+                      meta: payoutPolicy
+                        ? {
+                            originalCostPerClick: costPerClick,
+                            platformRetainedAmount,
+                            payoutPolicyId: payoutPolicy.policyId,
+                          }
+                        : undefined,
+                    }],
+                    $position: 0,
+                    $slice: 500,
+                  },
+                },
+              }
+            );
+
+            await PromotionModel.updateOne(
+              { _id: pendingClick.promotion },
+              {
+                $inc: {
+                  payoutAmount: promoterPayoutAmount,
+                  'clickStats.billableClicks': 1,
+                  'clickStats.earnedAmount': promoterPayoutAmount,
+                },
+              }
+            );
+          }
+        }
+      }
+    }
+
     // Update promoter tier after new event (fire-and-forget)
     import('../promotion/services/promoter-tier.service.js').then(({ updatePromoterTier }) => {
       updatePromoterTier(promotion.promoter).catch(() => {});
