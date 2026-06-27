@@ -8,8 +8,8 @@ import { cacheService } from '../../../shared/utils/cache.service.js';
 export class AiAssistantService {
   constructor() {
     this.repository = new AiAssistantRepository();
-    this.openai = process.env.OPENAI_API_KEY
-      ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+    this.openai = process.env.DEEPSEEK_API_KEY
+      ? new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' })
       : null;
   }
 
@@ -130,7 +130,7 @@ export class AiAssistantService {
         const reply = await this.getAIResponse(userId, conversation._id, Body, faqs, settings);
         await this.sendReply(config, cleanFrom, conversation._id, reply, 'ai');
       } catch (error) {
-        logger.error('OpenAI error:', error);
+        logger.error('DeepSeek error:', error);
         await this.repository.updateConversation(conversation._id, userId, {
           status: 'escalated',
           handledBy: 'human',
@@ -263,7 +263,7 @@ Keep responses under 45 words.`;
     ];
 
     const completion = await this.openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
+      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
       messages: chatMessages,
       max_tokens: 250,
       temperature: 0.7,

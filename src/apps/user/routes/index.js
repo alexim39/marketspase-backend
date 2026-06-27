@@ -93,4 +93,14 @@ UserRouter.delete('/fcm-token', async (req, res) => {
   return res.json({ success: true });
 });
 
+UserRouter.patch('/regional-settings', async (req, res) => {
+  const { preferredCurrency, regionalCountry, preferredLocale } = req.body;
+  const update = {};
+  if (preferredCurrency) update.preferredCurrency = preferredCurrency;
+  if (regionalCountry) update.regionalCountry = regionalCountry;
+  if (preferredLocale) update.preferredLocale = preferredLocale;
+  const user = await UserModel.findByIdAndUpdate(req.userId, { $set: update }, { new: true }).select('preferredCurrency regionalCountry preferredLocale').lean();
+  return res.json({ success: true, data: user });
+});
+
 export default UserRouter;

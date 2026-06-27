@@ -28,6 +28,7 @@ import ProfileIndexRouter from './src/apps/profile/routes/index.js';
 import TutorialIndexRouter from './src/apps/tutorial/routes/index.js';
 import { LoginStreakRouter } from './src/apps/streaks/index.js';
 import { BadgeRouter } from './src/apps/badges/index.js';
+import { currencyMiddleware } from './src/shared/middleware/currency.middleware.js';
 import { GamificationRouter } from './src/apps/gamification/index.js';
 
 import { metricsRoutes } from './src/apps/metrics/index.js';
@@ -36,6 +37,7 @@ import CollaborationRouter from './src/apps/collaboration/index.js';
 import SearchRouter from './src/apps/search/index.js';
 import CrmRouter from './src/apps/customer-crm/routes/index.js';
 import AnalyticsRouter from './src/apps/analytics/routes/analytics.routes.js';
+import MarketAiRouter from './src/apps/copilot/routes/marketai.routes.js';
 import { ensureGlobalSearchBootstrap } from './src/apps/search/services/search-index.service.js';
 import { trackClick as trackStoreAffiliateClick } from './src/apps/store/controllers/promotion/product-tracking.controller.js';
 import { serveCampaignLandingPage as campaignLandingPage, createCampaignLead, getCampaignLandingData } from './src/apps/campaign/controllers/campaign-landing.controller.js';
@@ -181,6 +183,8 @@ app.get('/c/:upi', campaignLandingPage);
 app.get('/api/v1/campaign/landing/:upi', getCampaignLandingData);
 app.post('/api/v1/campaign/lead/:upi', publicLeadLimiter, createCampaignLead);
 
+app.use(currencyMiddleware);
+
 app.use('/api/v1/auth', AuthRouter);
 app.use('/api/v1/user', UserRouter);
 app.use('/api/v1/wallet', WalletRouter);
@@ -206,6 +210,7 @@ app.use('/api/v1/collaboration', CollaborationRouter);
 app.use('/api/v1/search', SearchRouter);
 app.use('/api/v1', CrmRouter);
 app.use('/api/v1/analytics', AnalyticsRouter);
+app.use('/api/v1/marketai', MarketAiRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));

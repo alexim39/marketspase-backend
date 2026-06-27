@@ -18,6 +18,7 @@ import { verifyAndRecordPayment, verifyPaymentStatus } from '../controllers/veri
 import { verifyBankAccount } from '../controllers/verify-bankacount.controller.js'
 import { authenticate } from '../../../shared/middleware/auth.middleware.js';
 import { requireAdmin } from '../../../shared/middleware/authorization.middleware.js';
+import { fundWallet, confirmWalletFunding, withdrawFunds, getWalletWithRates } from '../controllers/international-wallet.controller.js';
 
 const IndexRouter = express.Router();
 
@@ -50,5 +51,10 @@ IndexRouter.get('/verified-accounts/:userId', getVerifiedAccounts);
 
 IndexRouter.get('/admin/payment-config', requireAdmin, getAdminPaymentConfig);
 IndexRouter.put('/admin/payment-config', requireAdmin, saveAdminPaymentConfig);
+
+IndexRouter.post('/fund', authenticate, fundWallet);
+IndexRouter.post('/fund/confirm', authenticate, confirmWalletFunding);
+IndexRouter.post('/withdraw', authenticate, withdrawFunds);
+IndexRouter.get('/international', authenticate, getWalletWithRates);
 
 export default IndexRouter;

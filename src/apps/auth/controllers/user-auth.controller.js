@@ -291,6 +291,10 @@ export const GetUser = async (req, res) => {
           rating: 1,
           ratingCount: 1,
           ratingUpdatedAt: 1,
+          // Regional preferences (internationalization)
+          preferredCurrency: 1,
+          preferredLocale: 1,
+          regionalCountry: 1,
           // Profile info
           personalInfo: 1,
           professionalInfo: 1,
