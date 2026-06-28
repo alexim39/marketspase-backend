@@ -50,6 +50,18 @@ export const setupSocketHandlers = (io) => {
       if (wasOffline) {
         broadcastPresenceChange(io, userId, 'online');
       }
+
+      // Send newly connected user the full list of who's already online
+      const allOnlineIds = presenceTracker.getOnlineUserIds().filter(id => id !== userId);
+      for (const onlineId of allOnlineIds) {
+        const onlineUser = presenceTracker.getOnlineUser(onlineId);
+        socket.emit('presence_changed', {
+          userId: onlineId,
+          status: 'online',
+          displayName: onlineUser?.displayName,
+          timestamp: new Date().toISOString(),
+        });
+      }
     }
 
     socket.on('join_conversation', (conversationId) => {
@@ -123,36 +135,17 @@ export const broadcastTyping = (io, userId, displayName, conversationId, action)
 
 export const broadcastPresenceChange = async (io, userId, status) => {
   try {
-    const { CollaborationConversationModel } = await import('../collaboration/models/index.js');
-    const conversations = await CollaborationConversationModel.find({
-      'participants.user': userId,
-      isActive: true,
-    })
-      .select('participants.user')
-      .lean();
-
-    const partnerIds = new Set();
-    for (const conv of conversations) {
-      for (const p of conv.participants || []) {
-        const pid = p.user?.toString?.();
-        if (pid && pid !== userId) partnerIds.add(pid);
-      }
-    }
-
     const onlineUser = presenceTracker.getOnlineUser(userId);
     const payload = {
-      userId,
-      status,
+      userId, status,
       displayName: onlineUser?.displayName,
       timestamp: new Date().toISOString(),
     };
 
-    for (const partnerId of partnerIds) {
-      io.to(`user:${partnerId}`).emit('presence_changed', payload);
+    // Broadcast to ALL online users (WhatsApp-style)
+    const onlineIds = presenceTracker.getOnlineUserIds();
+    for (const id of onlineIds) {
+      if (id !== userId) io.to(`user:${id}`).emit('presence_changed', payload);
     }
-
-    io.emit('presence_broadcast', payload);
-  } catch (e) {
-    // Fail silently — presence is best-effort
-  }
+  } catch (e) { /* non-critical */ }
 };

@@ -92,6 +92,28 @@ export class AiAssistantService {
       return { userId, conversationId: conversation._id.toString(), message: savedMessage };
     }
 
+    // Business hours check — if outside hours, escalate to human with message
+    const bizHours = settings.responseSettings?.businessHours;
+    if (bizHours?.enabled && bizHours.start && bizHours.end) {
+      const now = new Date();
+      const tz = bizHours.timezone || 'Africa/Lagos';
+      const timeStr = now.toLocaleString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+      const [h, m] = timeStr.split(':').map(Number);
+      const nowMins = h * 60 + m;
+      const [sh, sm] = bizHours.start.split(':').map(Number);
+      const [eh, em] = bizHours.end.split(':').map(Number);
+      const startMins = sh * 60 + sm;
+      const endMins = eh * 60 + em;
+      const inHours = startMins <= endMins ? (nowMins >= startMins && nowMins < endMins) : (nowMins >= startMins || nowMins < endMins);
+      if (!inHours) {
+        await this.repository.updateConversation(conversation._id, userId, {
+          status: 'escalated', handledBy: 'human', escalationReason: 'Outside business hours',
+        });
+        await this.sendReply(config, cleanFrom, conversation._id, settings.language === 'pidgin' ? 'We don dey close work now. We go respond to your message once we open back. Thank you!' : 'We\'re currently outside business hours. We\'ll respond to your message as soon as we\'re back. Thank you!', 'ai');
+        return { userId, conversationId: conversation._id.toString(), message: savedMessage };
+      }
+    }
+
     const escalation = this.detectEscalation(Body, settings);
     
     if (escalation.shouldEscalate) {
@@ -583,6 +605,17 @@ Keep responses under 45 words.`;
   async updateTemplate(userId, templateId, data) {
     if (!userId) throw new Error('userId is required');
     return this.repository.updateTemplate(templateId, userId, data);
+  }
+
+  async resolveTemplate(userId, templateId, variables = {}) {
+    if (!userId) throw new Error('userId is required');
+    const template = await this.repository.findTemplateById(templateId, userId);
+    if (!template) throw new Error('Template not found');
+    let text = template.content;
+    for (const [key, value] of Object.entries(variables)) {
+      text = text.replace(new RegExp(`{{${key}}}`, 'g'), String(value));
+    }
+    return { text, template };
   }
 
   async deleteTemplate(userId, templateId) {

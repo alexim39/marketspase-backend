@@ -52,6 +52,7 @@ import {
 } from '../../controllers/storefront/buyer-referral.controller.js';
 import { getPublicCollectionBySlug } from '../../controllers/promotion/promoter-collections.controller.js';
 import { getStorefrontAnalytics } from '../../controllers/storefront/storefront-analytics.controller.js';
+import { handleStorefrontChat } from '../../controllers/storefront/storefront-chat.controller.js';
 
 const router = express.Router();
 
@@ -94,6 +95,9 @@ router.post('/referrals/create', authenticate, createReferralCode);
 
 // Public promoter collections
 router.get('/collections/:slug', getPublicCollectionBySlug);
+
+// Public storefront chat widget (customer-facing)
+router.post('/chat', handleStorefrontChat);
 
 // Storefront analytics (marketer-only)
 router.get('/analytics', authenticate, getStorefrontAnalytics);

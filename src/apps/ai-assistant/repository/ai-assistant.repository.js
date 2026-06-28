@@ -228,6 +228,10 @@ export class AiAssistantRepository {
     return MessageTemplate.find({ userId, isActive: true }).sort({ createdAt: -1 });
   }
 
+  async findTemplateById(templateId, userId) {
+    return MessageTemplate.findOne({ _id: templateId, userId });
+  }
+
   async createTemplate(data) {
     return MessageTemplate.create(data);
   }
