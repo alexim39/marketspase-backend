@@ -148,7 +148,16 @@ export const submitInquiry = async (req, res) => {
       );
     }
 
-    return res.status(201).json({ success: true, data: inquiry });
+    // Cross-sell: include 3 related products from the same store
+    let crossSell = [];
+    try {
+      const { ProductModel: PM } = await import('../../models/promotion/index.js');
+      const products = await PM.find({ store: service.store, isActive: true, isPublished: true, isDeleted: false })
+        .select('name price images').sort({ viewCount: -1 }).limit(3).lean();
+      crossSell = products.map(p => ({ name: p.name, price: p.price, image: p.images?.[0]?.url || null }));
+    } catch (e) { /* non-critical */ }
+
+    return res.status(201).json({ success: true, data: { ...inquiry.toObject(), crossSell } });
   } catch (e) {
     return res.status(500).json({ success: false, message: e.message });
   }

@@ -3,6 +3,25 @@ import mongoose from "mongoose";
 import geoip from "geoip-lite";
 import { CampaignClickModel, CampaignModel } from "../models/index.js";
 import { PromotionModel } from "../../promotion/models/index.js";
+
+export const PPC_VALID_TRANSITIONS = {
+  pending: ['billable', 'duplicate', 'invalid', 'fraud_flagged'],
+  billable: ['charged'],
+  charged: ['clawed_back', 'refunded'],
+  clawed_back: [],
+  refunded: [],
+  duplicate: [],
+  invalid: [],
+  fraud_flagged: [],
+};
+
+export const PPC_ACTIVE_STATUSES = ['pending', 'billable', 'charged'];
+export const PPC_INACTIVE_STATUSES = ['clawed_back', 'refunded', 'duplicate', 'invalid', 'fraud_flagged'];
+
+export function isValidTransition(from, to) {
+  const allowed = PPC_VALID_TRANSITIONS[from];
+  return allowed ? allowed.includes(to) : false;
+}
 import { UserModel } from "../../user/models/user/index.js";
 import {
   enforcePromotionFraudSignal,

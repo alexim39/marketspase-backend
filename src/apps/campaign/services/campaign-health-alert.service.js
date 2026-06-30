@@ -2,6 +2,7 @@ import { NotificationService } from '../../notification/services/notification.se
 import { UserModel } from '../../user/models/user/index.js';
 import { sendEmail } from '../../../core/email.service.js';
 import { wrapEmail, brandedButton } from '../../../core/brand-email.js';
+import { formatCurrency } from '../../../core/exchange-rate.service.js';
 
 const ALERT_TYPES = {
   auto_paused: {
@@ -16,7 +17,7 @@ const ALERT_TYPES = {
   },
   low_budget: {
     title: 'Campaign budget running low',
-    message: (meta) => `Your campaign "${meta.title}" has ${meta.percent}% budget remaining (₦${meta.remaining}). Consider topping up.`,
+    message: (meta) => `Your campaign "${meta.title}" has ${meta.percent}% budget remaining (${formatCurrency(meta.remaining, meta.currency || 'NGN')}). Consider topping up.`,
     priority: 'medium',
   },
   fraud_flagged: {

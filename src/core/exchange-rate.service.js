@@ -1,3 +1,5 @@
+import cron from 'node-cron';
+
 const SUPPORTED_CURRENCIES = ['NGN', 'USD', 'GHS', 'KES', 'ZAR', 'XOF'];
 const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
@@ -45,4 +47,11 @@ export function formatCurrency(amount, currency = 'NGN') {
   const symbol = symbols[currency] || currency;
   const decimals = ['XOF'].includes(currency) ? 0 : 2;
   return `${symbol}${Number(amount).toLocaleString('en', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+}
+
+export function startExchangeRateCron() {
+  cron.schedule('*/30 * * * *', async () => {
+    try { await getExchangeRates(); } catch {}
+  });
+  console.log('[CRON] Scheduled: Exchange rate refresh (every 30 min)');
 }

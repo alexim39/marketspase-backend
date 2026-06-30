@@ -40,7 +40,7 @@ export const serveStoreLandingPage = async (req, res) => {
       const svcPrice = service.price ? `₦${Number(service.price).toLocaleString()}` : 'Contact for quote';
       const baseUrl = getBaseUrl();
       const storeLink = (service.store.name || 'store').toLowerCase().replace(/\s+/g, '-');
-      const inquiryUrl = `${baseUrl}/store/${storeLink}/inquiry/${service._id}`;
+      const inquiryUrl = `${baseUrl}/store/${storeLink}/inquiry/${service._id}?ref=${upi}`;
       const title = `${service.name} — on MarketSpase`;
       const description = service.description?.substring(0, 160) || `Book ${service.name} on MarketSpase`;
 

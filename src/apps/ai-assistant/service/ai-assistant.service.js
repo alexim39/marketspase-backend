@@ -289,9 +289,115 @@ Keep responses under 45 words.`;
       messages: chatMessages,
       max_tokens: 250,
       temperature: 0.7,
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'get_storefront_summary',
+            description: 'Get the user storefront summary including product count, orders, and revenue',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'get_wallet_summary',
+            description: 'Get the user wallet balance and recent transactions',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'search_active_campaigns',
+            description: 'Search for active campaigns by keyword or category',
+            parameters: { type: 'object', properties: { query: { type: 'string' }, category: { type: 'string' } } },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'get_marketer_campaigns',
+            description: 'Get the user own active campaigns with spend and clicks',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'get_category_benchmarks',
+            description: 'Get average CPC and budget benchmarks by campaign category',
+            parameters: { type: 'object', properties: { category: { type: 'string' } } },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'get_promoter_tier_info',
+            description: 'Get the promoter tier, earnings, and click cap usage',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'get_promotion_performance',
+            description: 'Get promotion stats for the user promoted products',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'suggest_campaign_budget',
+            description: 'Suggest a CPC and daily budget for a given campaign category',
+            parameters: { type: 'object', properties: { category: { type: 'string' } } },
+          },
+        },
+      ],
     });
 
-    return completion.choices[0].message.content.trim();
+    const choice = completion.choices[0];
+
+    // Handle tool calls
+    if (choice.message.tool_calls?.length) {
+      const toolResults = [];
+      for (const tc of choice.message.tool_calls) {
+        const args = JSON.parse(tc.function.arguments || '{}');
+        let result = 'Tool not implemented';
+        try {
+          if (tc.function.name === 'get_storefront_summary') {
+            result = JSON.stringify(await this.getStorefrontSummary(userId));
+          } else if (tc.function.name === 'get_wallet_summary') {
+            result = JSON.stringify(await this.getWalletSummary(userId));
+          } else if (tc.function.name === 'search_active_campaigns') {
+            result = JSON.stringify(await this.searchActiveCampaigns(args.query, args.category));
+          } else if (tc.function.name === 'get_marketer_campaigns') {
+            result = JSON.stringify(await this.getMarketerCampaigns(userId));
+          } else if (tc.function.name === 'get_category_benchmarks') {
+            result = JSON.stringify(await this.getCategoryBenchmarks(args.category));
+          } else if (tc.function.name === 'get_promoter_tier_info') {
+            result = JSON.stringify(await this.getPromoterTierInfo(userId));
+          } else if (tc.function.name === 'get_promotion_performance') {
+            result = JSON.stringify(await this.getPromotionPerformance(userId));
+          } else if (tc.function.name === 'suggest_campaign_budget') {
+            result = JSON.stringify(await this.suggestCampaignBudget(args.category));
+          }
+        } catch (e) { result = `Error: ${e.message}`; }
+        toolResults.push({ role: 'tool', tool_call_id: tc.id, content: result });
+      }
+
+      const finalMessages = [...chatMessages, choice.message, ...toolResults];
+      const finalCompletion = await this.openai.chat.completions.create({
+        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+        messages: finalMessages,
+        max_tokens: 250,
+        temperature: 0.7,
+      });
+      return finalCompletion.choices[0].message.content.trim();
+    }
+
+    return choice.message.content.trim();
   }
 
   async sendReply(config, toNumber, conversationId, body, source) {
@@ -621,5 +727,99 @@ Keep responses under 45 words.`;
   async deleteTemplate(userId, templateId) {
     if (!userId) throw new Error('userId is required');
     return this.repository.deleteTemplate(templateId, userId);
+  }
+
+  // ─────────── Tool Handlers ───────────
+  async getStorefrontSummary(userId) {
+    try {
+      const { StoreModel } = await import('../../store/models/store/index.js');
+      const [storeCount, stores] = await Promise.all([
+        StoreModel.countDocuments({ owner: userId }),
+        StoreModel.find({ owner: userId }).select('name analytics type').lean(),
+      ]);
+      const totalOrders = stores.reduce((s, st) => s + (st.analytics?.totalOrders || 0), 0);
+      const totalRevenue = stores.reduce((s, st) => s + (st.analytics?.totalRevenue || 0), 0);
+      return { stores: storeCount, totalOrders, totalRevenue, types: stores.map(s => s.type) };
+    } catch (e) { return { error: 'Store data unavailable' }; }
+  }
+
+  async getWalletSummary(userId) {
+    try {
+      const { UserModel } = await import('../../user/models/user/index.js');
+      const user = await UserModel.findById(userId).select('wallets').lean();
+      const m = user?.wallets?.marketer || {};
+      return {
+        balance: m.balance || 0,
+        currency: m.currency || 'NGN',
+        reserved: m.reserved || 0,
+        totalEarnings: m.totalEarnings || 0,
+      };
+    } catch (e) { return { error: 'Wallet data unavailable' }; }
+  }
+
+  async searchActiveCampaigns(query, category) {
+    try {
+      const { CampaignModel } = await import('../../campaign/models/campaign.model.js');
+      const filter = { status: 'active', isDeleted: false };
+      if (query) filter.$or = [{ title: new RegExp(query, 'i') }, { description: new RegExp(query, 'i') }];
+      if (category) filter.category = new RegExp(category, 'i');
+      const campaigns = await CampaignModel.find(filter).select('title budget cpc category').limit(5).lean();
+      return campaigns.map(c => ({ title: c.title, budget: c.budget, cpc: c.cpc, category: c.category }));
+    } catch (e) { return { error: 'Campaign data unavailable' }; }
+  }
+
+  async getMarketerCampaigns(userId) {
+    try {
+      const { CampaignModel } = await import('../../campaign/models/campaign.model.js');
+      const campaigns = await CampaignModel.find({ owner: userId, isDeleted: false, status: 'active' })
+        .select('title budget cpc views clicks category').limit(10).lean();
+      return campaigns.map(c => ({ title: c.title, budget: c.budget, cpc: c.cpc, views: c.views || 0, clicks: c.clicks || 0, category: c.category }));
+    } catch (e) { return { error: 'Campaign data unavailable' }; }
+  }
+
+  async getCategoryBenchmarks(category) {
+    try {
+      const { CampaignModel } = await import('../../campaign/models/campaign.model.js');
+      const agg = await CampaignModel.aggregate([
+        { $match: { isDeleted: false, status: 'active', ...(category ? { category: new RegExp(category, 'i') } : {}) } },
+        { $group: { _id: '$category', avgCpc: { $avg: '$cpc' }, avgBudget: { $avg: '$budget' }, count: { $sum: 1 } } },
+        { $limit: 5 },
+      ]);
+      return agg.length ? agg : [{ _id: 'general', avgCpc: 50, avgBudget: 50000, count: 0 }];
+    } catch (e) { return [{ _id: 'general', avgCpc: 50, avgBudget: 50000, count: 0 }]; }
+  }
+
+  async getPromoterTierInfo(userId) {
+    try {
+      const { UserModel } = await import('../../user/models/user/index.js');
+      const user = await UserModel.findById(userId).select('wallets displayName').lean();
+      const p = user?.wallets?.promoter || {};
+      return { balance: p.balance || 0, totalEarnings: p.totalEarnings || 0, tier: p.tier || 'Bronze', clickCap: p.clickCap || 200 };
+    } catch (e) { return { tier: 'Bronze', balance: 0, totalEarnings: 0 }; }
+  }
+
+  async getPromotionPerformance(userId) {
+    try {
+      const m = await import('../../store/models/promotion/index.js');
+      const trackings = await m.PromotionTrackingModel.find({ promoter: userId, isActive: true })
+        .populate('product', 'name').limit(10).lean();
+      return trackings.map(t => ({
+        product: t.product?.name || 'Product',
+        views: t.viewCount || 0, clicks: t.clickCount || 0,
+        conversions: t.conversionCount || 0, earnings: t.earnings || 0,
+      }));
+    } catch (e) { return []; }
+  }
+
+  async suggestCampaignBudget(category) {
+    try {
+      const { CampaignModel } = await import('../../campaign/models/campaign.model.js');
+      const agg = await CampaignModel.aggregate([
+        { $match: { isDeleted: false, status: 'active', ...(category ? { category: new RegExp(category, 'i') } : {}) } },
+        { $group: { _id: null, avgCpc: { $avg: '$cpc' }, avgBudget: { $avg: '$budget' } } },
+      ]);
+      const r = agg[0];
+      return { suggestedCpc: Math.round((r?.avgCpc || 50) * 0.9), suggestedBudget: Math.round((r?.avgBudget || 50000) * 0.8), currency: 'NGN' };
+    } catch (e) { return { suggestedCpc: 50, suggestedBudget: 50000, currency: 'NGN' }; }
   }
 }

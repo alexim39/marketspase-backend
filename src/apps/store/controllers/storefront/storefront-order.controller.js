@@ -11,6 +11,7 @@ import { UserModel } from "../../../user/models/user/index.js";
 import { evaluateUserBadges } from "../../../badges/service/badge.service.js";
 import { awardGamificationProgress } from "../../../gamification/service/gamification.service.js";
 import { sendEmail } from "../../../../core/email.service.js";
+import { wrapEmail, brandedButton } from "../../../../core/brand-email.js";
 import {
   buildSignedQuote,
   convertAmount,
@@ -1182,72 +1183,65 @@ function buildStorefrontOrderEmail(order, payment, buyer) {
   const storeName = order.store?.name || "MarketSpase Store";
   const rows = buildOrderRows(order);
 
-  return `
-    <div style="font-family:Arial,sans-serif;background:#f9fafb;padding:24px;color:#111827;">
-      <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
-        <div style="background:#667eea;color:#ffffff;padding:24px;">
-          <h1 style="margin:0;font-size:24px;">Order confirmed</h1>
-          <p style="margin:8px 0 0;">Thanks ${escapeHtml(buyer.fullName || "there")}. Your payment has been received for ${escapeHtml(storeName)}.</p>
-        </div>
-        <div style="padding:24px;">
-          <p style="margin:0 0 16px;">Order <strong>${escapeHtml(order.orderNumber || "")}</strong> is paid and held safely until delivery is reviewed and approved by MarketSpase admin.</p>
-          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-            <thead>
-              <tr>
-                <th style="padding:12px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
-                <th style="padding:12px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
-                <th style="padding:12px;text-align:right;border-bottom:1px solid #e5e7eb;">Amount</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-          <div style="background:#f3f4f6;border-radius:8px;padding:16px;margin:16px 0;">
-            <p style="margin:0 0 8px;"><strong>Total:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
-            <p style="margin:0 0 8px;"><strong>Payment reference:</strong> ${escapeHtml(payment?.transactionReference || order.paymentReference || "")}</p>
-            <p style="margin:0;"><strong>Delivery phone:</strong> ${escapeHtml(buyer.phone || order.shippingAddress?.phone || "")}</p>
-          </div>
-          <p style="color:#4b5563;margin:0 0 8px;">The store will use your checkout details for delivery follow-up and order updates.</p>
-          <p style="color:#4b5563;margin:0;">When delivery is completed, MarketSpase will review the delivery release request before reserved funds are moved to the seller and promoter balances.</p>
-        </div>
-      </div>
+  const content = `
+    <p style="font-size:15px;line-height:1.6">Thanks ${escapeHtml(buyer.fullName || "there")}, your payment for <strong>${escapeHtml(storeName)}</strong> has been received.</p>
+    <p>Order <strong>${escapeHtml(order.orderNumber || "")}</strong> is paid and held safely until delivery is reviewed by MarketSpase admin.</p>
+
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+      <thead>
+        <tr>
+          <th style="padding:10px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
+          <th style="padding:10px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
+          <th style="padding:10px;text-align:right;border-bottom:1px solid #e5e7eb;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <div style="background:#f7f5fa;border-radius:8px;padding:16px;margin:16px 0">
+      <p style="margin:4px 0"><strong>Total:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
+      <p style="margin:4px 0"><strong>Reference:</strong> ${escapeHtml(payment?.transactionReference || order.paymentReference || "")}</p>
+      <p style="margin:4px 0"><strong>Delivery phone:</strong> ${escapeHtml(buyer.phone || order.shippingAddress?.phone || "")}</p>
     </div>
+
+    <p style="font-size:13px;color:#888">When delivery is completed, MarketSpase reviews the release before funds are moved to the seller and promoter balances.</p>
   `;
+
+  return wrapEmail({ title: 'Order Confirmed', content, withFooter: true });
 }
 
 function buildMarketerSaleEmail(order, payment, buyer, marketer) {
   const rows = buildOrderRows(order);
   const address = order.shippingAddress || {};
-  return `
-    <div style="font-family:Arial,sans-serif;background:#f9fafb;padding:24px;color:#111827;">
-      <div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
-        <div style="background:#111827;color:#ffffff;padding:24px;">
-          <h1 style="margin:0;font-size:24px;">New storefront sale</h1>
-          <p style="margin:8px 0 0;">Hello ${escapeHtml(marketer.displayName || marketer.username || "there")}, order ${escapeHtml(order.orderNumber || "")} is paid and ready for processing.</p>
-        </div>
-        <div style="padding:24px;">
-          <p style="margin:0 0 16px;">Funds are now held in your reserved balance until delivery is vetted by MarketSpase admin.</p>
-          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-            <thead>
-              <tr>
-                <th style="padding:12px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
-                <th style="padding:12px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
-                <th style="padding:12px;text-align:right;border-bottom:1px solid #e5e7eb;">Amount</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-          <div style="background:#f3f4f6;border-radius:8px;padding:16px;margin:16px 0;">
-            <p style="margin:0 0 8px;"><strong>Buyer:</strong> ${escapeHtml(buyer.fullName || "Customer")} (${escapeHtml(buyer.email || "")})</p>
-            <p style="margin:0 0 8px;"><strong>Phone:</strong> ${escapeHtml(buyer.phone || "")}</p>
-            <p style="margin:0 0 8px;"><strong>Delivery address:</strong> ${escapeHtml([address.street, address.city, address.state, address.country].filter(Boolean).join(", "))}</p>
-            <p style="margin:0 0 8px;"><strong>Total paid:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
-            <p style="margin:0;"><strong>Your reserved amount:</strong> ${formatMoney(order.marketerReservedAmount, order.currency)}</p>
-          </div>
-          <p style="color:#4b5563;margin:0;">Begin fulfilment and submit a delivery release request from your MarketSpase orders page after delivery is completed.</p>
-        </div>
-      </div>
+  const frontendUrl = process.env.FRONTEND_URL || 'https://marketspase.com';
+
+  const content = `
+    <p style="font-size:15px;line-height:1.6">Hello ${escapeHtml(marketer.displayName || marketer.username || "there")},</p>
+    <p>Order <strong>${escapeHtml(order.orderNumber || "")}</strong> is paid and ready for processing. Funds are held in your reserved balance until delivery is vetted by admin.</p>
+
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+      <thead>
+        <tr>
+          <th style="padding:10px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
+          <th style="padding:10px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
+          <th style="padding:10px;text-align:right;border-bottom:1px solid #e5e7eb;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <div style="background:#f7f5fa;border-radius:8px;padding:16px;margin:16px 0">
+      <p style="margin:4px 0"><strong>Buyer:</strong> ${escapeHtml(buyer.fullName || "Customer")} (${escapeHtml(buyer.email || "")})</p>
+      <p style="margin:4px 0"><strong>Phone:</strong> ${escapeHtml(buyer.phone || "")}</p>
+      <p style="margin:4px 0"><strong>Delivery:</strong> ${escapeHtml([address.street, address.city, address.state, address.country].filter(Boolean).join(", "))}</p>
+      <p style="margin:4px 0"><strong>Total paid:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
     </div>
+
+    <p style="color:#4b5563;font-size:14px;">Begin fulfilment and submit a delivery release request from your orders page after delivery is completed.</p>
+    ${brandedButton('View Order', `${frontendUrl}/dashboard/stores/orders`)}
   `;
+
+  return wrapEmail({ title: `New Sale: ${order.orderNumber || 'Order'}`, content, withFooter: true });
 }
 
 function buildPromoterSaleEmail(order, payment, promoter) {

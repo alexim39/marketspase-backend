@@ -16,6 +16,14 @@ router.use(authenticate);
 
 // Specific routes before parameterized ones
 router.get('/list/promoter', getPromoterStoreServices);
+router.post('/:serviceId/view', async (req, res) => {
+  try {
+    await (await import('../../models/service/service.model.js')).ServiceModel.updateOne(
+      { _id: req.params.serviceId }, { $inc: { viewCount: 1 } }
+    );
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
 
 router.post('/:storeId/create', cloudinaryMediaUpload.array('files', 10), async (req, res) => {
   try {
