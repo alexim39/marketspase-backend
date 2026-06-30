@@ -5,6 +5,8 @@ import { StoreModel } from '../../models/store/index.js';
 import { StoreCustomerModel } from '../../models/store-customer/index.js';
 import { PromotionTrackingModel } from '../../models/promotion/index.js';
 import { UserModel } from '../../../user/models/user/index.js';
+import { sendEmail } from '../../../../core/email.service.js';
+import { inquiryReceivedTemplate, bookingReceivedTemplate } from '../../services/email/service-notification.templates.js';
 
 const PLATFORM_FEE_RATE = 0.20;
 
@@ -94,6 +96,27 @@ export const submitInquiry = async (req, res) => {
       leadCommissionPaid: leadCommission > 0, leadCommissionAmount: leadCommission,
     });
 
+    // Send email notification to the service provider
+    try {
+      const provider = await UserModel.findById(service.provider).select('email displayName firstName').lean();
+      if (provider?.email) {
+        const frontendUrl = process.env.FRONTEND_URL || 'https://marketspase.com';
+        const dashboardUrl = `${frontendUrl}/dashboard/stores/${service.store}/services`;
+        const html = inquiryReceivedTemplate({
+          providerName: provider.displayName || provider.firstName || 'there',
+          serviceName: service.name,
+          customerName: customer?.name || '',
+          customerPhone: customer?.phone || '',
+          customerEmail: customer?.email || '',
+          message: message || '',
+          budget: budget || '',
+          timeline: timeline || '',
+          dashboardUrl,
+        });
+        sendEmail(provider.email, `New Inquiry: ${service.name}`, html).catch(() => {});
+      }
+    } catch (e) { /* email failure shouldn't break the request */ }
+
     if (leadCommission > 0 && promoter) {
       const platformFee = Math.round(leadCommission * PLATFORM_FEE_RATE);
       const promoterPayout = leadCommission - platformFee;
@@ -143,6 +166,32 @@ export const bookService = async (req, res) => {
       inquiry: inquiryId, amount, scheduledDate, status: 'confirmed',
       commissionEarned: amount * 0.05, platformFee: amount * 0.01,
     });
+
+    // Load service name for email
+    let serviceName = 'a service';
+    try {
+      const svc = await ServiceModel.findById(inquiry.service).select('name').lean();
+      if (svc) serviceName = svc.name;
+    } catch (e) { /* continue */ }
+
+    // Send email notification to the provider
+    try {
+      const provider = await UserModel.findById(req.userId).select('email displayName firstName').lean();
+      if (provider?.email) {
+        const frontendUrl = process.env.FRONTEND_URL || 'https://marketspase.com';
+        const storeId = (await ServiceModel.findById(inquiry.service).select('store').lean())?.store || '';
+        const dashboardUrl = `${frontendUrl}/dashboard/stores/${storeId}/services`;
+        const html = bookingReceivedTemplate({
+          providerName: provider.displayName || provider.firstName || 'there',
+          serviceName,
+          customerName: inquiry.customer?.name || '',
+          amount,
+          scheduledDate,
+          dashboardUrl,
+        });
+        sendEmail(provider.email, `New Booking: ${serviceName}`, html).catch(() => {});
+      }
+    } catch (e) { /* email failure shouldn't break the request */ }
 
     await ServiceInquiryModel.updateOne({ _id: inquiryId }, { $set: { status: 'booked' } });
     await ServiceModel.updateOne({ _id: inquiry.service }, { $inc: { bookingCount: 1 } });

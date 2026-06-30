@@ -154,10 +154,21 @@ export const getRequestBaseUrl = (req) => {
 };
 
 export const buildAffiliateUrl = (req, uniqueCode) => {
-  // Public affiliate/tracking links should hit the API (not the SPA),
-  // so the click is recorded server-side and we can safely 302 redirect
-  // to the product landing page.
   return `${getRequestBaseUrl(req)}/api/v1/stores/product/promotions/track-click/${encodeURIComponent(uniqueCode)}`;
+};
+
+export const buildStorePublicUrl = (req, upi) => {
+  if (!upi) return '';
+  const DEFAULT = 'https://marketspase.com';
+  // Prefer configured public domain, then fall back to request host, then default
+  const configured = process.env.FRONTEND_URL || process.env.CLIENT_URL || process.env.PROMOTION_TRACKING_BASE_URL || process.env.API_PUBLIC_URL;
+  if (configured) return `${configured.replace(/\/+$/, '')}/s/${encodeURIComponent(upi)}`;
+  if (req?.get) {
+    const protocol = req.protocol || 'http';
+    const host = req.get('host');
+    if (host) return `${protocol}://${host}/s/${encodeURIComponent(upi)}`;
+  }
+  return `${DEFAULT}/s/${encodeURIComponent(upi)}`;
 };
 
 export const buildProductLandingUrl = ({ productId, uniqueCode, uniqueId, promoterId, clicked = true }) => {

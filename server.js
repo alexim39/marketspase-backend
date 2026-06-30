@@ -41,6 +41,7 @@ import MarketAiRouter from './src/apps/copilot/routes/marketai.routes.js';
 import { ensureGlobalSearchBootstrap } from './src/apps/search/services/search-index.service.js';
 import { trackClick as trackStoreAffiliateClick } from './src/apps/store/controllers/promotion/product-tracking.controller.js';
 import { serveCampaignLandingPage as campaignLandingPage, createCampaignLead, getCampaignLandingData } from './src/apps/campaign/controllers/campaign-landing.controller.js';
+import { serveStoreLandingPage } from './src/apps/store/controllers/promotion/store-landing.controller.js';
 import { publicLeadLimiter } from './src/shared/middleware/rate-limit.middleware.js';
 
 // paystack transaction webhook imports
@@ -182,6 +183,9 @@ app.post('/stores/product/promotions/track-click/:uniqueCode', trackStoreAffilia
 app.get('/c/:upi', campaignLandingPage);
 app.get('/api/v1/campaign/landing/:upi', getCampaignLandingData);
 app.post('/api/v1/campaign/lead/:upi', publicLeadLimiter, createCampaignLead);
+
+// Public store promotion landing page — friendly /s/:upi URLs for product/service affiliate links
+app.get('/s/:upi', serveStoreLandingPage);
 
 app.use(currencyMiddleware);
 

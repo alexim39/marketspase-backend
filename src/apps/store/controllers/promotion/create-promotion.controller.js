@@ -6,6 +6,7 @@ import { computePromoterTier } from '../../../promotion/services/promoter-tier.s
 import {
   buildAffiliateUrl,
   buildProductLandingUrl,
+  buildStorePublicUrl,
   getProductAffiliateSettings,
   calculateCommissionForAmount,
 } from '../../services/storefront-affiliate.service.js';
@@ -156,12 +157,22 @@ function formatPromotionResponse(req, promotion) {
     promoterId: plain.promoter,
     clicked: false,
   });
+  const publicUrl = plain.upi ? buildStorePublicUrl(req, plain.upi) : affiliateUrl;
+
+  // Persist publicUrl if not already set
+  if (!plain.publicUrl && plain.upi) {
+    PromotionTrackingModel.updateOne(
+      { _id: plain._id },
+      { $set: { publicUrl } }
+    ).catch(() => {});
+  }
 
   return {
     ...plain,
     affiliateUrl,
     promotionUrl: affiliateUrl,
     shareUrl: affiliateUrl,
+    publicUrl,
     landingUrl,
     trackingCode: plain.uniqueCode,
   };

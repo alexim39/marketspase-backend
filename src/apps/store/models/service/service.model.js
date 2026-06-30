@@ -46,9 +46,22 @@ const serviceSchema = new mongoose.Schema({
   subscriptionExpiresAt: Date,
   promotionStartDate: Date,
   promotionEndDate: Date,
+  upi: { type: String, unique: true, sparse: true, index: true },
 }, { timestamps: true });
 
 serviceSchema.index({ category: 1, isActive: 1, isPublished: 1, isDeleted: 1 });
 serviceSchema.index({ 'affiliate.commissionType': 1 });
+
+serviceSchema.pre('save', function (next) {
+  if (!this.upi) {
+    const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let result = '';
+    for (let i = 0; i < 10; i++) {
+      result += chars[Math.floor(Math.random() * chars.length)];
+    }
+    this.upi = result;
+  }
+  next();
+});
 
 export const ServiceModel = mongoose.model('Service', serviceSchema);

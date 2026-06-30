@@ -43,6 +43,8 @@ import {
   getMarketerCustomerDetail,
   getMarketerCustomers,
   updateMarketerCustomerMeta,
+  sendCustomerSms,
+  sendBulkCustomerSms,
 } from '../../controllers/storefront/storefront-customer.controller.js';
 import { subscribeStoreSubscriber } from '../../controllers/storefront/store-subscriber.controller.js';
 import {
@@ -83,6 +85,8 @@ router.get('/orders/promoter/:promoterId', authenticate, getPromoterOrders);
 router.get('/customers/marketer/:marketerId', authenticate, getMarketerCustomers);
 router.get('/customers/marketer/:marketerId/detail', authenticate, getMarketerCustomerDetail);
 router.patch('/customers/marketer/:marketerId/meta', authenticate, updateMarketerCustomerMeta);
+router.post('/customers/marketer/:marketerId/send-sms', authenticate, sendCustomerSms);
+router.post('/customers/marketer/:marketerId/send-bulk-sms', authenticate, sendBulkCustomerSms);
 router.get('/orders/:orderId', getStorefrontOrder);
 router.post('/orders/:orderId/confirm-payment', confirmStorefrontPayment);
 router.post('/orders/:orderId/confirm-delivery', authenticate, confirmStorefrontDelivery);

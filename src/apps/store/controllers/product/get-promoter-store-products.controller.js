@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { ProductModel, PromotionTrackingModel } from '../../models/promotion/index.js';
 import {
   buildAffiliateUrl,
+  buildStorePublicUrl,
   calculateCommissionForAmount,
   getProductAffiliateSettings,
   roundMoney
@@ -144,6 +145,33 @@ export const getPromoterStoreProducts = async (req, res) => {
     const statsByProduct = new Map(promotionStats.map(stat => [stat._id.toString(), stat]));
     const promotionByProduct = new Map(userPromotions.map(promotion => [promotion.product.toString(), promotion]));
 
+    // Backfill: generate UPI for existing promotions that don't have one
+    for (const [productId, promo] of promotionByProduct) {
+      if (!promo.upi) {
+        promo.upi = generatePromotionUpi();
+        promo.publicUrl = buildStorePublicUrl(req, promo.upi);
+        PromotionTrackingModel.updateOne(
+          { _id: promo._id },
+          { $set: { upi: promo.upi, publicUrl: promo.publicUrl } }
+        ).catch(() => {});
+      } else if (!promo.publicUrl) {
+        promo.publicUrl = buildStorePublicUrl(req, promo.upi);
+        PromotionTrackingModel.updateOne(
+          { _id: promo._id },
+          { $set: { publicUrl: promo.publicUrl } }
+        ).catch(() => {});
+      }
+    }
+
+    function generatePromotionUpi() {
+      const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      let result = '';
+      for (let i = 0; i < 10; i++) {
+        result += chars[Math.floor(Math.random() * chars.length)];
+      }
+      return result;
+    }
+
     // Transform products to match UI expectations
     const transformedProducts = await Promise.all(products.map(async (product) => {
       // Get store details
@@ -163,6 +191,7 @@ export const getPromoterStoreProducts = async (req, res) => {
         uniqueId: userPromotion?.uniqueId || '',
         affiliateUrl: userPromotion?.uniqueCode ? buildAffiliateUrl(req, userPromotion.uniqueCode) : '',
         promotionUrl: userPromotion?.uniqueCode ? buildAffiliateUrl(req, userPromotion.uniqueCode) : '',
+        publicUrl: userPromotion?.upi ? buildStorePublicUrl(req, userPromotion.upi) : (userPromotion?.uniqueCode ? buildAffiliateUrl(req, userPromotion.uniqueCode) : ''),
         commissionPerSale,
         amountReceivable: roundMoney((product.price || 0) - commissionPerSale),
         viewCount: stats.viewCount || 0,
@@ -236,7 +265,17 @@ export const getPromoterStoreProducts = async (req, res) => {
         .limit(limitNum)
         .lean();
 
-      const normalizedServices = serviceDocs.map(service => ({
+      // Backfill UPI for existing services that don't have one
+      for (const svc of serviceDocs) {
+        if (!svc.upi) {
+          svc.upi = generatePromotionUpi();
+          ServiceModel.updateOne({ _id: svc._id }, { $set: { upi: svc.upi } }).catch(() => {});
+        }
+      }
+
+      const normalizedServices = serviceDocs.map(service => {
+        const svcPublicUrl = service.upi ? buildStorePublicUrl(req, service.upi) : '';
+        return ({
         _id: service._id.toString(),
         type: 'service',
         name: service.name,
@@ -283,8 +322,9 @@ export const getPromoterStoreProducts = async (req, res) => {
           isApproved: true,
           trackingCode: '',
           uniqueId: '',
-          affiliateUrl: '',
-          promotionUrl: '',
+          affiliateUrl: svcPublicUrl,
+          promotionUrl: svcPublicUrl,
+          publicUrl: svcPublicUrl,
           commissionPerSale: service.affiliate?.commissionType === 'per_lead'
             ? (service.affiliate?.leadCommission || 200)
             : (service.affiliate?.bookingCommissionRate || 200),
@@ -304,9 +344,10 @@ export const getPromoterStoreProducts = async (req, res) => {
         estimatedEarningsPerPromo: service.affiliate?.commissionType === 'per_lead'
           ? (service.affiliate?.leadCommission || 200)
           : (service.affiliate?.bookingCommissionRate || 200),
-      }));
+      });
+    });
 
-      transformedProducts.push(...normalizedServices);
+    transformedProducts.push(...normalizedServices);
     } catch (svcErr) {
       console.error('Error fetching services for unified listing:', svcErr.message);
     }
