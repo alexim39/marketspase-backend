@@ -205,6 +205,114 @@ export const getPromoterStoreProducts = async (req, res) => {
       };
     }));
 
+    // Also fetch services for a unified offerings page
+    let servicesTotal = 0;
+    try {
+      const ServiceModel = (await import('../../models/service/service.model.js')).ServiceModel;
+      const serviceFilter = {
+        isActive: true, isDeleted: false, isPublished: true,
+        'affiliate.enabled': { $ne: false },
+      };
+      if (categories) serviceFilter.category = { $in: categories.split(',').map(c => c.trim()) };
+      if (search) {
+        const sRegex = new RegExp(search, 'i');
+        serviceFilter.$or = [{ name: sRegex }, { description: sRegex }, { category: sRegex }];
+      }
+      if (minPrice || maxPrice) { serviceFilter.price = {}; if (minPrice) serviceFilter.price.$gte = parseFloat(minPrice); if (maxPrice) serviceFilter.price.$lte = parseFloat(maxPrice); }
+
+      const serviceSortMap = {
+        commission: { 'affiliate.leadCommission': sortDirection === 'desc' ? -1 : 1 },
+        popularity: { inquiryCount: -1 },
+        price: { price: sortDirection === 'desc' ? -1 : 1 },
+        newest: { createdAt: -1 },
+      };
+      const svcSort = serviceSortMap[sortBy] || { createdAt: -1 };
+
+      servicesTotal = await ServiceModel.countDocuments(serviceFilter);
+      const serviceDocs = await ServiceModel.find(serviceFilter)
+        .populate('store', 'name logo description isVerified verificationTier')
+        .sort(svcSort)
+        .skip(skip)
+        .limit(limitNum)
+        .lean();
+
+      const normalizedServices = serviceDocs.map(service => ({
+        _id: service._id.toString(),
+        type: 'service',
+        name: service.name,
+        description: service.description?.substring(0, 200) || '',
+        price: service.price || 0,
+        originalPrice: null,
+        images: (service.media?.length ? service.media : service.portfolio || []).slice(0, 1),
+        category: service.category,
+        tags: [],
+        sku: '',
+        averageRating: service.averageRating || 0,
+        ratingCount: service.ratingCount || 0,
+        purchaseCount: service.inquiryCount || 0,
+        viewCount: service.viewCount || 0,
+        createdAt: service.createdAt,
+        store: {
+          _id: service.store?._id?.toString() || '',
+          name: service.store?.name || 'Unknown Store',
+          logo: service.store?.logo || '',
+          description: service.store?.description || '',
+          isVerified: service.store?.isVerified || false,
+          verificationTier: service.store?.verificationTier || 'basic',
+          storeLink: '',
+        },
+        service: {
+          pricingType: service.pricingType,
+          packages: service.packages?.map(p => ({ name: p.name, price: p.price })),
+          hourlyRate: service.hourlyRate,
+          deliveryTime: service.deliveryTime,
+          availability: service.availability,
+          commissionType: service.affiliate?.commissionType || 'per_lead',
+          leadCommission: service.affiliate?.leadCommission || 200,
+          bookingCommission: service.affiliate?.bookingCommissionRate || 200,
+          inquiries: service.inquiryCount || 0,
+          bookings: service.bookingCount || 0,
+        },
+        promotion: {
+          commissionRate: service.affiliate?.commissionType === 'per_lead'
+            ? Math.round((service.affiliate?.leadCommission || 200) / Math.max(service.price || 1, 1) * 100)
+            : Math.round((service.affiliate?.bookingCommissionRate || 200) / Math.max(service.price || 1, 1) * 100),
+          commissionType: 'percentage',
+          fixedCommission: 0,
+          isActive: true,
+          isApproved: true,
+          trackingCode: '',
+          uniqueId: '',
+          affiliateUrl: '',
+          promotionUrl: '',
+          commissionPerSale: service.affiliate?.commissionType === 'per_lead'
+            ? (service.affiliate?.leadCommission || 200)
+            : (service.affiliate?.bookingCommissionRate || 200),
+          amountReceivable: 0,
+          viewCount: service.viewCount || 0,
+          views: service.viewCount || 0,
+          clickCount: service.inquiryCount || 0,
+          conversionCount: service.bookingCount || 0,
+          conversions: service.bookingCount || 0,
+          earnings: 0,
+          averageConversionRate: 0,
+          estimatedEarningsPerPromo: service.affiliate?.commissionType === 'per_lead'
+            ? (service.affiliate?.leadCommission || 200)
+            : (service.affiliate?.bookingCommissionRate || 200),
+        },
+        averageConversionRate: 0,
+        estimatedEarningsPerPromo: service.affiliate?.commissionType === 'per_lead'
+          ? (service.affiliate?.leadCommission || 200)
+          : (service.affiliate?.bookingCommissionRate || 200),
+      }));
+
+      transformedProducts.push(...normalizedServices);
+    } catch (svcErr) {
+      console.error('Error fetching services for unified listing:', svcErr.message);
+    }
+
+    const totalAll = total + servicesTotal;
+
     // Get categories for filters
     const categoriesAgg = await ProductModel.aggregate([
       {
@@ -282,8 +390,8 @@ export const getPromoterStoreProducts = async (req, res) => {
     res.status(200).json({
       success: true,
       count: transformedProducts.length,
-      total,
-      totalPages: Math.ceil(total / limitNum),
+      total: totalAll,
+      totalPages: Math.ceil(totalAll / limitNum),
       currentPage: pageNum,
       data: transformedProducts,
       filters: {
