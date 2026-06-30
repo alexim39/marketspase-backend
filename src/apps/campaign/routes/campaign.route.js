@@ -217,7 +217,7 @@ router.post('/landing/event', async (req, res) => {
     }
 
     // Update promoter tier after new event (fire-and-forget)
-    import('../promotion/services/promoter-tier.service.js').then(({ updatePromoterTier }) => {
+    import('../../promotion/services/promoter-tier.service.js').then(({ updatePromoterTier }) => {
       updatePromoterTier(promotion.promoter).catch(() => {});
     });
 
