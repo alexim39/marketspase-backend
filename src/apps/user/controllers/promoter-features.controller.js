@@ -3,6 +3,8 @@ import { UserModel } from '../models/user/index.js';
 import { PromotionModel } from '../../promotion/models/index.js';
 import { CampaignModel } from '../../campaign/models/campaign.model.js';
 import { LandingEventModel } from '../../campaign/models/landing-event.model.js';
+import { acceptCampaignDirect } from '../../campaign/controllers/accept-campaign.controller.js';
+import mongoose from 'mongoose';
 
 // Search promoters by display name
 export const searchPromoters = async (req, res) => {
@@ -41,7 +43,7 @@ export const getPromoterTrustMetrics = async (req, res) => {
     const { promoterId } = req.params;
     const [stats, completedPromotions] = await Promise.all([
       LandingEventModel.aggregate([
-        { $match: { promoter: new (require('mongoose').Types.ObjectId)(promoterId) } },
+        { $match: { promoter: new mongoose.Types.ObjectId(promoterId) } },
         { $group: {
           _id: null,
           totalClicks: { $sum: { $cond: [{ $eq: ['$event', 'landing_view'] }, 1, 0] } },
@@ -86,7 +88,7 @@ export const bulkInvitePromoters = async (req, res) => {
     let invited = 0;
     for (const pid of promoterIds.slice(0, 50)) {
       try {
-        await require('../../campaign/controllers/accept-campaign.controller.js').acceptCampaignDirect({
+        await acceptCampaignDirect({
           campaignId: campaign._id.toString(),
           userId: pid,
           req,

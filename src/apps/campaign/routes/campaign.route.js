@@ -5,6 +5,12 @@ import { acceptCampaign } from '../controllers/accept-campaign.controller.js'
 import { trackCampaignClick } from '../controllers/track-campaign-click.controller.js'
 import { serveTrackingRedirectScript } from '../controllers/track-redirect-script.controller.js'
 import { createCampaign } from '../controllers/create-campaign.controller.js'
+import { suggestCampaign } from '../controllers/suggest-campaign.controller.js'
+import { getSmartInviteSuggestions, smartInvite } from '../controllers/smart-invite.controller.js'
+import { getSmartInviteCount } from '../controllers/smart-invite-count.controller.js'
+import { getRecommendedCampaigns } from '../controllers/recommended-campaigns.controller.js'
+import { optimizeCampaignContent } from '../controllers/optimize-content.controller.js'
+import { getContentVariations } from '../controllers/content-variations.controller.js'
 import { saveCampaign } from '../controllers/save-campaign.controller.js'
 import { uploadCampaignMedia } from '../controllers/upload-campaign-media.controller.js'
 import { EditCampaign, UpdateCampaignPartial  } from '../controllers/edit-campaign.controller.js'
@@ -228,6 +234,15 @@ router.post('/landing/event', async (req, res) => {
 // All remaining campaign routes require an authenticated actor.
 router.use(authenticate);
 
+// AI-powered campaign suggestion
+router.post('/suggest', suggestCampaign);
+router.post('/suggest/variations', getContentVariations);
+router.get('/smart-invite-count', getSmartInviteCount);
+router.get('/recommended', getRecommendedCampaigns);
+router.get('/:id/smart-invite', getSmartInviteSuggestions);
+router.post('/:id/smart-invite', smartInvite);
+router.post('/:id/optimize', optimizeCampaignContent);
+
 // GET routes in order of specificity - FIXED ORDER
 router.get('/user/:userId', GetAMarketerCampaigns);
 router.get('/analytics/marketer/leads/:campaignId', getMarketerLeadDetail);
@@ -280,7 +295,7 @@ router.post('/media/upload', cloudinaryMediaUpload.single('media'), uploadCampai
 
 // General campaign editing routes
 router.put('/edit/:campaignId/:performedBy', cloudinaryMediaUpload.single('media'), EditCampaign);
-//router.patch('/edit/:campaignId/:performedBy', UpdateCampaignPartial);
+router.patch('/edit/:campaignId/:performedBy', UpdateCampaignPartial);
 
 // Campaign targeting specific routes
 router.put('/targeting/:campaignId/:performedBy', UpdateCampaignTargeting);

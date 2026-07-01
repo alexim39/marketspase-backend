@@ -330,6 +330,13 @@ export const scheduleCampaignCreationSideEffects = ({
       );
     }
 
+    // Trigger AI promoter matchmaking (fire-and-forget, non-blocking)
+    tasks.push(
+      import('../services/ai-matchmaking.service.js').then(m =>
+        m.triggerAiPromoterMatchmaking(campaign).catch(() => {})
+      )
+    );
+
     const taskResults = await Promise.allSettled(tasks);
     taskResults.forEach((result, index) => {
       if (result.status === "rejected") {

@@ -55,6 +55,9 @@ import { initFileUploadCleanupTask } from './src/utils/cleanup.js';
 import { updateVideoViewsJob } from './src/apps/tutorial/jobs/update-video-views.job.js';
 import { initServiceEscrowReleaseCron } from './src/apps/store/services/jobs/service-escrow-release.job.js';
 import { startExchangeRateCron } from './src/core/exchange-rate.service.js';
+import { initCampaignPerformanceCoach } from './src/apps/campaign/services/jobs/campaign-performance-coach.job.js';
+import { initPayoutReconciliationCron } from './src/apps/campaign/services/jobs/payout-reconciliation.job.js';
+import { initCampaignDigestCron } from './src/apps/campaign/services/jobs/campaign-digest.job.js';
 
 // FIXED: Import and setup socket handlers
 import { setupSocketHandlers } from './src/apps/ai-assistant/socket.handler.js';
@@ -235,6 +238,9 @@ mongoose.connect(MONGODB_URI, MONGODB_OPTIONS)
     initWithdrawalSyncCron();
     initServiceEscrowReleaseCron();
     startExchangeRateCron();
+    initCampaignPerformanceCoach();
+    initPayoutReconciliationCron();
+    initCampaignDigestCron();
     setImmediate(() => {
         ensureGlobalSearchBootstrap().catch((error) => {
             console.error('[global-search] bootstrap error', error);

@@ -550,3 +550,20 @@ export const acceptCampaign = async (req, res) => {
     });
   }
 };
+
+export const acceptCampaignDirect = ({ campaignId, userId, req }) => {
+  return new Promise((resolve, reject) => {
+    const mockReq = {
+      ...req,
+      params: { campaignId },
+      userId,
+    };
+    const mockRes = {
+      status: (code) => ({
+        json: (data) => { if (code >= 400) reject(data); else resolve(data); },
+      }),
+      json: (data) => resolve(data),
+    };
+    acceptCampaign(mockReq, mockRes);
+  });
+};
