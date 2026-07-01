@@ -52,4 +52,9 @@ export const setupCampaignIndexes = (schema) => {
     category: 'text', 
     tags: 'text' 
   });
+
+  // AI-powered features indexes
+  schema.index({ owner: 1, 'aiSuggestedPromoters.score': -1 });
+  schema.index({ owner: 1, isDeleted: 1, 'aiSuggestedPromoters.0': 1 });
+  schema.index({ category: 1, status: 1, isDeleted: 1, budget: -1 });
 };

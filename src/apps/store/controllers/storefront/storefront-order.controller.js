@@ -579,14 +579,14 @@ export const confirmStorefrontDelivery = async (req, res) => {
       });
     }
 
-    const confirmationRole = resolveDeliveryConfirmationRole(order, userId, role);
-    if (!confirmationRole || confirmationRole === "admin" || confirmationRole === "customer") {
-      await session.abortTransaction();
-      return res.status(403).json({
-        success: false,
-        message: "Only the marketer or attributed promoter can request delivery release review",
-      });
-    }
+  const confirmationRole = resolveDeliveryConfirmationRole(order, userId, role);
+  if (!confirmationRole) {
+    await session.abortTransaction();
+    return res.status(403).json({
+      success: false,
+      message: "Unauthorized to confirm delivery",
+    });
+  }
 
     order.releaseRequest = {
       status: "requested",
@@ -606,6 +606,19 @@ export const confirmStorefrontDelivery = async (req, res) => {
     await session.commitTransaction();
 
     const populatedOrder = await fetchPopulatedOrder(order._id);
+
+    // Auto-approve when buyer confirms delivery — no admin review needed
+    if (confirmationRole === 'customer' && populatedOrder) {
+      await releaseOrderEscrow(populatedOrder, userId, 'customer', session).catch(err => {
+        console.error('Auto-release escrow failed for buyer confirmation:', err);
+      });
+      return res.status(200).json({
+        success: true,
+        message: "Delivery confirmed! Funds have been released to the seller.",
+        data: { order: populatedOrder, autoApproved: true },
+      });
+    }
+
     notifyAdminsOfReleaseRequest(populatedOrder || order).catch((emailError) => {
       console.error("Release request admin notification error:", emailError);
     });

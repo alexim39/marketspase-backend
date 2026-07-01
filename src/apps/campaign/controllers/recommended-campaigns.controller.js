@@ -1,14 +1,13 @@
 import { CampaignModel } from '../models/campaign.model.js';
 import { CampaignClickModel } from '../models/campaign-click.model.js';
-import { LandingEventModel } from '../models/landing-event.model.js';
+import mongoose from 'mongoose';
 
 export const getRecommendedCampaigns = async (req, res) => {
   try {
     const promoterId = req.userId;
 
-    // Find promoter's top categories based on billable clicks
     const topCategories = await CampaignClickModel.aggregate([
-      { $match: { promoter: new (await import('mongoose')).default.Types.ObjectId(promoterId), status: 'billable' } },
+      { $match: { promoter: new mongoose.Types.ObjectId(promoterId), status: 'billable' } },
       { $lookup: { from: 'campaigns', localField: 'campaign', foreignField: '_id', as: 'campaign' } },
       { $unwind: '$campaign' },
       { $group: { _id: '$campaign.category', clicks: { $sum: 1 }, ctr: { $avg: { $cond: [{ $gt: ['$campaign.totalClicks', 0] }, { $divide: ['$clicks', '$campaign.totalClicks'] }, 0] } } } },
