@@ -6,10 +6,12 @@ import { PaymentModel, PAYMENT_GATEWAY, PAYMENT_STATUS as STORE_PAYMENT_STATUS }
 import { InventoryHistoryModel, ProductModel, PromotionTrackingModel } from "../../models/promotion/index.js";
 import { StoreModel } from "../../models/store/index.js";
 import { StoreCustomerModel } from "../../models/store-customer/index.js";
+import { BuyerReferralModel } from "../../models/buyer-referral/index.js";
 import { UserModel } from "../../../user/models/user/index.js";
 import { evaluateUserBadges } from "../../../badges/service/badge.service.js";
 import { awardGamificationProgress } from "../../../gamification/service/gamification.service.js";
 import { sendEmail } from "../../../../core/email.service.js";
+import { wrapEmail, brandedButton } from "../../../../core/brand-email.js";
 import {
   buildSignedQuote,
   convertAmount,
@@ -51,6 +53,7 @@ export const createStorefrontOrder = async (req, res) => {
       paymentMethod = PAYMENT_METHOD.PAYSTACK,
       checkoutCurrency,
       checkoutQuote,
+      referralCode,
     } = req.body;
     const authenticatedCustomerId = req.userId || null;
     const effectiveCustomerId = customerId || authenticatedCustomerId;
@@ -213,9 +216,35 @@ export const createStorefrontOrder = async (req, res) => {
       });
     }
 
-    const shippingFee = roundMoney(req.body.shippingFee || 0);
-    const tax = roundMoney(req.body.tax || 0);
-    const discount = roundMoney(req.body.discount || 0);
+    let referralInfo = null;
+    let referralDiscountAmount = 0;
+
+    if (referralCode) {
+      const referral = await BuyerReferralModel.findOne({
+        code: String(referralCode).trim().toLowerCase(),
+        status: "active",
+        expiresAt: { $gt: new Date() },
+      });
+
+      if (!referral) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired referral code",
+        });
+      }
+
+      referralDiscountAmount = roundMoney(subtotal * (referral.discountPercent / 100));
+      referralInfo = {
+        code: referral.code,
+        referralId: referral._id,
+        discountPercent: referral.discountPercent,
+        discountAmount: referralDiscountAmount,
+      };
+    }
+
+    const existingDiscount = roundMoney(req.body.discount || 0);
+    const discount = roundMoney(existingDiscount + referralDiscountAmount);
     const totalAmount = roundMoney(Math.max(0, subtotal + shippingFee + tax - discount));
     const marketerReservedAmount = roundMoney(totalAmount - totalPromoterCommission);
     const orderNumber = await OrderModel.generateOrderNumber();
@@ -267,6 +296,7 @@ export const createStorefrontOrder = async (req, res) => {
       promoterReservedAmount: totalPromoterCommission,
       escrowStatus: "pending",
       customerNote,
+      referral: referralInfo || undefined,
     });
 
     await order.save({ session });
@@ -400,6 +430,8 @@ export const confirmStorefrontPayment = async (req, res) => {
 
     await decrementInventory(order, session);
     await holdOrderEscrow(order, payment, verification.data || paystackResult || {}, session);
+
+    await fulfillReferral(order, payment, session);
 
     await session.commitTransaction();
     transactionCommitted = true;
@@ -547,14 +579,14 @@ export const confirmStorefrontDelivery = async (req, res) => {
       });
     }
 
-    const confirmationRole = resolveDeliveryConfirmationRole(order, userId, role);
-    if (!confirmationRole || confirmationRole === "admin" || confirmationRole === "customer") {
-      await session.abortTransaction();
-      return res.status(403).json({
-        success: false,
-        message: "Only the marketer or attributed promoter can request delivery release review",
-      });
-    }
+  const confirmationRole = resolveDeliveryConfirmationRole(order, userId, role);
+  if (!confirmationRole) {
+    await session.abortTransaction();
+    return res.status(403).json({
+      success: false,
+      message: "Unauthorized to confirm delivery",
+    });
+  }
 
     order.releaseRequest = {
       status: "requested",
@@ -574,6 +606,19 @@ export const confirmStorefrontDelivery = async (req, res) => {
     await session.commitTransaction();
 
     const populatedOrder = await fetchPopulatedOrder(order._id);
+
+    // Auto-approve when buyer confirms delivery — no admin review needed
+    if (confirmationRole === 'customer' && populatedOrder) {
+      await releaseOrderEscrow(populatedOrder, userId, 'customer', session).catch(err => {
+        console.error('Auto-release escrow failed for buyer confirmation:', err);
+      });
+      return res.status(200).json({
+        success: true,
+        message: "Delivery confirmed! Funds have been released to the seller.",
+        data: { order: populatedOrder, autoApproved: true },
+      });
+    }
+
     notifyAdminsOfReleaseRequest(populatedOrder || order).catch((emailError) => {
       console.error("Release request admin notification error:", emailError);
     });
@@ -1151,72 +1196,65 @@ function buildStorefrontOrderEmail(order, payment, buyer) {
   const storeName = order.store?.name || "MarketSpase Store";
   const rows = buildOrderRows(order);
 
-  return `
-    <div style="font-family:Arial,sans-serif;background:#f9fafb;padding:24px;color:#111827;">
-      <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
-        <div style="background:#667eea;color:#ffffff;padding:24px;">
-          <h1 style="margin:0;font-size:24px;">Order confirmed</h1>
-          <p style="margin:8px 0 0;">Thanks ${escapeHtml(buyer.fullName || "there")}. Your payment has been received for ${escapeHtml(storeName)}.</p>
-        </div>
-        <div style="padding:24px;">
-          <p style="margin:0 0 16px;">Order <strong>${escapeHtml(order.orderNumber || "")}</strong> is paid and held safely until delivery is reviewed and approved by MarketSpase admin.</p>
-          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-            <thead>
-              <tr>
-                <th style="padding:12px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
-                <th style="padding:12px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
-                <th style="padding:12px;text-align:right;border-bottom:1px solid #e5e7eb;">Amount</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-          <div style="background:#f3f4f6;border-radius:8px;padding:16px;margin:16px 0;">
-            <p style="margin:0 0 8px;"><strong>Total:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
-            <p style="margin:0 0 8px;"><strong>Payment reference:</strong> ${escapeHtml(payment?.transactionReference || order.paymentReference || "")}</p>
-            <p style="margin:0;"><strong>Delivery phone:</strong> ${escapeHtml(buyer.phone || order.shippingAddress?.phone || "")}</p>
-          </div>
-          <p style="color:#4b5563;margin:0 0 8px;">The store will use your checkout details for delivery follow-up and order updates.</p>
-          <p style="color:#4b5563;margin:0;">When delivery is completed, MarketSpase will review the delivery release request before reserved funds are moved to the seller and promoter balances.</p>
-        </div>
-      </div>
+  const content = `
+    <p style="font-size:15px;line-height:1.6">Thanks ${escapeHtml(buyer.fullName || "there")}, your payment for <strong>${escapeHtml(storeName)}</strong> has been received.</p>
+    <p>Order <strong>${escapeHtml(order.orderNumber || "")}</strong> is paid and held safely until delivery is reviewed by MarketSpase admin.</p>
+
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+      <thead>
+        <tr>
+          <th style="padding:10px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
+          <th style="padding:10px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
+          <th style="padding:10px;text-align:right;border-bottom:1px solid #e5e7eb;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <div style="background:#f7f5fa;border-radius:8px;padding:16px;margin:16px 0">
+      <p style="margin:4px 0"><strong>Total:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
+      <p style="margin:4px 0"><strong>Reference:</strong> ${escapeHtml(payment?.transactionReference || order.paymentReference || "")}</p>
+      <p style="margin:4px 0"><strong>Delivery phone:</strong> ${escapeHtml(buyer.phone || order.shippingAddress?.phone || "")}</p>
     </div>
+
+    <p style="font-size:13px;color:#888">When delivery is completed, MarketSpase reviews the release before funds are moved to the seller and promoter balances.</p>
   `;
+
+  return wrapEmail({ title: 'Order Confirmed', content, withFooter: true });
 }
 
 function buildMarketerSaleEmail(order, payment, buyer, marketer) {
   const rows = buildOrderRows(order);
   const address = order.shippingAddress || {};
-  return `
-    <div style="font-family:Arial,sans-serif;background:#f9fafb;padding:24px;color:#111827;">
-      <div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
-        <div style="background:#111827;color:#ffffff;padding:24px;">
-          <h1 style="margin:0;font-size:24px;">New storefront sale</h1>
-          <p style="margin:8px 0 0;">Hello ${escapeHtml(marketer.displayName || marketer.username || "there")}, order ${escapeHtml(order.orderNumber || "")} is paid and ready for processing.</p>
-        </div>
-        <div style="padding:24px;">
-          <p style="margin:0 0 16px;">Funds are now held in your reserved balance until delivery is vetted by MarketSpase admin.</p>
-          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-            <thead>
-              <tr>
-                <th style="padding:12px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
-                <th style="padding:12px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
-                <th style="padding:12px;text-align:right;border-bottom:1px solid #e5e7eb;">Amount</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-          <div style="background:#f3f4f6;border-radius:8px;padding:16px;margin:16px 0;">
-            <p style="margin:0 0 8px;"><strong>Buyer:</strong> ${escapeHtml(buyer.fullName || "Customer")} (${escapeHtml(buyer.email || "")})</p>
-            <p style="margin:0 0 8px;"><strong>Phone:</strong> ${escapeHtml(buyer.phone || "")}</p>
-            <p style="margin:0 0 8px;"><strong>Delivery address:</strong> ${escapeHtml([address.street, address.city, address.state, address.country].filter(Boolean).join(", "))}</p>
-            <p style="margin:0 0 8px;"><strong>Total paid:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
-            <p style="margin:0;"><strong>Your reserved amount:</strong> ${formatMoney(order.marketerReservedAmount, order.currency)}</p>
-          </div>
-          <p style="color:#4b5563;margin:0;">Begin fulfilment and submit a delivery release request from your MarketSpase orders page after delivery is completed.</p>
-        </div>
-      </div>
+  const frontendUrl = process.env.FRONTEND_URL || 'https://marketspase.com';
+
+  const content = `
+    <p style="font-size:15px;line-height:1.6">Hello ${escapeHtml(marketer.displayName || marketer.username || "there")},</p>
+    <p>Order <strong>${escapeHtml(order.orderNumber || "")}</strong> is paid and ready for processing. Funds are held in your reserved balance until delivery is vetted by admin.</p>
+
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+      <thead>
+        <tr>
+          <th style="padding:10px;text-align:left;border-bottom:1px solid #e5e7eb;">Product</th>
+          <th style="padding:10px;text-align:center;border-bottom:1px solid #e5e7eb;">Qty</th>
+          <th style="padding:10px;text-align:right;border-bottom:1px solid #e5e7eb;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+
+    <div style="background:#f7f5fa;border-radius:8px;padding:16px;margin:16px 0">
+      <p style="margin:4px 0"><strong>Buyer:</strong> ${escapeHtml(buyer.fullName || "Customer")} (${escapeHtml(buyer.email || "")})</p>
+      <p style="margin:4px 0"><strong>Phone:</strong> ${escapeHtml(buyer.phone || "")}</p>
+      <p style="margin:4px 0"><strong>Delivery:</strong> ${escapeHtml([address.street, address.city, address.state, address.country].filter(Boolean).join(", "))}</p>
+      <p style="margin:4px 0"><strong>Total paid:</strong> ${formatMoney(order.totalAmount, order.currency)}</p>
     </div>
+
+    <p style="color:#4b5563;font-size:14px;">Begin fulfilment and submit a delivery release request from your orders page after delivery is completed.</p>
+    ${brandedButton('View Order', `${frontendUrl}/dashboard/stores/orders`)}
   `;
+
+  return wrapEmail({ title: `New Sale: ${order.orderNumber || 'Order'}`, content, withFooter: true });
 }
 
 function buildPromoterSaleEmail(order, payment, promoter) {
@@ -1769,6 +1807,72 @@ async function updateStoreSalesCounters(order, session) {
     },
     { session }
   );
+}
+
+async function fulfillReferral(order, payment, session) {
+  if (!order.referral || !order.referral.code || !order.referral.referralId) return;
+
+  const referral = await BuyerReferralModel.findById(order.referral.referralId).session(session);
+  if (!referral || referral.status !== "active") return;
+
+  referral.status = "used";
+  referral.usedAt = new Date();
+  referral.orderId = order._id;
+  if (order.customer) {
+    referral.referredUserId = toObjectId(order.customer);
+  }
+  await referral.save({ session });
+
+  const referrerId = toObjectId(referral.referrerUserId);
+  if (!referrerId || !referral.rewardAmount || referral.rewardAmount <= 0) return;
+
+  const referrer = await UserModel.findById(referrerId).session(session);
+  if (!referrer) return;
+
+  const wallet = referrer.wallets?.marketer;
+  if (!wallet) return;
+
+  ensureWalletCurrencyState(wallet, wallet.baseCurrency || wallet.currency || "NGN");
+  const config = await getPaymentCurrencyConfig();
+  const nativeCurrency = normalizeCurrencyCode(order.currency || "NGN");
+  const baseCurrency = normalizeCurrencyCode(wallet.baseCurrency || wallet.currency || "NGN");
+  const rewardAmount = roundMoney(referral.rewardAmount);
+  const baseAmount = roundMoney(convertAmount(rewardAmount, nativeCurrency, baseCurrency, config).amount);
+
+  applyWalletCredit(wallet, {
+    bucket: "balance",
+    amount: rewardAmount,
+    currency: nativeCurrency,
+    baseAmount,
+    baseCurrency,
+  });
+
+  wallet.transactions.unshift({
+    amount: rewardAmount,
+    baseAmount,
+    currency: nativeCurrency,
+    baseCurrency,
+    settlementCurrency: nativeCurrency,
+    settlementAmount: rewardAmount,
+    exchangeRate: rewardAmount ? roundMoney(baseAmount / rewardAmount) : 1,
+    type: "credit",
+    category: "referral_reward",
+    description: `Referral reward for order ${order.orderNumber}`,
+    reference: `${payment.transactionReference}-REF-REWARD`,
+    gateway: "system",
+    status: "completed",
+    meta: {
+      orderId: order._id,
+      referralCode: referral.code,
+      referralId: referral._id,
+      referredUserId: referral.referredUserId || null,
+    },
+    processedAt: new Date(),
+    createdAt: new Date(),
+  });
+  wallet.transactions = wallet.transactions.slice(0, WALLET_TRANSACTION_LIMIT);
+
+  await referrer.save({ session });
 }
 
 function resolveDeliveryConfirmationRole(order, userId, requestedRole) {

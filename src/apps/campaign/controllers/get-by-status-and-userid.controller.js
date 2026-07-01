@@ -520,7 +520,7 @@ function buildOwnerAddressScoreExpr(userAddress) {
           userAddress.street,
         ],
       },
-      then: 5,
+      then: 3,
     });
   }
 
@@ -532,7 +532,7 @@ function buildOwnerAddressScoreExpr(userAddress) {
           userAddress.city,
         ],
       },
-      then: 4,
+      then: 2,
     });
   }
 
@@ -544,7 +544,7 @@ function buildOwnerAddressScoreExpr(userAddress) {
           userAddress.state,
         ],
       },
-      then: 3,
+      then: 1,
     });
   }
 
@@ -556,7 +556,7 @@ function buildOwnerAddressScoreExpr(userAddress) {
           userAddress.country,
         ],
       },
-      then: 2,
+      then: 0.5,
     });
   }
 
@@ -678,9 +678,9 @@ function buildOwnerLocationSummary(ownerAddress) {
 }
 
 function getOwnerAddressMatchLevel(score) {
-  if (score >= 5) return "street";
-  if (score >= 4) return "city";
-  if (score >= 3) return "state";
-  if (score >= 2) return "country";
+  if (score >= 3) return "street";
+  if (score >= 2) return "city";
+  if (score >= 1) return "state";
+  if (score >= 0.5) return "country";
   return "none";
 }

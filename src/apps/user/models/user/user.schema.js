@@ -98,6 +98,9 @@ const userSchema = new mongoose.Schema(
     // Engagement & trust
     rating: { type: Number, default: DEFAULTS.RATING },
     promoterTier: { type: String, enum: ['unranked', 'bronze', 'silver', 'gold'], default: 'unranked' },
+    preferredCurrency: { type: String, enum: ['NGN', 'USD', 'GHS', 'KES', 'ZAR', 'XOF'], default: 'NGN' },
+    regionalCountry: { type: String, default: 'NG' },
+    preferredLocale: { type: String, default: 'en' },
     ratingCount: { type: Number, default: DEFAULTS.RATING_COUNT },
     ratingUpdatedAt: { type: Date, default: null },
     collaborationRating: { type: Number, default: 0 },
@@ -121,6 +124,7 @@ const userSchema = new mongoose.Schema(
     },
     deviceTokens: [deviceTokenSchema],
     sseConnections: [sseConnectionSchema],
+    fcmTokens: [String],
 
     // Targeting info
     personalInfo: { type: personalInfoSchema, default: () => ({}) },

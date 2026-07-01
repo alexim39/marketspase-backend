@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { ProductModel, PromotionTrackingModel } from '../../models/promotion/index.js';
 import {
   buildAffiliateUrl,
+  buildStorePublicUrl,
   calculateCommissionForAmount,
   getProductAffiliateSettings,
   roundMoney
@@ -144,6 +145,33 @@ export const getPromoterStoreProducts = async (req, res) => {
     const statsByProduct = new Map(promotionStats.map(stat => [stat._id.toString(), stat]));
     const promotionByProduct = new Map(userPromotions.map(promotion => [promotion.product.toString(), promotion]));
 
+    // Backfill: generate UPI for existing promotions that don't have one
+    for (const [productId, promo] of promotionByProduct) {
+      if (!promo.upi) {
+        promo.upi = generatePromotionUpi();
+        promo.publicUrl = buildStorePublicUrl(req, promo.upi);
+        PromotionTrackingModel.updateOne(
+          { _id: promo._id },
+          { $set: { upi: promo.upi, publicUrl: promo.publicUrl } }
+        ).catch(() => {});
+      } else if (!promo.publicUrl) {
+        promo.publicUrl = buildStorePublicUrl(req, promo.upi);
+        PromotionTrackingModel.updateOne(
+          { _id: promo._id },
+          { $set: { publicUrl: promo.publicUrl } }
+        ).catch(() => {});
+      }
+    }
+
+    function generatePromotionUpi() {
+      const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      let result = '';
+      for (let i = 0; i < 10; i++) {
+        result += chars[Math.floor(Math.random() * chars.length)];
+      }
+      return result;
+    }
+
     // Transform products to match UI expectations
     const transformedProducts = await Promise.all(products.map(async (product) => {
       // Get store details
@@ -163,6 +191,7 @@ export const getPromoterStoreProducts = async (req, res) => {
         uniqueId: userPromotion?.uniqueId || '',
         affiliateUrl: userPromotion?.uniqueCode ? buildAffiliateUrl(req, userPromotion.uniqueCode) : '',
         promotionUrl: userPromotion?.uniqueCode ? buildAffiliateUrl(req, userPromotion.uniqueCode) : '',
+        publicUrl: userPromotion?.upi ? buildStorePublicUrl(req, userPromotion.upi) : (userPromotion?.uniqueCode ? buildAffiliateUrl(req, userPromotion.uniqueCode) : ''),
         commissionPerSale,
         amountReceivable: roundMoney((product.price || 0) - commissionPerSale),
         viewCount: stats.viewCount || 0,
@@ -170,7 +199,9 @@ export const getPromoterStoreProducts = async (req, res) => {
         clickCount: stats.clickCount || 0,
         conversionCount: stats.conversionCount || 0,
         conversions: stats.conversionCount || 0,
-        earnings: stats.earnings || 0
+        earnings: stats.earnings || 0,
+        averageConversionRate: stats.clickCount > 0 ? Math.round((stats.conversionCount / stats.clickCount) * 100 * 10) / 10 : 0,
+        estimatedEarningsPerPromo: stats.clickCount > 0 ? Math.round(stats.earnings / stats.clickCount) : 0,
       };
 
       return {
@@ -197,9 +228,131 @@ export const getPromoterStoreProducts = async (req, res) => {
           verificationTier: store.verificationTier || 'basic',
           storeLink: store.storeLink || ''
         },
-        promotion: defaultPromotion
+        promotion: defaultPromotion,
+        averageConversionRate: defaultPromotion.averageConversionRate,
+        estimatedEarningsPerPromo: defaultPromotion.estimatedEarningsPerPromo,
       };
     }));
+
+    // Also fetch services for a unified offerings page
+    let servicesTotal = 0;
+    try {
+      const ServiceModel = (await import('../../models/service/service.model.js')).ServiceModel;
+      const serviceFilter = {
+        isActive: true, isDeleted: false, isPublished: true,
+        'affiliate.enabled': { $ne: false },
+      };
+      if (categories) serviceFilter.category = { $in: categories.split(',').map(c => c.trim()) };
+      if (search) {
+        const sRegex = new RegExp(search, 'i');
+        serviceFilter.$or = [{ name: sRegex }, { description: sRegex }, { category: sRegex }];
+      }
+      if (minPrice || maxPrice) { serviceFilter.price = {}; if (minPrice) serviceFilter.price.$gte = parseFloat(minPrice); if (maxPrice) serviceFilter.price.$lte = parseFloat(maxPrice); }
+
+      const serviceSortMap = {
+        commission: { 'affiliate.leadCommission': sortDirection === 'desc' ? -1 : 1 },
+        popularity: { inquiryCount: -1 },
+        price: { price: sortDirection === 'desc' ? -1 : 1 },
+        newest: { createdAt: -1 },
+      };
+      const svcSort = serviceSortMap[sortBy] || { createdAt: -1 };
+
+      servicesTotal = await ServiceModel.countDocuments(serviceFilter);
+      const serviceDocs = await ServiceModel.find(serviceFilter)
+        .populate('store', 'name logo description isVerified verificationTier')
+        .sort(svcSort)
+        .skip(skip)
+        .limit(limitNum)
+        .lean();
+
+      // Backfill UPI for existing services that don't have one
+      for (const svc of serviceDocs) {
+        if (!svc.upi) {
+          svc.upi = generatePromotionUpi();
+          ServiceModel.updateOne({ _id: svc._id }, { $set: { upi: svc.upi } }).catch(() => {});
+        }
+      }
+
+      const normalizedServices = serviceDocs.map(service => {
+        const svcPublicUrl = service.upi ? buildStorePublicUrl(req, service.upi) : '';
+        return ({
+        _id: service._id.toString(),
+        type: 'service',
+        name: service.name,
+        description: service.description?.substring(0, 200) || '',
+        price: service.price || 0,
+        originalPrice: null,
+        images: (service.media?.length ? service.media : service.portfolio || []).slice(0, 1),
+        category: service.category,
+        tags: [],
+        sku: '',
+        averageRating: service.averageRating || 0,
+        ratingCount: service.ratingCount || 0,
+        purchaseCount: service.inquiryCount || 0,
+        viewCount: service.viewCount || 0,
+        createdAt: service.createdAt,
+        store: {
+          _id: service.store?._id?.toString() || '',
+          name: service.store?.name || 'Unknown Store',
+          logo: service.store?.logo || '',
+          description: service.store?.description || '',
+          isVerified: service.store?.isVerified || false,
+          verificationTier: service.store?.verificationTier || 'basic',
+          storeLink: '',
+        },
+        service: {
+          pricingType: service.pricingType,
+          packages: service.packages?.map(p => ({ name: p.name, price: p.price })),
+          hourlyRate: service.hourlyRate,
+          deliveryTime: service.deliveryTime,
+          availability: service.availability,
+          commissionType: service.affiliate?.commissionType || 'per_lead',
+          leadCommission: service.affiliate?.leadCommission || 200,
+          bookingCommission: service.affiliate?.bookingCommissionRate || 200,
+          inquiries: service.inquiryCount || 0,
+          bookings: service.bookingCount || 0,
+        },
+        promotion: {
+          commissionRate: service.affiliate?.commissionType === 'per_lead'
+            ? Math.round((service.affiliate?.leadCommission || 200) / Math.max(service.price || 1, 1) * 100)
+            : Math.round((service.affiliate?.bookingCommissionRate || 200) / Math.max(service.price || 1, 1) * 100),
+          commissionType: 'percentage',
+          fixedCommission: 0,
+          isActive: true,
+          isApproved: true,
+          trackingCode: '',
+          uniqueId: '',
+          affiliateUrl: svcPublicUrl,
+          promotionUrl: svcPublicUrl,
+          publicUrl: svcPublicUrl,
+          commissionPerSale: service.affiliate?.commissionType === 'per_lead'
+            ? (service.affiliate?.leadCommission || 200)
+            : (service.affiliate?.bookingCommissionRate || 200),
+          amountReceivable: 0,
+          viewCount: service.viewCount || 0,
+          views: service.viewCount || 0,
+          clickCount: service.inquiryCount || 0,
+          conversionCount: service.bookingCount || 0,
+          conversions: service.bookingCount || 0,
+          earnings: 0,
+          averageConversionRate: 0,
+          estimatedEarningsPerPromo: service.affiliate?.commissionType === 'per_lead'
+            ? (service.affiliate?.leadCommission || 200)
+            : (service.affiliate?.bookingCommissionRate || 200),
+        },
+        averageConversionRate: 0,
+        estimatedEarningsPerPromo: service.affiliate?.commissionType === 'per_lead'
+          ? (service.affiliate?.leadCommission || 200)
+          : (service.affiliate?.bookingCommissionRate || 200),
+      });
+    });
+
+    transformedProducts.push(...normalizedServices);
+    } catch (svcErr) {
+      console.error('Error fetching services for unified listing:', svcErr.message);
+    }
+
+    const totalAll = total + servicesTotal;
 
     // Get categories for filters
     const categoriesAgg = await ProductModel.aggregate([
@@ -278,8 +431,8 @@ export const getPromoterStoreProducts = async (req, res) => {
     res.status(200).json({
       success: true,
       count: transformedProducts.length,
-      total,
-      totalPages: Math.ceil(total / limitNum),
+      total: totalAll,
+      totalPages: Math.ceil(totalAll / limitNum),
       currentPage: pageNum,
       data: transformedProducts,
       filters: {

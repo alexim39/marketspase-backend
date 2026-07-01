@@ -28,6 +28,7 @@ import ProfileIndexRouter from './src/apps/profile/routes/index.js';
 import TutorialIndexRouter from './src/apps/tutorial/routes/index.js';
 import { LoginStreakRouter } from './src/apps/streaks/index.js';
 import { BadgeRouter } from './src/apps/badges/index.js';
+import { currencyMiddleware } from './src/shared/middleware/currency.middleware.js';
 import { GamificationRouter } from './src/apps/gamification/index.js';
 
 import { metricsRoutes } from './src/apps/metrics/index.js';
@@ -35,9 +36,12 @@ import { aiAssistantRoutes } from './src/apps/ai-assistant/index.js';
 import CollaborationRouter from './src/apps/collaboration/index.js';
 import SearchRouter from './src/apps/search/index.js';
 import CrmRouter from './src/apps/customer-crm/routes/index.js';
+import AnalyticsRouter from './src/apps/analytics/routes/analytics.routes.js';
+import MarketAiRouter from './src/apps/copilot/routes/marketai.routes.js';
 import { ensureGlobalSearchBootstrap } from './src/apps/search/services/search-index.service.js';
 import { trackClick as trackStoreAffiliateClick } from './src/apps/store/controllers/promotion/product-tracking.controller.js';
 import { serveCampaignLandingPage as campaignLandingPage, createCampaignLead, getCampaignLandingData } from './src/apps/campaign/controllers/campaign-landing.controller.js';
+import { serveStoreLandingPage } from './src/apps/store/controllers/promotion/store-landing.controller.js';
 import { publicLeadLimiter } from './src/shared/middleware/rate-limit.middleware.js';
 
 // paystack transaction webhook imports
@@ -49,6 +53,11 @@ import { initWithdrawalSyncCron } from './src/apps/wallet/jobs/withdrawal-sync.c
 import { CampaignSchedulerService } from './src/apps/campaign/services/jobs/campaign-scheduler.job.js';
 import { initFileUploadCleanupTask } from './src/utils/cleanup.js';
 import { updateVideoViewsJob } from './src/apps/tutorial/jobs/update-video-views.job.js';
+import { initServiceEscrowReleaseCron } from './src/apps/store/services/jobs/service-escrow-release.job.js';
+import { startExchangeRateCron } from './src/core/exchange-rate.service.js';
+import { initCampaignPerformanceCoach } from './src/apps/campaign/services/jobs/campaign-performance-coach.job.js';
+import { initPayoutReconciliationCron } from './src/apps/campaign/services/jobs/payout-reconciliation.job.js';
+import { initCampaignDigestCron } from './src/apps/campaign/services/jobs/campaign-digest.job.js';
 
 // FIXED: Import and setup socket handlers
 import { setupSocketHandlers } from './src/apps/ai-assistant/socket.handler.js';
@@ -180,6 +189,11 @@ app.get('/c/:upi', campaignLandingPage);
 app.get('/api/v1/campaign/landing/:upi', getCampaignLandingData);
 app.post('/api/v1/campaign/lead/:upi', publicLeadLimiter, createCampaignLead);
 
+// Public store promotion landing page — friendly /s/:upi URLs for product/service affiliate links
+app.get('/s/:upi', serveStoreLandingPage);
+
+app.use(currencyMiddleware);
+
 app.use('/api/v1/auth', AuthRouter);
 app.use('/api/v1/user', UserRouter);
 app.use('/api/v1/wallet', WalletRouter);
@@ -204,6 +218,8 @@ app.use('/api/v1/ai-assistant', aiAssistantRoutes);
 app.use('/api/v1/collaboration', CollaborationRouter);
 app.use('/api/v1/search', SearchRouter);
 app.use('/api/v1', CrmRouter);
+app.use('/api/v1/analytics', AnalyticsRouter);
+app.use('/api/v1/marketai', MarketAiRouter);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(process.cwd(), 'src', 'uploads')));
@@ -220,6 +236,11 @@ mongoose.connect(MONGODB_URI, MONGODB_OPTIONS)
     initFileUploadCleanupTask();
     updateVideoViewsJob.start();
     initWithdrawalSyncCron();
+    initServiceEscrowReleaseCron();
+    startExchangeRateCron();
+    initCampaignPerformanceCoach();
+    initPayoutReconciliationCron();
+    initCampaignDigestCron();
     setImmediate(() => {
         ensureGlobalSearchBootstrap().catch((error) => {
             console.error('[global-search] bootstrap error', error);

@@ -1,3 +1,16 @@
+/**
+ * PPC (Pay-Per-Click) Promotion Status Documentation
+ * ──────────────────────────────────────────────────
+ * For PPC promotions, the effective statuses are:
+ *   active   — promotion link is live and tracking clicks
+ *   inactive — promotion link is paused/disabled
+ *
+ * The legacy statuses (`downloaded`, `submitted`, `validated`) are retained
+ * for backward compatibility with the proof-submission model but are
+ * **deprecated for PPC**. The status `accepted` is the canonical active
+ * state for PPC.
+ */
+
 // Promotion Statuses
 export const PROMOTION_STATUS = {
   ACCEPTED: 'accepted',
@@ -71,3 +84,6 @@ export const DEFAULTS = {
   HAS_BEEN_REFUNDED: false,
   REMINDER_SENT_COUNT: 0
 };
+
+export const PPC_ACTIVE_STATUSES = ['accepted', 'downloaded', 'submitted'];
+export const PPC_INACTIVE_STATUSES = ['rejected', 'paid'];

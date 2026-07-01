@@ -3,6 +3,25 @@ import mongoose from "mongoose";
 import geoip from "geoip-lite";
 import { CampaignClickModel, CampaignModel } from "../models/index.js";
 import { PromotionModel } from "../../promotion/models/index.js";
+
+export const PPC_VALID_TRANSITIONS = {
+  pending: ['billable', 'duplicate', 'invalid', 'fraud_flagged'],
+  billable: ['charged'],
+  charged: ['clawed_back', 'refunded'],
+  clawed_back: [],
+  refunded: [],
+  duplicate: [],
+  invalid: [],
+  fraud_flagged: [],
+};
+
+export const PPC_ACTIVE_STATUSES = ['pending', 'billable', 'charged'];
+export const PPC_INACTIVE_STATUSES = ['clawed_back', 'refunded', 'duplicate', 'invalid', 'fraud_flagged'];
+
+export function isValidTransition(from, to) {
+  const allowed = PPC_VALID_TRANSITIONS[from];
+  return allowed ? allowed.includes(to) : false;
+}
 import { UserModel } from "../../user/models/user/index.js";
 import {
   enforcePromotionFraudSignal,
@@ -19,6 +38,7 @@ import {
   deactivateCampaignPromotions,
 } from "../services/campaign-runtime.service.js";
 import { resolvePromoterPpcPayout } from "../services/promoter-ppc-payout-policy.service.js";
+import { sendCampaignHealthAlert } from "../services/campaign-health-alert.service.js";
 
 const MAX_TX_RETRIES = 5;
 const DEDUPE_WINDOW_MINUTES = Number(process.env.PPC_CLICK_DEDUPE_WINDOW_MINUTES ?? 30);
@@ -26,6 +46,7 @@ const CHARGE_LOCK_WINDOW_SECONDS = Number(process.env.PPC_CLICK_CHARGE_LOCK_SECO
 const HASH_SALT = process.env.CLICK_TRACKING_HASH_SALT || process.env.JWTTOKENSECRET || "marketspase-click";
 const KNOWN_NON_BILLABLE_UA_PATTERN =
   /facebookexternalhit|facebot|meta-externalagent|meta-externalfetcher|twitterbot|slackbot|telegrambot|discordbot|linkedinbot|skypeuripreview|googlebot|google-inspectiontool|googleother|bingbot|duckduckbot|applebot|crawler|spider|headlesschrome/i;
+const DAILY_CLICK_CAP = parseInt(process.env.PROMOTER_DAILY_CLICK_CAP || '200', 10);
 
 const isRetryableTxnError = (err) =>
   err?.errorLabels?.includes("TransientTransactionError") ||
@@ -857,6 +878,44 @@ export const trackCampaignClick = async (req, res) => {
           dedupeKey,
         };
 
+        const recentBillableCount = await CampaignClickModel.countDocuments({
+          promotion: promotion._id,
+          clickedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          status: "billable",
+        }).session(session);
+
+        if (recentBillableCount >= DAILY_CLICK_CAP) {
+          console.log(`[CAP] Daily click cap reached for promotion ${promotion._id}`);
+
+          const click = await createClickAudit({
+            session,
+            click: {
+              ...baseClick,
+              cost: 0,
+              status: "capped",
+              chargeStatus: "not_charged",
+              metadata: { reason: "daily_click_cap_reached" },
+            },
+          });
+
+          await incrementNonBillableCounters({
+            session,
+            campaignId: campaign._id,
+            promotionId: promotion._id,
+            status: "capped",
+            now,
+          });
+
+          txResult = {
+            success: false,
+            httpStatus: 429,
+            message: "Daily click cap reached for this promotion",
+            redirectUrl: destinationUrl,
+            data: { clickId: click._id, status: "capped", charged: false },
+          };
+          return;
+        }
+
         const nonBillableReason = getNonBillableRequestReason(req);
         if (nonBillableReason) {
           const click = await createClickAudit({
@@ -1026,6 +1085,11 @@ export const trackCampaignClick = async (req, res) => {
               riskLevel: fraudSignal.riskLevel,
             },
           };
+
+          setImmediate(() => {
+            sendCampaignHealthAlert(campaign.owner, campaign._id, 'fraud_flagged', { title: campaign.title }).catch(() => {});
+          });
+
           return;
         }
 
@@ -1057,6 +1121,48 @@ export const trackCampaignClick = async (req, res) => {
             message: "Duplicate click recorded without charge",
             redirectUrl: destinationUrl,
             data: { clickId: click._id, status: "duplicate", charged: false },
+          };
+          return;
+        }
+
+        if (campaign.payoutModel === 'cost_per_lead') {
+          const click = await createClickAudit({
+            session,
+            click: {
+              ...baseClick,
+              cost: 0,
+              status: "pending",
+              chargeStatus: "not_charged",
+              chargeOnLead: true,
+              billableKey,
+              chargeLockKey,
+            },
+          });
+
+          await Promise.all([
+            CampaignModel.updateOne(
+              { _id: campaign._id },
+              {
+                $inc: { totalClicks: 1 },
+                $set: { lastClickAt: now },
+              },
+              { session }
+            ),
+            PromotionModel.updateOne(
+              { _id: promotion._id },
+              {
+                $inc: { "clickStats.totalClicks": 1 },
+                $set: { "clickStats.lastClickAt": now },
+              },
+              { session }
+            ),
+          ]);
+
+          txResult = {
+            success: true,
+            message: "CPL click recorded — pending lead conversion",
+            redirectUrl: destinationUrl,
+            data: { clickId: click._id, status: "pending", charged: false, chargeOnLead: true },
           };
           return;
         }
@@ -1136,6 +1242,10 @@ export const trackCampaignClick = async (req, res) => {
 
           await deactivateCampaignPromotions({ campaignId: campaign._id, session });
 
+          setImmediate(() => {
+            sendCampaignHealthAlert(campaign.owner, campaign._id, 'auto_paused', { title: campaign.title }).catch(() => {});
+          });
+
           txResult = {
             success: false,
             httpStatus: 402,
@@ -1192,6 +1302,10 @@ export const trackCampaignClick = async (req, res) => {
 
           await deactivateCampaignPromotions({ campaignId: campaign._id, session });
 
+          setImmediate(() => {
+            sendCampaignHealthAlert(campaign.owner, campaign._id, 'auto_exhausted', { title: campaign.title }).catch(() => {});
+          });
+
           txResult = {
             success: false,
             httpStatus: 410,
@@ -1204,6 +1318,31 @@ export const trackCampaignClick = async (req, res) => {
             data: { status: "exhausted", charged: false },
           };
           return;
+        }
+
+        const newSpentBudget = (campaign.spentBudget || 0) + costPerClick;
+        const budgetRatio = campaign.budget > 0 ? newSpentBudget / campaign.budget : 0;
+        if (budgetRatio > 0.80) {
+          const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          const lastAlert = campaign.budgetAlerts?.lastLowBudgetAlert;
+          if (!lastAlert || new Date(lastAlert).getTime() < twentyFourHoursAgo.getTime()) {
+            await CampaignModel.updateOne(
+              { _id: campaign._id },
+              { $set: { 'budgetAlerts.lastLowBudgetAlert': now } },
+              { session }
+            );
+
+            const remainingBudget = (campaign.budget || 0) - newSpentBudget;
+            const percentRemaining = Math.round((1 - budgetRatio) * 100);
+
+            setImmediate(() => {
+              sendCampaignHealthAlert(campaign.owner, campaign._id, 'low_budget', {
+                title: campaign.title,
+                percent: percentRemaining,
+                remaining: remainingBudget,
+              }).catch(() => {});
+            });
+          }
         }
 
         const click = await createClickAudit({
@@ -1238,20 +1377,22 @@ export const trackCampaignClick = async (req, res) => {
           UserModel.updateOne(
             { _id: promotion.promoter },
             {
-              $inc: { "wallets.promoter.balance": promoterPayoutAmount },
+              $inc: { "wallets.promoter.reserved": promoterPayoutAmount },
               $push: {
                 "wallets.promoter.transactions": {
                   $each: [{
                     amount: promoterPayoutAmount,
                     type: "credit",
                     category: "promotion",
+                    bucket: "reserved",
                     description: payoutPolicy
-                      ? `Reduced PPC earning from campaign "${campaign.title}" (policy adjustment)`
-                      : `PPC earning from campaign "${campaign.title}"`,
+                      ? `Reduced PPC earning from campaign "${campaign.title}" (policy adjustment) — held for 10hr review`
+                      : `PPC earning from campaign "${campaign.title}" — held for 10hr review`,
                     relatedCampaign: campaign._id,
                     relatedPromotion: promotion._id,
-                    status: "completed",
+                    status: "reserved",
                     createdAt: now,
+                    reservedUntil: new Date(Date.now() + 10 * 60 * 60 * 1000),
                     meta: payoutPolicy
                       ? {
                           originalCostPerClick: costPerClick,
@@ -1275,6 +1416,12 @@ export const trackCampaignClick = async (req, res) => {
           costPerClick,
           now,
         });
+
+        if (exhausted) {
+          setImmediate(() => {
+            sendCampaignHealthAlert(campaign.owner, campaign._id, 'auto_exhausted', { title: campaign.title }).catch(() => {});
+          });
+        }
 
         txResult = {
           success: true,

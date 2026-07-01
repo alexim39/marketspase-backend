@@ -78,6 +78,7 @@ const CAMPAIGN_LIST_FIELDS = [
   "duration",
   "createdAt",
   "updatedAt",
+  "aiSuggestedPromoters",
 ].join(" ");
 
 const ACTIVE_PROMOTION_STATUSES = new Set(["accepted"]);
@@ -144,6 +145,7 @@ const buildCampaignResponse = (campaign, promotions) => {
 
   return {
     ...campaign,
+    aiSuggestedPromoters: campaign.aiSuggestedPromoters || [],
     remainingBudget,
     progress,
     promotions,
@@ -304,6 +306,12 @@ export const GetAMarketerCampaigns = async (req, res) => {
     }
 
     const normalizedCampaigns = campaigns.map((campaign) => {
+      // Fire matchmaking for campaigns without suggestions (non-blocking)
+      if (!campaign.aiSuggestedPromoters || campaign.aiSuggestedPromoters.length === 0) {
+        import('../services/ai-matchmaking.service.js').then(m =>
+          m.triggerAiPromoterMatchmaking(campaign).catch(() => {})
+        ).catch(() => {});
+      }
       const campaignPromotions = promotionsByCampaignId.get(String(campaign._id)) || [];
       return buildCampaignResponse(campaign, campaignPromotions);
     });

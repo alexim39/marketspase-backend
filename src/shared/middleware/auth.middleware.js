@@ -407,7 +407,7 @@ export const resolveAccessToken = async (token) => {
   throw error;
 };
 
-const attachAuthContext = (req, authContext) => {
+const attachAuthContext = async (req, authContext) => {
   req.auth = {
     type: authContext.type,
     uid: authContext.uid,
@@ -415,13 +415,17 @@ const attachAuthContext = (req, authContext) => {
   };
   req.user = authContext.user;
   req.userId = authContext.user._id.toString();
+
+  // Also load currency preference
+  const userPrefs = await UserModel.findById(req.userId).select('preferredCurrency').lean();
+  req.user = { ...req.user, preferredCurrency: userPrefs?.preferredCurrency || 'NGN' };
 };
 
 export const resolveRequestAuth = async (req) => {
   const bearerToken = extractBearerToken(req);
   if (bearerToken) {
     const authContext = await resolveAccessToken(bearerToken);
-    attachAuthContext(req, authContext);
+    await attachAuthContext(req, authContext);
     recordAuthenticatedFingerprint(req, authContext);
     writeCachedAuthContext(bearerToken, authContext);
     return authContext;
@@ -433,7 +437,7 @@ export const resolveRequestAuth = async (req) => {
       readCachedAuthContext(cookieToken) || await verifyLegacyToken(cookieToken)
     );
     writeCachedAuthContext(cookieToken, authContext);
-    attachAuthContext(req, authContext);
+    await attachAuthContext(req, authContext);
     recordAuthenticatedFingerprint(req, authContext);
     writeCachedAuthContext(cookieToken, authContext);
     return authContext;

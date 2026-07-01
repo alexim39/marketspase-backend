@@ -8,8 +8,9 @@
     "node": ">=20.x"
   },
   "scripts": {
-    "test": "npm run test:auth",
+    "test": "node --test \"src/apps/**/tests/*.test.js\"",
     "test:auth": "node --test \"src/apps/auth/tests/*.test.js\"",
+    "test:store": "node --test \"src/apps/store/tests/*.test.js\"",
     "start": "node bootstrap.js",
     "dev": "nodemon bootstrap.js"
   },

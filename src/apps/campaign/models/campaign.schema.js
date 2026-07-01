@@ -181,6 +181,22 @@ const campaignSchema = new mongoose.Schema(
       },
     ],
 
+    // AI-suggested promoters for smart invite
+    aiSuggestedPromoters: [
+      {
+        promoterId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        promoterName: String,
+        avatar: String,
+        score: Number,
+        tier: String,
+        trustScore: Number,
+        clicks: Number,
+        uniqueCampaigns: Number,
+        reason: String,
+        invited: { type: Boolean, default: false },
+      },
+    ],
+
     // Audit fields
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

@@ -220,6 +220,7 @@ function buildAggregatePipeline({
         customerIds: { $addToSet: "$customer" },
         customerTypes: { $addToSet: "$customerType" },
         tagsMatrix: { $push: { $ifNull: ["$tags", []] } },
+        activityLog: { $first: "$activityLog" },
       },
     },
     {
@@ -355,6 +356,7 @@ function buildAggregatePipeline({
               hasRegisteredAccount: 1,
               customerTypes: 1,
               tags: 1,
+              activityLog: 1,
               behaviorSegment: 1,
               linkedStores: {
                 $map: {
@@ -1061,5 +1063,96 @@ export const updateAdminBuyerMeta = async (req, res) => {
   } catch (error) {
     console.error("Update admin buyer meta error:", error);
     return res.status(500).json({ success: false, message: "Failed to update buyer record" });
+  }
+};
+
+// ---------- SMS Sending for Store Customers ----------
+
+export const sendCustomerSms = async (req, res) => {
+  try {
+    const { marketerId } = req.params;
+    const { email, phone, message } = req.body;
+    if (!message?.trim()) return res.status(400).json({ success: false, message: 'Message is required.' });
+    if (!phone) return res.status(400).json({ success: false, message: 'Customer has no phone number.' });
+
+    const customer = await StoreCustomerModel.findOne({ email, marketer: marketerId });
+    if (!customer) return res.status(404).json({ success: false, message: 'Customer not found.' });
+
+    const { chargeMarketerForSms } = await import('../../../../customer-crm/controllers/customer.controller.js').catch(() => ({}));
+    const { sendSms: deliverSms } = await import('../../../../customer-crm/services/sms.service.js').catch(() => ({}));
+    const { default: SmsHistoryModel } = await import('../../../../customer-crm/models/sms-history.model.js').catch(() => ({}));
+
+    const SMS_COST = 10;
+    if (chargeMarketerForSms) {
+      const charged = await chargeMarketerForSms(req.userId, 1);
+      if (!charged) return res.status(402).json({ success: false, message: `Insufficient balance. SMS costs ₦${SMS_COST}.`, code: 'INSUFFICIENT_BALANCE' });
+    }
+
+    const result = deliverSms ? await deliverSms(phone, message.trim()) : null;
+
+    await StoreCustomerModel.updateOne({ _id: customer._id }, {
+      $set: { lastContactedAt: new Date(), lastContactChannel: 'sms', lastCampaignName: 'SMS outreach' },
+      $push: { activityLog: { type: 'sms', message: message.trim().substring(0, 200), channel: 'sms', createdAt: new Date() } },
+    });
+
+    if (SmsHistoryModel) {
+      const pageCount = Math.ceil(message.trim().length / 160);
+      await SmsHistoryModel.create({
+        sender: req.userId, contact: customer._id, message: message.trim(),
+        messageLength: message.trim().length, pageCount, costPerPage: SMS_COST,
+        totalCost: SMS_COST, status: 'sent',
+      });
+    }
+
+    return res.status(200).json({ success: true, message: 'SMS sent.', data: { reference: result?.reference } });
+  } catch (e) {
+    console.error('Store customer SMS error:', e);
+    return res.status(500).json({ success: false, message: e.message || 'Failed to send SMS.' });
+  }
+};
+
+export const sendBulkCustomerSms = async (req, res) => {
+  try {
+    const { marketerId } = req.params;
+    const { emails, message } = req.body;
+    if (!Array.isArray(emails) || !emails.length) return res.status(400).json({ success: false, message: 'Recipient list required.' });
+    if (!message?.trim()) return res.status(400).json({ success: false, message: 'Message is required.' });
+
+    const customers = await StoreCustomerModel.find({ email: { $in: emails }, marketer: marketerId, phone: { $exists: true, $ne: '' } }).lean();
+    if (!customers.length) return res.status(400).json({ success: false, message: 'No valid recipients with phone numbers.' });
+
+    const { chargeMarketerForSms } = await import('../../../../customer-crm/controllers/customer.controller.js').catch(() => ({}));
+    const { sendSms: deliverSms } = await import('../../../../customer-crm/services/sms.service.js').catch(() => ({}));
+    const { default: SmsHistoryModel } = await import('../../../../customer-crm/models/sms-history.model.js').catch(() => ({}));
+
+    const SMS_COST = 10;
+    if (chargeMarketerForSms) {
+      const charged = await chargeMarketerForSms(req.userId, customers.length);
+      if (!charged) return res.status(402).json({ success: false, message: `Insufficient balance. Bulk SMS costs ₦${SMS_COST * customers.length}.`, code: 'INSUFFICIENT_BALANCE' });
+    }
+
+    for (const c of customers) {
+      try {
+        if (deliverSms) await deliverSms(c.phone, message.trim());
+        if (SmsHistoryModel) {
+          const pc = Math.ceil(message.trim().length / 160);
+          await SmsHistoryModel.create({
+            sender: req.userId, contact: c._id, message: message.trim(),
+            messageLength: message.trim().length, pageCount: pc, costPerPage: SMS_COST,
+            totalCost: SMS_COST, status: 'sent',
+          });
+        }
+      } catch (err) { /* skip failed */ }
+    }
+
+    await StoreCustomerModel.updateMany({ _id: { $in: customers.map(c => c._id) } }, {
+      $set: { lastContactedAt: new Date(), lastContactChannel: 'sms', lastCampaignName: 'Bulk SMS' },
+      $push: { activityLog: { type: 'sms', message: message.trim().substring(0, 200), channel: 'sms', createdAt: new Date() } },
+    });
+
+    return res.status(200).json({ success: true, message: `SMS sent to ${customers.length} recipients.` });
+  } catch (e) {
+    console.error('Bulk store customer SMS error:', e);
+    return res.status(500).json({ success: false, message: e.message || 'Failed to send bulk SMS.' });
   }
 };

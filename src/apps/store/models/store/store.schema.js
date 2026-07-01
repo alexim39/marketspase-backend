@@ -8,6 +8,8 @@ import {
 } from "./store.constants.js";
 
 const storeSchema = new mongoose.Schema({
+  type: { type: String, enum: ['product', 'service'], default: 'product' },
+
   owner: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: "User", 

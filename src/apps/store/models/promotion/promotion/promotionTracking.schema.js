@@ -33,6 +33,15 @@ const promotionTrackingSchema = new mongoose.Schema({
     unique: true,
     index: true 
   },
+  upi: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true,
+  },
+  publicUrl: {
+    type: String,
+  },
   
   // Commission Settings
   commissionRate: { 
@@ -139,5 +148,22 @@ const promotionTrackingSchema = new mongoose.Schema({
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
 });
+
+// Auto-generate UPI for friendly /s/:upi URLs
+promotionTrackingSchema.pre('save', function (next) {
+  if (!this.upi) {
+    this.upi = generatePromotionUpi();
+  }
+  next();
+});
+
+function generatePromotionUpi() {
+  const chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let result = '';
+  for (let i = 0; i < 10; i++) {
+    result += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return result;
+}
 
 export default promotionTrackingSchema;

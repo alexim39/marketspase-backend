@@ -87,6 +87,9 @@ export class MongooseAuthUserRepository {
       query.select(projection);
     }
 
+    // Always include regional preferences for internationalization
+    query.select('preferredCurrency preferredLocale regionalCountry');
+
     return query.lean();
   }
 

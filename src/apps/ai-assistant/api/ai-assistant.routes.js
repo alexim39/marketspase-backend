@@ -52,6 +52,7 @@ router.delete('/faqs/:id', ctrl.deleteFaq.bind(ctrl));
 // Templates
 router.get('/templates', ctrl.getTemplates.bind(ctrl));
 router.post('/templates', validate(templateSchema), ctrl.addTemplate.bind(ctrl));
+router.post('/templates/:id/resolve', ctrl.resolveTemplate.bind(ctrl));
 router.put('/templates/:id', validate(templateSchema), ctrl.updateTemplate.bind(ctrl));
 router.delete('/templates/:id', ctrl.deleteTemplate.bind(ctrl));
 

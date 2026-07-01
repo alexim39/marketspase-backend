@@ -19,7 +19,7 @@ export const createStore = async (req, res) => {
       });
     }
 
-    const { name, description, category, whatsappNumber } = req.body;
+    const { name, description, category, whatsappNumber, type } = req.body;
     const logoFile = req.file;
 
     // Validate required fields
@@ -64,6 +64,7 @@ export const createStore = async (req, res) => {
 
     // Create new store
     const newStore = new StoreModel({
+      type: type || 'product',
       owner: userId,
       name: name,
       description: description || '',

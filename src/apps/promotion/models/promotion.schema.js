@@ -81,6 +81,8 @@ const promotionSchema = new mongoose.Schema(
       minViews: Number,
       maxViews: Number,
       lockedAt: Date,
+      tierBonus: { type: Number, default: 0 },
+      promoterTier: String,
     },
 
     viewsUsedForPayout: Number,

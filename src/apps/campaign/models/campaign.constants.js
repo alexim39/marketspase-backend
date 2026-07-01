@@ -42,7 +42,8 @@ export const MEDIA_TYPE_ARRAY = Object.values(MEDIA_TYPE);
 // Payout Models
 export const PAYOUT_MODEL = {
   FIXED_PER_PROMOTER: 'fixed_per_promoter',
-  PAY_PER_CLICK: 'pay_per_click'
+  PAY_PER_CLICK: 'pay_per_click',
+  COST_PER_LEAD: 'cost_per_lead'
 };
 
 export const PAYOUT_MODEL_ARRAY = Object.values(PAYOUT_MODEL);

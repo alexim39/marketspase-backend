@@ -995,6 +995,90 @@ export const enforcePromotionFraudSignal = async ({
     });
     fraudCase.suspendedUntil = suspendedUntil;
     await fraudCase.save();
+
+    const clawbackWindowStart = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+    const clawbackClicks = await CampaignClickModel.find({
+      promoter: promoter._id,
+      clickedAt: { $gte: clawbackWindowStart },
+      status: 'billable',
+      chargeStatus: 'charged',
+    });
+    if (clawbackClicks.length > 0) {
+      const clawbackAmount = clawbackClicks.reduce((sum, c) => sum + (c.promoterPayoutAmount || 0), 0);
+      const clickIds = clawbackClicks.map(c => c._id);
+
+      await UserModel.updateOne(
+        { _id: promoter._id },
+        {
+          $inc: { 'wallets.promoter.balance': -clawbackAmount },
+          $push: {
+            'wallets.promoter.transactions': {
+              $each: [{
+                amount: clawbackAmount,
+                type: 'debit',
+                category: 'fraud_clawback',
+                description: 'Fraud clawback — funds recovered for fraudulent traffic',
+                status: 'completed',
+                createdAt: now,
+              }],
+              $position: 0,
+              $slice: 500,
+            },
+          },
+        }
+      );
+
+      const campaignToMarketer = {};
+      for (const c of clawbackClicks) {
+        const cid = String(c.campaign);
+        if (!campaignToMarketer[cid]) {
+          campaignToMarketer[cid] = { marketerId: c.marketer, amount: 0 };
+        }
+        campaignToMarketer[cid].amount += c.cost || 0;
+      }
+      for (const [, entry] of Object.entries(campaignToMarketer)) {
+        await UserModel.updateOne(
+          { _id: entry.marketerId },
+          {
+            $inc: { 'wallets.marketer.balance': entry.amount },
+            $push: {
+              'wallets.marketer.transactions': {
+                $each: [{
+                  amount: entry.amount,
+                  type: 'credit',
+                  category: 'fraud_refund',
+                  description: 'Fraud clawback refund — recovered from fraudulent promoter traffic',
+                  status: 'completed',
+                  createdAt: now,
+                }],
+                $position: 0,
+                $slice: 500,
+              },
+            },
+          }
+        );
+      }
+
+      await CampaignClickModel.updateMany(
+        { _id: { $in: clickIds } },
+        {
+          $set: {
+            chargeStatus: 'clawed_back',
+            clawedBackAt: now,
+            clawedBackAmount: null,
+          },
+        }
+      );
+
+      for (const c of clawbackClicks) {
+        await CampaignClickModel.updateOne(
+          { _id: c._id },
+          { $set: { clawedBackAmount: c.promoterPayoutAmount || 0 } }
+        );
+      }
+
+      console.log(`[FRAUD] Clawback: \u20A6${clawbackAmount} from promoter ${promoter._id} for ${clawbackClicks.length} clicks`);
+    }
   } else if (!existingCase || existingCase.status === "open") {
     updatePromoterTrust(promoter, 25, nextRiskLevel, fraudCase._id, now);
     promoter.fraudProfile.warningCount = Number(promoter.fraudProfile?.warningCount || 0) + 1;

@@ -63,15 +63,28 @@ const campaignClickSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["billable", "duplicate", "invalid", "exhausted"],
+      enum: ["billable", "duplicate", "invalid", "exhausted", "pending"],
       required: true,
       index: true,
     },
     chargeStatus: {
       type: String,
-      enum: ["charged", "not_charged"],
+      enum: ["charged", "not_charged", "clawed_back"],
       required: true,
       index: true,
+    },
+    chargeOnLead: {
+      type: Boolean,
+      default: false,
+    },
+    clawedBackAt: {
+      type: Date,
+      default: null,
+    },
+    clawedBackAmount: {
+      type: Number,
+      min: 0,
+      default: null,
     },
     destinationUrl: {
       type: String,

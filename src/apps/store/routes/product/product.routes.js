@@ -15,6 +15,7 @@ import { getRecommendedProducts } from "../../controllers/product/get-recomm-pro
 import { permanentDeleteProduct } from "../../controllers/product/delete-product.controller.js";
 import ProductPromotionController from "../../controllers/product/product-promotion.controller.js";
 import { getPublishedStoreProducts } from '../../controllers/product/get-store-published-products.controller.js';
+import { getPromoterPerformance, deactivatePromoterForProduct } from '../../controllers/product/get-promoter-performance.controller.js';
 import PromotionRouters from './promotion/promotion.routes.js';
 import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 
@@ -77,6 +78,12 @@ router.get("/:storeId/store-published-products", getPublishedStoreProducts);
 
 // =========== SINGLE PRODUCT ROUTES (BY ID) ===========
 // These parameterized routes should come LAST to avoid catching specific routes above
+
+// Get promoter performance for a product
+router.get("/:productId/promoter-performance", getPromoterPerformance);
+
+// Deactivate a promoter for a product
+router.post("/:productId/promoters/:promoterId/deactivate", deactivatePromoterForProduct);
 
 // Get single product details
 router.route("/:id").get(getPromoterProductDetails);

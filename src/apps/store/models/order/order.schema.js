@@ -137,6 +137,32 @@ const guestCustomerSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
+const referralInfoSchema = new mongoose.Schema({
+  code: {
+    type: String,
+    trim: true,
+    lowercase: true,
+  },
+  referralId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "BuyerReferral",
+  },
+  discountPercent: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 100,
+  },
+  discountAmount: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  redeemedAt: {
+    type: Date,
+  },
+}, { _id: false });
+
 const releaseRequestSchema = new mongoose.Schema({
   status: {
     type: String,
@@ -388,6 +414,12 @@ const orderSchema = new mongoose.Schema({
   adminNote: { 
     type: String, 
     trim: true 
+  },
+
+  // Buyer referral
+  referral: {
+    type: referralInfoSchema,
+    default: undefined,
   },
   
   // Soft delete

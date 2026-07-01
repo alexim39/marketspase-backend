@@ -15,6 +15,9 @@ import {
   sendBulkCustomerSmsHandler,
   sendCustomerEmailHandler,
 } from "../controllers/customer.controller.js";
+import { sendBulkSms } from "../controllers/bulk-sms.controller.js";
+import { getSmsHistory } from "../controllers/admin-sms.controller.js";
+import { requireAdmin } from "../../../shared/middleware/authorization.middleware.js";
 
 const router = express.Router();
 
@@ -45,5 +48,9 @@ router.post("/:id/consent", updateConsentHandler);
 router.post("/send-bulk-sms", sendBulkCustomerSmsHandler);
 router.post("/:id/send-sms", sendCustomerSmsHandler);
 router.post("/:id/send-email", sendCustomerEmailHandler);
+
+// SMS history routes
+router.post("/sms/bulk", sendBulkSms);
+router.get("/sms/history", requireAdmin, getSmsHistory);
 
 export default router;

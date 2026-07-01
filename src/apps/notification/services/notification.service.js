@@ -1,6 +1,7 @@
 // services/notification.service.js
 import { NotificationModel } from '../models/notification.model.js';
 import { sendSSEToUser } from '../controllers/notifications.js';
+import { sendPushToUser } from '../../../core/fcm.service.js';
 
 export class NotificationService {
 
@@ -25,6 +26,13 @@ export class NotificationService {
           unreadCount,
         });
       }
+
+      // Send push notification via FCM
+      sendPushToUser(notificationData.recipient, {
+        title: notificationData.title,
+        body: notificationData.message,
+        data: { type: notificationData.type, ...notificationData.data }
+      }).catch(() => {});
       
       return notification;
     } catch (error) {

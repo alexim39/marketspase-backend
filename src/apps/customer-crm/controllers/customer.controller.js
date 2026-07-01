@@ -14,6 +14,7 @@ import { sendSms, sendBulkSms } from "../services/sms.service.js";
 import { sendEmail as sendCoreEmail } from "../../../core/email.service.js";
 import { CustomerModel } from "../models/customer.model.js";
 import { ContactLogModel } from "../models/contact-log.model.js";
+import { SmsHistoryModel } from "../models/sms-history.model.js";
 import { UserModel } from "../../user/models/user/index.js";
 import { applyWalletDebit, ensureWalletCurrencyState } from "../../wallet/services/wallet-ledger.service.js";
 import { roundCurrencyAmount } from "../../wallet/services/payment-currency.service.js";
@@ -358,6 +359,21 @@ export const sendCustomerSmsHandler = async (req, res) => {
       },
     });
 
+    const pageCount = Math.ceil(message.trim().length / 160);
+    await SmsHistoryModel.create({
+      sender: req.userId,
+      contact: id,
+      message: message.trim(),
+      messageLength: message.trim().length,
+      pageCount,
+      costPerPage: SMS_COST_PER_RECIPIENT,
+      totalCost: SMS_COST_PER_RECIPIENT,
+      status: 'sent',
+      providerMessageId: result?.data?.reference || result?.reference || null,
+      phone: customer.phone,
+      contactName: customer.displayName,
+    });
+
     await CustomerModel.findByIdAndUpdate(id, { $set: { lastContactedAt: new Date(), lastContactChannel: 'sms' } });
 
     return res.status(200).json({
@@ -423,7 +439,23 @@ export const sendBulkCustomerSmsHandler = async (req, res) => {
         chargedAmount: SMS_COST_PER_RECIPIENT,
       },
     }));
+    const pageCount = Math.ceil(message.trim().length / 160);
+    const smsHistoryEntries = customers.map(c => ({
+      sender: req.userId,
+      contact: c._id,
+      message: message.trim(),
+      messageLength: message.trim().length,
+      pageCount,
+      costPerPage: SMS_COST_PER_RECIPIENT,
+      totalCost: SMS_COST_PER_RECIPIENT,
+      status: 'sent',
+      providerMessageId: result?.data?.reference || result?.reference || null,
+      phone: c.phone,
+      contactName: c.displayName,
+    }));
+
     await ContactLogModel.insertMany(logEntries);
+    await SmsHistoryModel.insertMany(smsHistoryEntries);
     await CustomerModel.updateMany(
       { _id: { $in: customers.map(c => c._id) } },
       { $set: { lastContactedAt: new Date(), lastContactChannel: 'sms' } }

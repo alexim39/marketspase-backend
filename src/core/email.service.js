@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 
-const emailUser = process.env.EMAIL_USER || 'alex.i@marketspase.com';
+const emailUser = process.env.EMAIL_USER || 'supports@marketspase.com';
 const emailFrom = process.env.EMAIL_FROM || `"MarketSpase" <${emailUser}>`;
 
 // Create Nodemailer transporter

@@ -33,6 +33,7 @@ export const cloudinaryMediaUpload = multer({
       "image/webp",
       "image/gif",
       "video/mp4",
+      "video/quicktime",
       "video/webm",
       "application/pdf",
     ];

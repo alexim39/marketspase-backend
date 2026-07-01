@@ -58,7 +58,6 @@ export const getWithdrawalRequests = async (req, res) => {
     const promoterPipeline = buildWithdrawalPipeline('promoter', userMatchConditions, status, transactionDateFilter);
     const marketerPipeline = buildWithdrawalPipeline('marketer', userMatchConditions, status, transactionDateFilter);
 
-    // Execute both pipelines in parallel
     const [promoterResults, marketerResults] = await Promise.all([
       UserModel.aggregate(promoterPipeline),
       UserModel.aggregate(marketerPipeline)
@@ -100,39 +99,39 @@ export const getWithdrawalRequests = async (req, res) => {
  * Build aggregation pipeline for a specific wallet type
  */
 function buildWithdrawalPipeline(walletType, userMatchConditions, status, transactionDateFilter = {}) {
+  const walletPath = `wallets.${walletType}`;
+  const txField = `${walletPath}.transactions`;
+
   const pipeline = [
     { $match: userMatchConditions.length > 0 ? { $and: userMatchConditions } : {} },
-    { $unwind: `$wallets.${walletType}.transactions` },
+    // Guard: filter out users without wallet or with missing/empty transactions array
+    { $match: { [txField]: { $exists: true, $type: 'array', $not: { $size: 0 } } } },
+    { $unwind: { path: `$${txField}` } },
     {
       $match: {
-        [`wallets.${walletType}.transactions.category`]: 'withdrawal',
-        [`wallets.${walletType}.transactions.type`]: 'debit'
+        [`${txField}.category`]: 'withdrawal',
+        [`${txField}.type`]: 'debit'
       }
     }
   ];
 
-  // Add status filter if specified
   if (status !== 'all') {
     pipeline.push({
-      $match: { [`wallets.${walletType}.transactions.status`]: status }
+      $match: { [`${txField}.status`]: status }
     });
   }
 
   if (Object.keys(transactionDateFilter).length > 0) {
     pipeline.push({
-      $match: { [`wallets.${walletType}.transactions.createdAt`]: transactionDateFilter }
+      $match: { [`${txField}.createdAt`]: transactionDateFilter }
     });
   }
 
-  // Add projection to include wallet type and user info
   pipeline.push({
     $project: {
-      _id: 1,
-      displayName: 1,
-      email: 1,
-      role: 1,
-      transaction: `$wallets.${walletType}.transactions`,
-      withdrawalId: `$wallets.${walletType}.transactions._id`,
+      _id: 1, displayName: 1, email: 1, role: 1,
+      transaction: `$${txField}`,
+      withdrawalId: `$${txField}._id`,
       walletType: { $literal: walletType }
     }
   });

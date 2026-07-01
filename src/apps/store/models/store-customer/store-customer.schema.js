@@ -112,7 +112,13 @@ const storeCustomerSchema = new mongoose.Schema({
   tags: [{
     type: String,
     trim: true
-  }]
+  }],
+  activityLog: [{
+    type: { type: String, enum: ['sms', 'email', 'note', 'stage_change', 'tag_update'] },
+    message: { type: String, maxlength: 500 },
+    channel: String,
+    createdAt: { type: Date, default: Date.now },
+  }],
 }, {
   timestamps: true
 });

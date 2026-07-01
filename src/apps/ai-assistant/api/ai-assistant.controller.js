@@ -230,6 +230,15 @@ export class AiAssistantController {
     }
   }
 
+  async resolveTemplate(req, res, next) {
+    try {
+      const result = await service.resolveTemplate(getRequestUserId(req), req.params.id, req.body.variables || {});
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async handleWebhook(req, res, next) {
     try {
       const { From, To, Body, MessageSid } = req.body;
