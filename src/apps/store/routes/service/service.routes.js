@@ -1,6 +1,7 @@
 import express from 'express';
 import { getStoreServices, discoverServices, submitInquiry, bookService } from '../../controllers/service/service.controller.js';
 import { getPromoterStoreServices } from '../../controllers/service/get-promoter-store-services.controller.js';
+import { suggestService } from '../../controllers/service/suggest-service.controller.js';
 import { activateSubscription } from '../../controllers/service/subscription.controller.js';
 import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 import { cloudinaryMediaUpload } from '../../../../core/cloudinary.service.js';
@@ -15,6 +16,7 @@ router.post('/inquiry', submitInquiry);
 router.use(authenticate);
 
 // Specific routes before parameterized ones
+router.post('/suggest', suggestService);
 router.get('/list/promoter', getPromoterStoreServices);
 router.post('/:serviceId/view', async (req, res) => {
   try {

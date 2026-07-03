@@ -12,6 +12,7 @@ import { getTrendingProducts } from "../../controllers/product/get-trending-prod
 import { getHighCommissionProducts } from "../../controllers/product/get-high-comm-products.controller.js";
 import { getRecommendedProducts } from "../../controllers/product/get-recomm-product.controller.js";
 //import { generatePromotionLink } from "../../controllers/product/generate-product-link.controller.js";
+import { suggestProduct } from "../../controllers/product/suggest-product.controller.js";
 import { permanentDeleteProduct } from "../../controllers/product/delete-product.controller.js";
 import ProductPromotionController from "../../controllers/product/product-promotion.controller.js";
 import { getPublishedStoreProducts } from '../../controllers/product/get-store-published-products.controller.js';
@@ -22,6 +23,9 @@ import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
 // Mount promotion routes
 router.use('/promotions', PromotionRouters);
 router.use(authenticate);
+
+// AI-powered product suggestion
+router.post('/suggest', suggestProduct);
 
 // =========== PUBLIC/PROMOTER ROUTES (NO STORE ID REQUIRED) ===========
 // These should come first as they don't have storeId parameters
