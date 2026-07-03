@@ -36,7 +36,21 @@ export const NOTIFICATION_TYPE = {
   // System
   SYSTEM_ANNOUNCEMENT: 'system_announcement',
   SYSTEM_REPORT: 'system_report',
-  WEEKLY_SUMMARY: 'weekly_summary'
+  WEEKLY_SUMMARY: 'weekly_summary',
+
+  // Campaign health
+  CAMPAIGN_AUTO_PAUSED: 'campaign_auto_paused',
+  CAMPAIGN_AUTO_EXHAUSTED: 'campaign_auto_exhausted',
+  CAMPAIGN_LOW_BUDGET: 'campaign_low_budget',
+  CAMPAIGN_FRAUD_FLAGGED: 'campaign_fraud_flagged',
+
+  // AI / Smart features
+  SMART_INVITE: 'smart_invite',
+  CAMPAIGN_COACH: 'campaign_coach',
+
+  // Storefront / Cart
+  CART_ABANDONED: 'cart_abandoned',
+  SERVICE_INQUIRY: 'service_inquiry',
 };
 
 export const NOTIFICATION_TYPE_ARRAY = Object.values(NOTIFICATION_TYPE);
@@ -114,7 +128,15 @@ export const NOTIFICATION_TITLES = {
   [NOTIFICATION_TYPE.DEADLINE_REMINDER]: 'Deadline Reminder',
   [NOTIFICATION_TYPE.SYSTEM_ANNOUNCEMENT]: 'System Announcement',
   [NOTIFICATION_TYPE.SYSTEM_REPORT]: 'System Report',
-  [NOTIFICATION_TYPE.WEEKLY_SUMMARY]: 'Weekly Summary'
+  [NOTIFICATION_TYPE.WEEKLY_SUMMARY]: 'Weekly Summary',
+  [NOTIFICATION_TYPE.CAMPAIGN_AUTO_PAUSED]: 'Campaign Auto-Paused',
+  [NOTIFICATION_TYPE.CAMPAIGN_AUTO_EXHAUSTED]: 'Campaign Budget Exhausted',
+  [NOTIFICATION_TYPE.CAMPAIGN_LOW_BUDGET]: 'Campaign Budget Low',
+  [NOTIFICATION_TYPE.CAMPAIGN_FRAUD_FLAGGED]: 'Suspicious Activity Detected',
+  [NOTIFICATION_TYPE.SMART_INVITE]: 'New Campaign Match',
+  [NOTIFICATION_TYPE.CAMPAIGN_COACH]: 'Campaign Performance Insight',
+  [NOTIFICATION_TYPE.CART_ABANDONED]: 'Cart Reminder',
+  [NOTIFICATION_TYPE.SERVICE_INQUIRY]: 'New Service Inquiry',
 };
 
 // Action URLs (templates)
@@ -136,5 +158,12 @@ export const ACTION_URLS = {
   [NOTIFICATION_TYPE.BADGE_UNLOCKED]: () => '/profile',
   [NOTIFICATION_TYPE.LEVEL_UP]: () => '/dashboard/gamification',
   [NOTIFICATION_TYPE.GAMIFICATION_MILESTONE_UNLOCKED]: () => '/dashboard/gamification',
-  [NOTIFICATION_TYPE.WEEKLY_SUMMARY]: () => '/dashboard'
+  [NOTIFICATION_TYPE.WEEKLY_SUMMARY]: () => '/dashboard',
+  [NOTIFICATION_TYPE.CAMPAIGN_AUTO_PAUSED]: (id) => `/dashboard/campaigns/${id}`,
+  [NOTIFICATION_TYPE.CAMPAIGN_AUTO_EXHAUSTED]: (id) => `/dashboard/campaigns/${id}`,
+  [NOTIFICATION_TYPE.CAMPAIGN_LOW_BUDGET]: (id) => `/dashboard/campaigns/${id}`,
+  [NOTIFICATION_TYPE.SMART_INVITE]: (id) => `/dashboard/campaigns/${id}`,
+  [NOTIFICATION_TYPE.CAMPAIGN_COACH]: (id) => `/dashboard/campaigns/${id}`,
+  [NOTIFICATION_TYPE.CART_ABANDONED]: () => '/cart',
+  [NOTIFICATION_TYPE.SERVICE_INQUIRY]: (id) => `/dashboard/stores/${id}/services`,
 };
