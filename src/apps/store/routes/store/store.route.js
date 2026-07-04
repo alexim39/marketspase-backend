@@ -18,11 +18,28 @@ import {
 } from '../../controllers/store/promoted-products-analytics.controller.js';
 import PromoterStoreListRouter from './promoter-store-list.route.js';
 import { authenticate } from '../../../../shared/middleware/auth.middleware.js';
+import { galleryUpload } from '../../middleware/gallery-upload.middleware.js';
+import { uploadGallery, listGallery, deleteGalleryItem, updateStoreProfile } from '../../controllers/store/gallery.controller.js';
+import { StoreModel } from '../../models/store/store.model.js';
 
 const router = express.Router();
 
 // Mount store routes
 router.use('/promoter-store-list', PromoterStoreListRouter);
+
+// Public store profile (no auth required)
+router.get('/:storeId/public-profile', async (req, res) => {
+  try {
+    const store = await StoreModel.findById(req.params.storeId)
+      .select('gallery certifications businessHours serviceAreas faqs')
+      .lean();
+    if (!store) return res.status(404).json({ success: false, message: 'Store not found' });
+    return res.status(200).json({ success: true, data: store });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.use(authenticate);
 
 // Create store (with file upload for logo)
@@ -60,5 +77,13 @@ router.patch('/:id', upload.single('logo'), updateStore);
 
 // Set default store (PATCH /api/stores/:storeId/set-default)
 router.patch("/:storeId/set-default", setDefaultStore);
+
+// Gallery management
+router.post('/:storeId/gallery', galleryUpload.array('media', 5), uploadGallery);
+router.get('/:storeId/gallery', listGallery);
+router.delete('/:storeId/gallery/:mediaId', deleteGalleryItem);
+
+// Store profile (business hours, service areas, FAQs, certifications)
+router.patch('/:storeId/profile', updateStoreProfile);
 
 export default router;

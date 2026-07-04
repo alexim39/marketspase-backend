@@ -83,10 +83,22 @@ export const submitInquiry = async (req, res) => {
     let leadCommission = 0;
 
     if (trackingCode) {
-      promotionTracking = await PromotionTrackingModel.findOne({ uniqueCode: trackingCode, isActive: true });
+      // Try multiple lookup strategies for service promotion tracking
+      promotionTracking = await PromotionTrackingModel.findOne({
+        $or: [
+          { uniqueCode: trackingCode, isActive: true },
+          { upi: trackingCode, isActive: true },
+          { uniqueCode: { $regex: new RegExp(`^svc-.*${trackingCode.slice(-10)}$`, 'i') }, isActive: true },
+        ],
+      });
       if (promotionTracking) {
         promoter = promotionTracking.promoter;
         leadCommission = service.affiliate?.commissionType === 'per_lead' ? (service.affiliate.leadCommission || 1000) : 0;
+        // Increment inquiry count on the promotion
+        PromotionTrackingModel.updateOne(
+          { _id: promotionTracking._id },
+          { $inc: { conversionCount: 1 } }
+        ).catch(() => {});
       }
     }
 
@@ -118,9 +130,10 @@ export const submitInquiry = async (req, res) => {
     } catch (e) { /* email failure shouldn't break the request */ }
 
     if (leadCommission > 0 && promoter) {
-      const platformFee = Math.round(leadCommission * PLATFORM_FEE_RATE);
-      const promoterPayout = leadCommission - platformFee;
-      await UserModel.updateOne({ _id: promoter }, { $inc: { 'wallets.promoter.balance': promoterPayout } });
+      // Credit full commission to promoter reserved balance (no 20% deduction here)
+      // Platform fee is applied only during withdrawal
+      const promoterPayout = leadCommission;
+      await UserModel.updateOne({ _id: promoter }, { $inc: { 'wallets.promoter.reserved': promoterPayout } });
       await UserModel.updateOne({ _id: service.provider }, { $inc: { 'wallets.marketer.balance': -leadCommission } });
       if (promotionTracking) {
         await PromotionTrackingModel.updateOne({ _id: promotionTracking._id }, { $inc: { earnings: promoterPayout, conversionCount: 1 } });
@@ -201,6 +214,23 @@ export const bookService = async (req, res) => {
         sendEmail(provider.email, `New Booking: ${serviceName}`, html).catch(() => {});
       }
     } catch (e) { /* email failure shouldn't break the request */ }
+
+    // Credit promoter for per-booking commission
+    if (inquiry.promoter && inquiry.promotionTracking) {
+      try {
+        const svc = await ServiceModel.findById(inquiry.service).select('affiliate').lean();
+        if (svc?.affiliate?.commissionType === 'per_booking') {
+          const bookingCommission = svc.affiliate.bookingCommissionRate || 200;
+          await UserModel.updateOne({ _id: inquiry.promoter }, {
+            $inc: { 'wallets.promoter.reserved': bookingCommission },
+          });
+          await PromotionTrackingModel.updateOne(
+            { _id: inquiry.promotionTracking },
+            { $inc: { earnings: bookingCommission, conversionCount: 1 } }
+          );
+        }
+      } catch (e) { /* commission is non-critical */ }
+    }
 
     await ServiceInquiryModel.updateOne({ _id: inquiryId }, { $set: { status: 'booked' } });
     await ServiceModel.updateOne({ _id: inquiry.service }, { $inc: { bookingCount: 1 } });
