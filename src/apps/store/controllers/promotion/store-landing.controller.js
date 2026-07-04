@@ -36,11 +36,56 @@ export const serveStoreLandingPage = async (req, res) => {
       .lean();
 
     if (service && service.store) {
+      const storeLink = (service.store.name || 'store').toLowerCase().replace(/\s+/g, '-');
+      const baseUrl = getBaseUrl();
+
+      // Extract promoter from query (if link was shared by a specific promoter)
+      const promoterId = req.query.promoter || null;
+
+      // Create or find a PromotionTrackingModel for this service+promoter combination
+      let trackingCode = upi; // Default: use service UPI as tracking code
+      if (promoterId) {
+        try {
+          const existing = await PromotionTrackingModel.findOne({
+            service: service._id,
+            promoter: promoterId,
+            isActive: true,
+          }).lean();
+          if (existing) {
+            trackingCode = existing.uniqueCode;
+            // Increment view count for this promotion
+            PromotionTrackingModel.updateOne(
+              { _id: existing._id },
+              { $inc: { viewCount: 1, clickCount: 1 } }
+            ).catch(() => {});
+          } else {
+            // Create new tracking record for this service promotion
+            const newTracking = await PromotionTrackingModel.create({
+              product: undefined,
+              service: service._id,
+              store: service.store._id,
+              promoter: promoterId,
+              uniqueCode: `svc-${upi}-${promoterId.toString().slice(-6)}`,
+              uniqueId: `svc-${upi}`,
+              commissionRate: service.affiliate?.commissionType === 'per_lead'
+                ? Math.round((service.affiliate.leadCommission || 200) / Math.max(service.price || 1, 1) * 100)
+                : Math.round((service.affiliate.bookingCommissionRate || 200) / Math.max(service.price || 1, 1) * 100),
+              commissionType: 'percentage',
+              isActive: true,
+              isApproved: true,
+              viewCount: 1,
+            });
+            trackingCode = newTracking.uniqueCode;
+          }
+        } catch (e) {
+          console.error('Service tracking creation error:', e.message);
+          // Continue with UPI as fallback
+        }
+      }
+
       const svcImage = service.media?.[0]?.url || service.portfolio?.[0]?.url || '';
       const svcPrice = service.price ? `₦${Number(service.price).toLocaleString()}` : 'Contact for quote';
-      const baseUrl = getBaseUrl();
-      const storeLink = (service.store.name || 'store').toLowerCase().replace(/\s+/g, '-');
-      const inquiryUrl = `${baseUrl}/store/${storeLink}/inquiry/${service._id}?ref=${upi}`;
+      const inquiryUrl = `${baseUrl}/store/${storeLink}/inquiry/${service._id}?ref=${trackingCode}`;
       const title = `${service.name} — on MarketSpase`;
       const description = service.description?.substring(0, 160) || `Book ${service.name} on MarketSpase`;
 

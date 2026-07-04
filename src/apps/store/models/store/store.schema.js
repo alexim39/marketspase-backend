@@ -138,6 +138,37 @@ const storeSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   }],
+
+  // Service store profile
+  gallery: [{
+    url: { type: String, required: true },
+    type: { type: String, enum: ['image', 'video'], default: 'image' },
+    caption: { type: String, trim: true, maxlength: 200 },
+    serviceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Service' },
+    createdAt: { type: Date, default: Date.now }
+  }],
+
+  certifications: [{
+    name: { type: String, required: true, trim: true },
+    issuer: { type: String, trim: true },
+    year: { type: Number },
+    file: { type: String },
+    createdAt: { type: Date, default: Date.now }
+  }],
+
+  businessHours: [{
+    day: { type: String, enum: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] },
+    open: { type: String },
+    close: { type: String },
+    closed: { type: Boolean, default: false }
+  }],
+
+  serviceAreas: [{ type: String, trim: true }],
+
+  faqs: [{
+    question: { type: String, required: true, trim: true },
+    answer: { type: String, required: true, trim: true }
+  }],
   
 }, { 
   timestamps: true,

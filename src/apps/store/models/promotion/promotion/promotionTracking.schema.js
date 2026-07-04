@@ -5,8 +5,12 @@ const promotionTrackingSchema = new mongoose.Schema({
   product: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: "Product", 
-    required: true,
     index: true 
+  },
+  service: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Service",
+    index: true,
   },
   promoter: { 
     type: mongoose.Schema.Types.ObjectId, 
