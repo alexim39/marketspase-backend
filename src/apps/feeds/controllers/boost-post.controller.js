@@ -5,7 +5,7 @@ export async function boostPost(req, res) {
   try {
     const { postId } = req.params;
     const userId = req.userId;
-    const BOOST_COST = 1000;
+    const BOOST_COST = 500;
 
     const post = await FeedPostModel.findById(postId);
     if (!post) return res.status(404).json({ success: false, message: 'Post not found' });
