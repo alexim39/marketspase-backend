@@ -18,12 +18,18 @@ export async function createContract(req, res) {
     if (!promoter) return res.status(404).json({ success: false, message: 'Promoter not found' });
 
     // Deduct from marketer wallet
-    const marketer = await UserModel.findById(marketerId).select('wallets.marketer.reserved').lean();
-    const balance = marketer?.wallets?.marketer?.reserved || 0;
-    if (balance < payment.total) {
-      return res.status(400).json({ success: false, message: `Insufficient balance. Need ₦${payment.total}, wallet has ₦${balance}` });
+    const marketer = await UserModel.findById(marketerId).select('wallets.marketer.balance wallets.marketer.reserved').lean();
+    const balance = marketer?.wallets?.marketer?.balance || 0;
+    const reserved = marketer?.wallets?.marketer?.reserved || 0;
+    const available = balance + reserved;
+    if (available < payment.total) {
+      return res.status(400).json({ success: false, message: `Insufficient balance. Need ₦${payment.total}, available ₦${available}` });
     }
-    await UserModel.findByIdAndUpdate(marketerId, { $inc: { 'wallets.marketer.reserved': -payment.total } });
+    // Deduct from balance first, then reserved
+    const fromBalance = Math.min(balance, payment.total);
+    const fromReserved = payment.total - fromBalance;
+    if (fromBalance > 0) await UserModel.findByIdAndUpdate(marketerId, { $inc: { 'wallets.marketer.balance': -fromBalance } });
+    if (fromReserved > 0) await UserModel.findByIdAndUpdate(marketerId, { $inc: { 'wallets.marketer.reserved': -fromReserved } });
 
     // Create contract
     const contract = await EngagementContractModel.create({
@@ -348,28 +354,50 @@ export async function disputeContract(req, res) {
 // ── Browse promoters to hire ──
 export async function browsePromoters(req, res) {
   try {
-    const promoters = await UserModel.find({ role: 'promoter', isActive: true })
-      .select('displayName avatar professionalInfo wallet.reputation')
+    const { search, page = 1, limit = 20 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const filter = { role: 'promoter', isActive: true };
+    if (search) {
+      filter.$or = [
+        { displayName: { $regex: search, $options: 'i' } },
+        { 'professionalInfo.brandName': { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const total = await UserModel.countDocuments(filter);
+
+    const promoters = await UserModel.find(filter)
+      .select('displayName avatar professionalInfo wallet.reputation promoterTier engagementStreak')
+      .sort({ 'wallet.reputation': -1, 'engagementStreak.longest': -1 })
+      .skip(skip)
+      .limit(Number(limit))
       .lean();
 
-    // Get completed contract counts
     const promoterIds = promoters.map(p => p._id);
     const completedCounts = await EngagementContractModel.aggregate([
       { $match: { promoterId: { $in: promoterIds }, status: 'completed' } },
       { $group: { _id: '$promoterId', count: { $sum: 1 } } }
     ]);
-
     const countMap = new Map(completedCounts.map(c => [String(c._id), c.count]));
 
-    const result = promoters.map(p => ({
+    const result = promoters.map((p, i) => ({
       _id: p._id,
       displayName: p.displayName,
       avatar: p.avatar,
       reputation: p.wallet?.reputation || 0,
-      completedContracts: countMap.get(String(p._id)) || 0
+      tier: p.promoterTier || 'unranked',
+      streak: p.engagementStreak?.current || 0,
+      longestStreak: p.engagementStreak?.longest || 0,
+      completedContracts: countMap.get(String(p._id)) || 0,
+      rank: skip + i + 1
     }));
 
-    return res.status(200).json({ success: true, data: result });
+    return res.status(200).json({
+      success: true,
+      data: result,
+      pagination: { total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) }
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
