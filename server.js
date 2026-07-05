@@ -22,6 +22,7 @@ import NotificationRouter from './src/apps/notification/index.js';
 import FinancialRouter from './src/apps/financial/routes/index.js';
 import NewsletterRouter from './src/apps/newsletter/routes/index.js';
 import StoreIndexRouter from './src/apps/store/routes/index.js';
+import EngagementRouter from './src/apps/social/routes/engagement.route.js';
 import ForumIndexRouter from './src/apps/forum/routes/index.js';
 import FeedsIndexRouter from './src/apps/feeds/routes/index.js';
 import ProfileIndexRouter from './src/apps/profile/routes/index.js';
@@ -58,6 +59,10 @@ import { startExchangeRateCron } from './src/core/exchange-rate.service.js';
 import { initCampaignPerformanceCoach } from './src/apps/campaign/services/jobs/campaign-performance-coach.job.js';
 import { initPayoutReconciliationCron } from './src/apps/campaign/services/jobs/payout-reconciliation.job.js';
 import { initCampaignDigestCron } from './src/apps/campaign/services/jobs/campaign-digest.job.js';
+import { initPostEngagementDigestCron } from './src/apps/feeds/services/jobs/post-engagement-digest.job.js';
+import { initDailyMissionCron } from './src/apps/social/services/daily-mission.job.js';
+import { initAISuggestionsCron } from './src/apps/social/services/ai-suggestions.job.js';
+import { initAutoApproveCron } from './src/apps/social/services/auto-approve.job.js';
 
 // FIXED: Import and setup socket handlers
 import { setupSocketHandlers } from './src/apps/ai-assistant/socket.handler.js';
@@ -206,6 +211,7 @@ app.use('/api/v1/notifications', NotificationRouter);
 app.use('/api/v1/financial', FinancialRouter);
 app.use('/api/v1/newsletter', NewsletterRouter);
 app.use('/api/v1/stores', StoreIndexRouter);
+app.use('/api/v1/social', EngagementRouter);
 app.use('/api/v1/forum', ForumIndexRouter);
 app.use('/api/v1/feed', FeedsIndexRouter);
 app.use('/api/v1/profile', ProfileIndexRouter);
@@ -241,6 +247,10 @@ mongoose.connect(MONGODB_URI, MONGODB_OPTIONS)
     initCampaignPerformanceCoach();
     initPayoutReconciliationCron();
     initCampaignDigestCron();
+    initPostEngagementDigestCron();
+    initDailyMissionCron();
+    initAISuggestionsCron();
+    initAutoApproveCron();
     setImmediate(() => {
         ensureGlobalSearchBootstrap().catch((error) => {
             console.error('[global-search] bootstrap error', error);
