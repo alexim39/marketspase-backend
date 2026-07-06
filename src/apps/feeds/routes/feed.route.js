@@ -16,6 +16,7 @@ import { getTrendingHashtags } from '../controllers/get-trending-hashtags.contro
 import { getCommunityFeed } from '../controllers/get-community-post.controller.js';
 import { getPostComments } from '../controllers/get-post-comments.controller.js';
 import { boostPost } from '../controllers/boost-post.controller.js';
+import { repostFeedPost } from '../controllers/repost-feed-post.controller.js';
 import { authenticate, optionalAuthenticate } from '../../../shared/middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -37,6 +38,7 @@ router.post('/:postId/save', toggleSavePost);
 router.post('/:postId/comments', addComment);
 router.post('/:postId/share', sharePost);
 router.post('/:postId/boost', boostPost);
+router.post('/:postId/repost', repostFeedPost);
 
 router.put('/:postId', cloudinaryMediaUpload.array('media', 6), updateFeedPost);    // Edit post
 router.delete('/:postId', deleteFeedPost); 

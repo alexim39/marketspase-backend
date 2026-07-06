@@ -234,6 +234,11 @@ const feedPostSchema = new mongoose.Schema({
     clicks: { type: Number, default: 0 },
     totalEngagement: { type: Number, default: 0 }
   },
+
+  // Repost tracking
+  isRepost: { type: Boolean, default: false },
+  repostedFrom: { type: mongoose.Schema.Types.ObjectId, ref: 'FeedPost' },
+  repostedAuthor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   
   createdAt: { type: Date, default: Date.now, index: true },
   updatedAt: { type: Date, default: Date.now }

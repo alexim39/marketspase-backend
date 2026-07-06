@@ -91,5 +91,70 @@ async function autoApproveMilestones() {
 
 export function initAutoApproveCron() {
   cron.schedule('0 * * * *', autoApproveMilestones);
-  console.log(`[CRON] Scheduled: Auto-approve milestones (hourly, ${AUTO_APPROVE_HOURS}h timeout)`);
+  cron.schedule('0 2 * * *', autoCancelDormantContracts);
+  console.log(`[CRON] Scheduled: Auto-approve milestones (hourly, ${AUTO_APPROVE_HOURS}h timeout) + dormant contract cancellation (daily 2 AM)`);
+}
+
+async function autoCancelDormantContracts() {
+  try {
+    const cutoff = new Date(Date.now() - 72 * 60 * 60 * 1000); // 72h
+
+    const dormant = await EngagementContractModel.find({
+      status: 'active',
+      'duration.start': { $lt: cutoff },
+      progress: { $lt: 20 }
+    });
+
+    let cancelled = 0;
+    for (const contract of dormant) {
+      contract.status = 'cancelled';
+      contract.contractTerms = (contract.contractTerms || '') + `\n[AUTO-CANCELLED ${new Date().toISOString()}]: Promoter did not make significant progress within 72 hours.`;
+
+      // Refund marketer
+      const escrow = await EngagementEscrowModel.findById(contract.escrowId);
+      if (escrow) {
+        const remaining = escrow.amount - escrow.released;
+        if (remaining > 0) {
+          await UserModel.findByIdAndUpdate(contract.marketerId, { $inc: { 'wallets.marketer.balance': remaining } });
+          escrow.status = 'refunded';
+          await escrow.save();
+        }
+      }
+
+      await contract.save();
+
+      // Notify both parties
+      const [marketer, promoter] = await Promise.all([
+        UserModel.findById(contract.marketerId).select('email displayName').lean(),
+        UserModel.findById(contract.promoterId).select('email displayName').lean()
+      ]);
+
+      await sendEmail({
+        to: marketer?.email,
+        subject: 'Contract auto-cancelled — ₦' + contract.payment.total + ' refunded',
+        html: wrapEmail({
+          title: 'Contract Cancelled',
+          content: `<p>Your engagement contract with <strong>${promoter?.displayName}</strong> was cancelled because the promoter did not make significant progress within 72 hours.</p>
+            <p><strong>₦${contract.payment.total}</strong> has been refunded to your wallet.</p>
+            ${brandedButton('Browse Promoters', `${process.env.FRONTEND_URL}/dashboard/marketer/hire`)}`
+        })
+      }).catch(() => {});
+
+      await sendEmail({
+        to: promoter?.email,
+        subject: 'Contract cancelled due to inactivity',
+        html: wrapEmail({
+          title: 'Contract Cancelled',
+          content: `<p>Your contract with <strong>${marketer?.displayName}</strong> was cancelled because you didn't make significant progress within 72 hours.</p>
+            <p>Keep your engagement active to avoid cancellations in the future.</p>`
+        })
+      }).catch(() => {});
+
+      cancelled++;
+    }
+
+    if (cancelled > 0) console.log(`[auto-cancel] Cancelled ${cancelled} dormant contracts`);
+  } catch (err) {
+    console.error('[auto-cancel] Error:', err.message);
+  }
 }

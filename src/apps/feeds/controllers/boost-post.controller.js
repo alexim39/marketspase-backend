@@ -12,14 +12,13 @@ export async function boostPost(req, res) {
     if (String(post.author) !== userId) return res.status(403).json({ success: false, message: 'Not your post' });
 
     // Check funds
-    const user = await UserModel.findById(userId).select('wallets.marketer.reserved').lean();
-    const balance = user?.wallets?.marketer?.reserved || 0;
+    const user = await UserModel.findById(userId).select('wallets.marketer.balance').lean();
+    const balance = user?.wallets?.marketer?.balance || 0;
     if (balance < BOOST_COST) {
       return res.status(400).json({ success: false, message: `Insufficient balance. Need ₦${BOOST_COST}, wallet has ₦${balance}` });
     }
 
-    // Deduct
-    await UserModel.findByIdAndUpdate(userId, { $inc: { 'wallets.marketer.reserved': -BOOST_COST } });
+    await UserModel.findByIdAndUpdate(userId, { $inc: { 'wallets.marketer.balance': -BOOST_COST } });
 
     // Boost
     post.isBoosted = true;
