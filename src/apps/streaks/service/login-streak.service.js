@@ -251,6 +251,7 @@ const buildStatusPayload = ({ user, config, session, todayDateKey, recentlyQuali
     pointValueNaira,
     minimumSessionMinutes: Number(config.minimumSessionMinutes || 12),
     canWithdraw: withdrawablePoints > 0,
+    sessionProgress: requiredActiveSeconds > 0 ? Math.min(100, Math.round((activeSecondsAccumulated / requiredActiveSeconds) * 100)) : 0,
     sessionStartedAt: session?.startedAt || null,
     sessionQualifiedAt: session?.qualifiedAt || null,
     streakMessage: qualifiedToday
@@ -882,6 +883,9 @@ export const pingLoginStreakSession = async (userId, sessionId = null, metadata 
       }).catch((badgeError) => {
         console.error('Badge evaluation after streak qualification failed:', badgeError);
       });
+
+      // Bonus: 20% mission progress boost when session qualifies
+      applySessionMissionBonus(coreResult.userId).catch(() => {});
     }
 
     return coreResult.response;
@@ -916,6 +920,8 @@ export const pingLoginStreakSession = async (userId, sessionId = null, metadata 
         }).catch((badgeError) => {
           console.error('Badge evaluation after streak qualification failed:', badgeError);
         });
+
+        applySessionMissionBonus(coreResult.userId).catch(() => {});
       }
 
       return coreResult.response;

@@ -37,6 +37,18 @@ router.get('/promoters', browsePromoters);
 router.post('/score-comment', scoreComment);
 router.get('/suggestions/daily', getDailySuggestions);
 router.post('/missions/claim', claimMissionReward);
+router.post('/missions/generate', async (req, res) => {
+  try {
+    const { date, label, requirements, reward } = req.body;
+    await UserModel.findByIdAndUpdate(req.userId, {
+      dailyMission: { date: new Date(date), label, requirements, reward, completed: false, claimedAt: null }
+    });
+    const user = await UserModel.findById(req.userId).select('dailyMission').lean();
+    return res.status(200).json({ success: true, data: user?.dailyMission });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 // Admin routes
 router.get('/admin/disputes', requireAdmin, async (req, res) => {

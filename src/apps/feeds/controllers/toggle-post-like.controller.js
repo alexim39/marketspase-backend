@@ -4,6 +4,7 @@ import { UserModel } from '../../user/models/user/index.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { autoTrackContractEngagement } from '../../social/services/auto-track-engagement.service.js';
 
 // Like/Unlike post
 export const togglePostLike = asyncHandler(async (req, res) => {
@@ -43,6 +44,11 @@ export const togglePostLike = asyncHandler(async (req, res) => {
   }
 
   await post.save();
+
+  // Auto-track toward active engagement contracts
+  if (likeIndex === -1 && post.author) {
+    await autoTrackContractEngagement(userId, post.author.toString(), 'like');
+  }
 
   return res.status(200).json(
     new ApiResponse(200, { 

@@ -58,45 +58,46 @@ async function updateStreaks() {
       isActive: true,
       'dailyMission.completed': true,
       'dailyMission.claimedAt': { $exists: true }
-    }).select('_id engagementStreak dailyMission').lean();
+    }).select('_id loginStreak dailyMission').lean();
 
     for (const p of promoters) {
-      const lastActive = p.engagementStreak?.lastActiveDate ? new Date(p.engagementStreak.lastActiveDate) : null;
+      const lastActive = p.loginStreak?.lastQualifiedDateKey ? p.loginStreak.lastQualifiedDateKey : null;
+      const lastActiveDate = lastActive ? new Date(lastActive + 'T00:00:00Z') : null;
       const yesterdayTs = yesterday.getTime();
-      const lastActiveTs = lastActive ? new Date(lastActive).setHours(0, 0, 0, 0) : 0;
+      const lastActiveTs = lastActiveDate ? lastActiveDate.getTime() : 0;
 
-      let current = p.engagementStreak?.current || 0;
+      let current = p.loginStreak?.currentStreak || 0;
       if (lastActiveTs >= yesterdayTs - 86400000 && lastActiveTs <= yesterdayTs) {
-        current++; // Continuing streak
+        current++;
       } else if (lastActiveTs < yesterdayTs - 86400000) {
-        current = 0; // Streak broken
+        current = 0;
       }
 
-      // Streak bonus
-      let streakBonus = 0;
-      if (current >= 7 && current < 14) streakBonus = 100;
-      else if (current >= 14 && current < 30) streakBonus = 200;
-      else if (current >= 30) streakBonus = 500;
+      if (current <= 0) continue;
 
-      await UserModel.findByIdAndUpdate(p._id, {
-        'engagementStreak.current': current,
-        'engagementStreak.lastActiveDate': yesterday,
-        $max: { 'engagementStreak.longest': current },
-        $inc: { 'wallets.promoter.reserved': streakBonus }
-      });
+      let streakBonus = 0;
+      if (current === 7) streakBonus = 100;
+      else if (current === 14) streakBonus = 200;
+      else if (current === 30) streakBonus = 500;
 
       if (streakBonus > 0) {
+        await UserModel.findByIdAndUpdate(p._id, {
+          $inc: { 'wallets.promoter.reserved': streakBonus }
+        });
+
         const user = await UserModel.findById(p._id).select('email displayName').lean();
-        await sendEmail({
-          to: user?.email,
-          subject: `🔥 ${current}-day streak! You earned +₦${streakBonus}`,
-          html: wrapEmail({
-            title: 'Streak Bonus!',
-            content: `<p>You've maintained a ${current}-day streak. Keep engaging daily to earn more!</p>
-              <p><strong>Bonus earned:</strong> +₦${streakBonus} added to your wallet</p>
-              ${brandedButton('View Dashboard', `${process.env.FRONTEND_URL}/dashboard`)}`
-          })
-        }).catch(() => {});
+        if (user?.email) {
+          await sendEmail({
+            to: user.email,
+            subject: `🔥 ${current}-day streak! You earned +₦${streakBonus}`,
+            html: wrapEmail({
+              title: 'Streak Bonus!',
+              content: `<p>${user.displayName || 'You'} maintained a <strong>${current}-day streak</strong>. Keep it going!</p>
+                <p><strong>Bonus earned:</strong> +₦${streakBonus} added to your wallet</p>
+                ${brandedButton('View Dashboard', `${process.env.FRONTEND_URL || 'https://marketspase.com'}/dashboard`)}`
+            })
+          }).catch(() => {});
+        }
       }
     }
   } catch (err) {

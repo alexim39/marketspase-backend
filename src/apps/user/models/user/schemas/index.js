@@ -14,4 +14,4 @@ export { default as badgeProfileSchema } from './badgeProfile.schema.js';
 export { default as gamificationProfileSchema } from './gamificationProfile.schema.js';
 export { default as securityProfileSchema } from './securityProfile.schema.js';
 export { default as fraudProfileSchema } from './fraudProfile.schema.js';
-export { dailyMissionSchema, engagementStreakSchema } from './engagement.schema.js';
+export { dailyMissionSchema } from './engagement.schema.js';

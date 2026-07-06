@@ -3,6 +3,7 @@ import { UserModel } from '../../user/models/user/index.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { autoTrackContractEngagement } from '../../social/services/auto-track-engagement.service.js';
 
 export const addComment = asyncHandler(async (req, res) => {
   const { postId } = req.params;
@@ -41,6 +42,10 @@ export const addComment = asyncHandler(async (req, res) => {
     replyObj.isLiked = replyObj.likes?.some(like => like.toString() === userId.toString()) || false;
     delete replyObj.likes;
 
+    if (post.author) {
+      await autoTrackContractEngagement(userId, post.author.toString(), 'comment');
+    }
+
     return res.status(201).json(new ApiResponse(201, replyObj, 'Reply added'));
   } else {
     post.comments.push(comment);
@@ -53,6 +58,10 @@ export const addComment = asyncHandler(async (req, res) => {
     commentObj.likeCount = commentObj.likes?.length || 0;
     commentObj.isLiked = commentObj.likes?.some(like => like.toString() === userId.toString()) || false;
     delete commentObj.likes;
+
+    if (post.author) {
+      await autoTrackContractEngagement(userId, post.author.toString(), 'comment');
+    }
 
     return res.status(201).json(new ApiResponse(201, commentObj, 'Comment added'));
   }

@@ -24,8 +24,7 @@ import {
   gamificationProfileSchema,
   securityProfileSchema,
   fraudProfileSchema,
-  dailyMissionSchema,
-  engagementStreakSchema
+  dailyMissionSchema
 } from "./schemas/index.js";
 
 const userSchema = new mongoose.Schema(
@@ -163,7 +162,6 @@ const userSchema = new mongoose.Schema(
 
     // Engagement system
     dailyMission: { type: dailyMissionSchema, default: null },
-    engagementStreak: { type: engagementStreakSchema, default: () => ({}) },
 
     // Forum activity
     forumActivity: { type: forumActivitySchema, default: () => ({}) },
