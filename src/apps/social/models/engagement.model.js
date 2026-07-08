@@ -52,9 +52,13 @@ const engagementContractSchema = new mongoose.Schema({
 
   escrowId: { type: mongoose.Schema.Types.ObjectId, ref: 'EngagementEscrow' },
 
-  createdAt: { type: Date, default: Date.now },
+  createdAt: { type: Date, default: Date.now, index: true },
   updatedAt: { type: Date, default: Date.now }
 });
+
+engagementContractSchema.index({ status: 1, createdAt: -1 });
+engagementContractSchema.index({ marketerId: 1, status: 1 });
+engagementContractSchema.index({ promoterId: 1, status: 1 });
 
 engagementContractSchema.pre('save', function (next) {
   this.updatedAt = new Date();

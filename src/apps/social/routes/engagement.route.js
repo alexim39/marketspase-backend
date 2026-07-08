@@ -39,13 +39,44 @@ router.get('/suggestions/daily', getDailySuggestions);
 router.post('/missions/claim', claimMissionReward);
 router.post('/missions/generate', async (req, res) => {
   try {
-    const { date, label, requirements, reward } = req.body;
-    await UserModel.findByIdAndUpdate(req.userId, {
-      dailyMission: { date: new Date(date), label, requirements, reward, completed: false, claimedAt: null }
+    const userId = req.userId;
+
+    // Determine tier
+    const user = await UserModel.findById(userId).select('loginStreak.currentStreak').lean();
+    const streak = user?.loginStreak?.currentStreak || 0;
+    const activeContracts = await EngagementContractModel.countDocuments({ promoterId: userId, status: 'active' });
+
+    let tier, pool;
+    if (streak >= 30 && activeContracts > 0) {
+      tier = 'pro';
+      pool = [
+        { label: 'Pro Standard', requirements: [{ type: 'like', target: 20 }, { type: 'comment', target: 8 }, { type: 'share', target: 5 }], reward: 350 },
+        { label: 'Pro Heavy', requirements: [{ type: 'like', target: 25 }, { type: 'comment', target: 10 }, { type: 'share', target: 6 }], reward: 450 },
+      ];
+    } else if (streak >= 7 || activeContracts > 0) {
+      tier = 'regular';
+      pool = [
+        { label: 'Regular Standard', requirements: [{ type: 'like', target: 15 }, { type: 'comment', target: 5 }, { type: 'share', target: 3 }], reward: 200 },
+        { label: 'Regular Plus', requirements: [{ type: 'like', target: 18 }, { type: 'comment', target: 6 }, { type: 'share', target: 3 }], reward: 250 },
+      ];
+    } else {
+      tier = 'starter';
+      pool = [
+        { label: 'Starter Standard', requirements: [{ type: 'like', target: 10 }, { type: 'comment', target: 3 }], reward: 120 },
+      ];
+    }
+
+    const template = pool[Math.floor(Math.random() * pool.length)];
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    await UserModel.findByIdAndUpdate(userId, {
+      dailyMission: { date: today, label: template.label, requirements: template.requirements.map(r => ({ type: r.type, target: r.target, completed: 0 })), reward: template.reward, tier, completed: false, claimedAt: null }
     });
-    const user = await UserModel.findById(req.userId).select('dailyMission').lean();
-    return res.status(200).json({ success: true, data: user?.dailyMission });
+
+    const updated = await UserModel.findById(userId).select('dailyMission').lean();
+    return res.status(200).json({ success: true, data: updated?.dailyMission });
   } catch (err) {
+    console.error('mission-gen API error:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -66,40 +97,63 @@ router.get('/admin/disputes', requireAdmin, async (req, res) => {
 
 router.get('/admin/contracts', requireAdmin, async (req, res) => {
   try {
-    const { status, search, page = 1, limit = 20 } = req.query;
-    const filter = {};
-    if (status && status !== 'all') filter.status = status;
-    if (search) {
-      filter.$or = [
-        { contractTerms: { $regex: search, $options: 'i' } }
-      ];
+    const { status, search, page = 1, limit = 20, sort = 'createdAt', order = 'desc' } = req.query;
+
+    const pipeline = [];
+    const matchStage = {};
+
+    if (status && status !== 'all') matchStage.status = status;
+    if (matchStage.status) pipeline.push({ $match: matchStage });
+
+    // Always lookup users for display
+    pipeline.push(
+      { $lookup: { from: 'users', localField: 'marketerId', foreignField: '_id', as: 'marketer' } },
+      { $lookup: { from: 'users', localField: 'promoterId', foreignField: '_id', as: 'promoter' } }
+    );
+
+    // Search by marketer/promoter name or contract terms
+    if (search && search.trim()) {
+      const searchRegex = { $regex: search.trim(), $options: 'i' };
+      pipeline.push({ $match: { $or: [
+        { 'marketer.displayName': searchRegex },
+        { 'promoter.displayName': searchRegex },
+        { contractTerms: searchRegex }
+      ]}});
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
-    const [contracts, total] = await Promise.all([
-      EngagementContractModel.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(Number(limit))
-        .populate('marketerId', 'displayName email avatar')
-        .populate('promoterId', 'displayName email avatar')
-        .lean(),
-      EngagementContractModel.countDocuments(filter)
-    ]);
+    // Count total before pagination
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await EngagementContractModel.aggregate(countPipeline);
+    const total = countResult[0]?.total || 0;
+
+    // Sort and paginate
+    const sortObj = { [sort]: order === 'desc' ? -1 : 1 };
+    pipeline.push({ $sort: sortObj });
+    pipeline.push({ $skip: (Number(page) - 1) * Number(limit) });
+    pipeline.push({ $limit: Number(limit) });
+
+    const contracts = await EngagementContractModel.aggregate(pipeline);
+
+    // Populate marketer/promoter for display (aggregation already has them as arrays from lookup)
+    const shaped = contracts.map(c => ({
+      ...c,
+      marketerId: c.marketer?.[0] || c.marketerId,
+      promoterId: c.promoter?.[0] || c.promoterId,
+      marketer: undefined,
+      promoter: undefined
+    }));
 
     // Stats
     const stats = await EngagementContractModel.aggregate([
-      { $match: {} },
       { $group: { _id: '$status', count: { $sum: 1 }, totalValue: { $sum: '$payment.total' } } }
     ]);
-
     const statsMap = {};
     let totalValue = 0;
     for (const s of stats) { statsMap[s._id] = s.count; totalValue += s.totalValue; }
 
     return res.status(200).json({
       success: true,
-      data: contracts,
+      data: shaped,
       stats: {
         total,
         active: statsMap.active || 0,
@@ -112,6 +166,7 @@ router.get('/admin/contracts', requireAdmin, async (req, res) => {
       pagination: { total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) }
     });
   } catch (err) {
+    console.error('Admin contracts error:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
