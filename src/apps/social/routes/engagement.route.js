@@ -64,6 +64,58 @@ router.get('/admin/disputes', requireAdmin, async (req, res) => {
   }
 });
 
+router.get('/admin/contracts', requireAdmin, async (req, res) => {
+  try {
+    const { status, search, page = 1, limit = 20 } = req.query;
+    const filter = {};
+    if (status && status !== 'all') filter.status = status;
+    if (search) {
+      filter.$or = [
+        { contractTerms: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+    const [contracts, total] = await Promise.all([
+      EngagementContractModel.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .populate('marketerId', 'displayName email avatar')
+        .populate('promoterId', 'displayName email avatar')
+        .lean(),
+      EngagementContractModel.countDocuments(filter)
+    ]);
+
+    // Stats
+    const stats = await EngagementContractModel.aggregate([
+      { $match: {} },
+      { $group: { _id: '$status', count: { $sum: 1 }, totalValue: { $sum: '$payment.total' } } }
+    ]);
+
+    const statsMap = {};
+    let totalValue = 0;
+    for (const s of stats) { statsMap[s._id] = s.count; totalValue += s.totalValue; }
+
+    return res.status(200).json({
+      success: true,
+      data: contracts,
+      stats: {
+        total,
+        active: statsMap.active || 0,
+        completed: statsMap.completed || 0,
+        disputed: statsMap.disputed || 0,
+        pending: statsMap.pending || 0,
+        cancelled: statsMap.cancelled || 0,
+        totalValue
+      },
+      pagination: { total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) }
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.post('/admin/disputes/:contractId/resolve', requireAdmin, async (req, res) => {
   try {
     const { contractId } = req.params;
