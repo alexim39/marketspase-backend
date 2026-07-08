@@ -234,6 +234,9 @@ export const createFeedPost = asyncHandler(async (req, res) => {
     media,
     challenge,
     hashtags,
+    socialPlatform: req.body.socialPlatform || '',
+    isBoosted: req.body.isBoosted === 'true' || req.body.isBoosted === true,
+    boostExpiresAt: req.body.isBoosted ? new Date(Date.now() + 24 * 60 * 60 * 1000) : undefined,
     settings: {
       postAnonymously: Boolean(settings?.postAnonymously),
       disableComments: Boolean(settings?.disableComments),

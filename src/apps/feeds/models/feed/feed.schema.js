@@ -219,6 +219,26 @@ const feedPostSchema = new mongoose.Schema({
   isFeatured: { type: Boolean, default: DEFAULTS.IS_FEATURED, index: true },
   featuredUntil: { type: Date },
   featuredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
+  // Social media promotion
+  socialPlatform: { type: String, enum: ['facebook', 'instagram', 'whatsapp', 'tiktok', ''] },
+  isBoosted: { type: Boolean, default: false, index: true },
+  boostExpiresAt: { type: Date },
+
+  // Engagement stats (updated by cron)
+  engagementStats: {
+    likes: { type: Number, default: 0 },
+    comments: { type: Number, default: 0 },
+    shares: { type: Number, default: 0 },
+    saves: { type: Number, default: 0 },
+    clicks: { type: Number, default: 0 },
+    totalEngagement: { type: Number, default: 0 }
+  },
+
+  // Repost tracking
+  isRepost: { type: Boolean, default: false },
+  repostedFrom: { type: mongoose.Schema.Types.ObjectId, ref: 'FeedPost' },
+  repostedAuthor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   
   createdAt: { type: Date, default: Date.now, index: true },
   updatedAt: { type: Date, default: Date.now }

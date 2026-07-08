@@ -314,6 +314,7 @@ export const GetUser = async (req, res) => {
           savedAccounts: 1,
           notificationSettings: 1,
           loginStreak: 1,
+          dailyMission: 1,
           badgeProfile: 1,
           gamificationProfile: 1,
 
