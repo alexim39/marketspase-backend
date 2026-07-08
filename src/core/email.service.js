@@ -15,17 +15,33 @@ const transporter = nodemailer.createTransport({
 });
 
 // Reusable function to send emails
-export const sendEmail = async (email, subject, htmlContent) => {
+export const sendEmail = async (emailOrOptions, maybeSubject, maybeHtml) => {
+  let to, subject, htmlContent;
+
+  if (typeof emailOrOptions === 'object' && emailOrOptions !== null) {
+    to = emailOrOptions.to;
+    subject = emailOrOptions.subject;
+    htmlContent = emailOrOptions.html;
+  } else {
+    to = emailOrOptions;
+    subject = maybeSubject;
+    htmlContent = maybeHtml;
+  }
+
+  if (!to) {
+    console.error('Email send failed — no recipient');
+    return;
+  }
+
   try {
     await transporter.sendMail({
       from: emailFrom,
-      to: email,
-      subject: subject,
-      html: htmlContent,
+      to,
+      subject: subject || '',
+      html: htmlContent || '',
     });
-    console.log(`Email sent to ${email}`);
+    console.log(`Email sent to ${to}`);
   } catch (error) {
-    console.error(`Email send failed — to:${email} subject:"${subject}" host:${process.env.EMAIL_HOST} user:${emailUser} error:${error.message}`);
-    throw error;
+    console.error(`Email send failed — to:${to} subject:"${subject}" host:${process.env.EMAIL_HOST} user:${emailUser} error:${error.message}`);
   }
 };
