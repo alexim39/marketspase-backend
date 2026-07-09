@@ -71,6 +71,7 @@ import { setupSocketHandlers } from './src/apps/ai-assistant/socket.handler.js';
 const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
 const app = express();
+app.set('trust proxy', 1);
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const ENABLE_AUTO_INDEX =
     process.env.MONGOOSE_AUTO_INDEX === 'true' ||
