@@ -58,6 +58,7 @@ export const SHARE_PLATFORM = {
   TIKTOK: 'tiktok',
   NATIVE: 'native',
   COPY: 'copy',
+  MARKETSPASE: 'marketspase',
   OTHER: 'other'
 };
 
