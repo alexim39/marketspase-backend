@@ -23,7 +23,7 @@ const storage = multer.diskStorage({
 export const cloudinaryMediaUpload = multer({
   storage: storage, // CHANGED: switched from memoryStorage to storage
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB
+    fileSize: 500 * 1024 * 1024, // 500MB
     files: 10, 
   },
   fileFilter: (req, file, cb) => {
